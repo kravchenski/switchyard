@@ -49,6 +49,8 @@ export interface HarvestOptions {
 
 const LOGIN_HOSTS = /(^|\.)accounts\.google\.com$/;
 const LOGIN_PATH = /\/(login|signin|sign-in|auth|oauth|challenge)\//i;
+const FORBIDDEN_BUTTON = /\b(pay|buy|upgrade|subscribe|billing)\b/i;
+const CREATE_WAIT_MS = 15_000;
 
 export function validateKey(candidate: string | null | undefined, pattern: RegExp): string | null {
   const value = candidate?.trim();
@@ -108,7 +110,25 @@ async function scanDom(page: HarvestPage, pattern: RegExp): Promise<string[]> {
   );
 }
 
+async function visibleLocator(page: HarvestPage, selectors: string[]) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) return { locator, selector };
+  }
+  return undefined;
+}
+
+async function clickSafe(page: HarvestPage, keyUrl: string, target: { locator: HarvestLocator; selector: string }) {
+  const state = pageState(page.url(), keyUrl);
+  if (!state.ok) throw new Error(state.detail);
+  const text = ((await target.locator.textContent().catch(() => '')) ?? '').trim();
+  if (FORBIDDEN_BUTTON.test(text)) throw new Error(`refusing to click "${text}"`);
+  await target.locator.click({ timeout: 5_000 });
+}
+
 export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage, store: HarvestStore, options: HarvestOptions): Promise<HarvestResult> {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? (ms => Bun.sleep(ms));
   const failed = (detail: string): HarvestResult => ({ provider: adapter.provider, status: 'failed', detail });
   const skipped = (detail: string): HarvestResult => ({ provider: adapter.provider, status: 'skipped', detail });
   try {
@@ -128,8 +148,21 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
       return null;
     };
 
-    const key = await findKey();
-    if (!key) return failed(`no key found; create one manually at ${adapter.keyUrl}`);
+    let key = await findKey();
+    if (!key) {
+      const create = await visibleLocator(page, adapter.createSelectors);
+      if (!create) return failed(`no key found; create one manually at ${adapter.keyUrl}`);
+      await clickSafe(page, adapter.keyUrl, create);
+      const name = await visibleLocator(page, adapter.nameFieldSelectors);
+      if (name) await name.locator.fill(`free-qwen-api-${new Date(now()).toISOString().slice(0, 10).replaceAll('-', '')}`);
+      const confirm = await visibleLocator(page, adapter.confirmSelectors);
+      if (confirm) await clickSafe(page, adapter.keyUrl, confirm);
+      const deadline = now() + CREATE_WAIT_MS;
+      while (!(key = await findKey())) {
+        if (now() >= deadline) return failed(`key did not appear after creating; check ${adapter.keyUrl}`);
+        await sleep(250);
+      }
+    }
     const stored = storeHarvestedKey(store, adapter.provider, options.label, key);
     const detail = stored === 'created' ? 'created' : stored === 'updated' ? 'replaced the saved key' : 'already saved';
     return { provider: adapter.provider, status: stored, detail, keyPreview: keyPreview(key) };

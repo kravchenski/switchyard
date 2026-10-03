@@ -177,3 +177,64 @@ describe('harvest engine', () => {
     expect(store.list('fake')).toHaveLength(1);
   });
 });
+
+describe('harvest create flow', () => {
+  test('creates a missing key, fills the name and confirms the dialog', async () => {
+    const store = fakeStore();
+    const elements: Record<string, FakeElement> = {};
+    const state: FakeState = { finalUrl: adapter.keyUrl, elements, scanned: [] };
+    elements['input[name="name"]'] = { visible: true, value: '' };
+    elements['button:has-text("Create")'] = {
+      visible: true,
+      text: 'Create API key',
+      click: () => {
+        state.scanned = [KEY];
+        elements['button:has-text("Confirm")'] = { visible: true, text: 'Confirm', click: () => { confirmed = true; } };
+      },
+    };
+    let confirmed = false;
+    const page = fakePage(state);
+    const virtual = { now: Date.parse('2026-10-03T10:00:00Z') };
+    const result = await harvestOne(adapter, page, store, {
+      label: 'default',
+      now: () => virtual.now,
+      sleep: async ms => {
+        virtual.now += ms;
+      },
+    });
+    expect(result.status).toBe('created');
+    expect(result.keyPreview).toBe('sk-li…ghij');
+    expect(elements['input[name="name"]']?.value).toBe('free-qwen-api-20261003');
+    expect(confirmed).toBe(true);
+    expect(store.list('fake')[0]?.token).toBe(KEY);
+  });
+
+  test('refuses to click a button that mentions billing', async () => {
+    const store = fakeStore();
+    const elements: Record<string, FakeElement> = {
+      'button:has-text("Create")': { visible: true, text: 'Upgrade plan', click: () => {} },
+    };
+    const page = fakePage({ finalUrl: adapter.keyUrl, elements });
+    const result = await harvestOne(adapter, page, store, { label: 'default' });
+    expect(result.status).toBe('failed');
+    expect(result.detail).toBe('refusing to click "Upgrade plan"');
+  });
+
+  test('fails when the key never appears before the deadline', async () => {
+    const store = fakeStore();
+    const elements: Record<string, FakeElement> = {
+      'button:has-text("Create")': { visible: true, text: 'Create', click: () => {} },
+    };
+    const page = fakePage({ finalUrl: adapter.keyUrl, elements });
+    const virtual = { now: 0 };
+    const result = await harvestOne(adapter, page, store, {
+      label: 'default',
+      now: () => virtual.now,
+      sleep: async ms => {
+        virtual.now += ms;
+      },
+    });
+    expect(result.status).toBe('failed');
+    expect(result.detail).toBe('key did not appear after creating; check https://keys.example.com/dashboard');
+  });
+});
