@@ -51,6 +51,7 @@ const LOGIN_HOSTS = /(^|\.)accounts\.google\.com$/;
 const LOGIN_PATH = /\/(login|signin|sign-in|auth|oauth|challenge)\//i;
 const FORBIDDEN_BUTTON = /\b(pay|buy|upgrade|subscribe|billing)\b/i;
 const CREATE_WAIT_MS = 15_000;
+const UI_WAIT_MS = 5_000;
 
 export function validateKey(candidate: string | null | undefined, pattern: RegExp): string | null {
   const value = candidate?.trim();
@@ -126,6 +127,22 @@ async function clickSafe(page: HarvestPage, keyUrl: string, target: { locator: H
   await target.locator.click({ timeout: 5_000 });
 }
 
+async function waitForVisible(
+  page: HarvestPage,
+  selectors: string[],
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+  timeoutMs: number,
+): Promise<{ locator: HarvestLocator; selector: string } | undefined> {
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    const found = await visibleLocator(page, selectors);
+    if (found) return found;
+    if (now() >= deadline) return undefined;
+    await sleep(250);
+  }
+}
+
 export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage, store: HarvestStore, options: HarvestOptions): Promise<HarvestResult> {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? (ms => Bun.sleep(ms));
@@ -150,16 +167,30 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
 
     let key = await findKey();
     if (!key) {
-      const create = await visibleLocator(page, adapter.createSelectors);
+      const create = await waitForVisible(page, adapter.createSelectors, now, sleep, UI_WAIT_MS);
       if (!create) return failed(`no key found; create one manually at ${adapter.keyUrl}`);
       await clickSafe(page, adapter.keyUrl, create);
-      const name = await visibleLocator(page, adapter.nameFieldSelectors);
-      if (name) await name.locator.fill(`free-qwen-api-${new Date(now()).toISOString().slice(0, 10).replaceAll('-', '')}`);
-      const confirm = await visibleLocator(page, adapter.confirmSelectors);
-      if (confirm) await clickSafe(page, adapter.keyUrl, confirm);
-      const deadline = now() + CREATE_WAIT_MS;
+      const uiDeadline = now() + UI_WAIT_MS;
+      let filled = false;
+      for (;;) {
+        if (!filled) {
+          const name = await visibleLocator(page, adapter.nameFieldSelectors);
+          if (name) {
+            await name.locator.fill(`free-qwen-api-${new Date(now()).toISOString().slice(0, 10).replaceAll('-', '')}`);
+            filled = true;
+          }
+        }
+        const confirm = await visibleLocator(page, adapter.confirmSelectors);
+        if (confirm) {
+          await clickSafe(page, adapter.keyUrl, confirm);
+          break;
+        }
+        if (now() >= uiDeadline) break;
+        await sleep(250);
+      }
+      const keyDeadline = now() + CREATE_WAIT_MS;
       while (!(key = await findKey())) {
-        if (now() >= deadline) return failed(`key did not appear after creating; check ${adapter.keyUrl}`);
+        if (now() >= keyDeadline) return failed(`key did not appear after creating; check ${adapter.keyUrl}`);
         await sleep(250);
       }
     }

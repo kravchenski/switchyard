@@ -136,7 +136,14 @@ describe('harvest engine', () => {
   test('falls back to manual instructions when no key and no create button', async () => {
     const store = fakeStore();
     const page = fakePage({ finalUrl: adapter.keyUrl });
-    const result = await harvestOne(adapter, page, store, { label: 'default' });
+    const virtual = { now: 0 };
+    const result = await harvestOne(adapter, page, store, {
+      label: 'default',
+      now: () => virtual.now,
+      sleep: async ms => {
+        virtual.now += ms;
+      },
+    });
     expect(result.status).toBe('failed');
     expect(result.detail).toBe('no key found; create one manually at https://keys.example.com/dashboard');
   });
@@ -159,6 +166,14 @@ describe('harvest engine', () => {
     expect(store.list('fake')[0]?.token).toBe('sk-other-1234567890abcdefgh');
   });
 
+  test('normalizes the label before matching and storing', () => {
+    const store = fakeStore();
+    expect(storeHarvestedKey(store, 'fake', '  DEFAULT ', KEY)).toBe('created');
+    expect(store.list('fake')[0]?.email).toBe('default');
+    expect(storeHarvestedKey(store, 'fake', 'Default', 'sk-other-1234567890abcdefgh')).toBe('updated');
+    expect(store.list('fake')).toHaveLength(1);
+  });
+
   test('validates candidates and previews keys', () => {
     expect(validateKey(KEY, adapter.keyPattern)).toBe(KEY);
     expect(validateKey(`  ${KEY}  `, adapter.keyPattern)).toBe(KEY);
@@ -167,14 +182,6 @@ describe('harvest engine', () => {
     expect(validateKey('nvapi-abcdefghijklmnopqrstuvwxyz123456', adapter.keyPattern)).toBeNull();
     expect(validateKey(null, adapter.keyPattern)).toBeNull();
     expect(keyPreview(KEY)).toBe('sk-li…ghij');
-  });
-
-  test('normalizes the label before matching and storing', () => {
-    const store = fakeStore();
-    expect(storeHarvestedKey(store, 'fake', '  DEFAULT ', KEY)).toBe('created');
-    expect(store.list('fake')[0]?.email).toBe('default');
-    expect(storeHarvestedKey(store, 'fake', 'Default', 'sk-other-1234567890abcdefgh')).toBe('updated');
-    expect(store.list('fake')).toHaveLength(1);
   });
 });
 
@@ -236,5 +243,33 @@ describe('harvest create flow', () => {
     });
     expect(result.status).toBe('failed');
     expect(result.detail).toBe('key did not appear after creating; check https://keys.example.com/dashboard');
+  });
+
+  test('waits for a create button that appears after hydration', async () => {
+    const store = fakeStore();
+    const elements: Record<string, FakeElement> = {};
+    const state: FakeState = { finalUrl: adapter.keyUrl, elements, scanned: [] };
+    const virtual = { now: 0 };
+    let elapsed = 0;
+    const page = fakePage(state);
+    const result = await harvestOne(adapter, page, store, {
+      label: 'default',
+      now: () => virtual.now,
+      sleep: async ms => {
+        virtual.now += ms;
+        elapsed += ms;
+        if (elapsed >= 1000) {
+          state.elements!['button:has-text("Create")'] = {
+            visible: true,
+            text: 'Create',
+            click: () => {
+              state.scanned = [KEY];
+            },
+          };
+        }
+      },
+    });
+    expect(result.status).toBe('created');
+    expect(elapsed).toBeGreaterThanOrEqual(1000);
   });
 });
