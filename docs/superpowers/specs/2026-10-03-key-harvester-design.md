@@ -18,7 +18,10 @@ user consent before anything runs.
 
 ## UX (CLI)
 
-New command: `bun run account harvest [--profile <id>] [--provider <id>]`
+New command: `bun run account harvest [--profile <id>] [--provider <id>] [--yes]`
+
+`--yes` skips the consent question for non-interactive callers (desktop sidecar runs
+with `stdin = null`); interactively the question is always asked.
 
 1. Print what will happen, then ask once:
    `This will open provider dashboards in your browser session and create/update API keys for your logged-in accounts. Continue? (y/n)`
@@ -93,11 +96,28 @@ DOM scan + manual fallback still apply).
 - Runtime pickup is automatic: `savedApiKey()` reads the store; `POST /v1/gateway/refresh`
   invalidates the 60s key cache.
 
+## Desktop integration
+
+- **Button**: on the API keys page, inside `key_card` next to the existing
+  "Get {provider} key" / "Save key" controls — **"Get API keys automatically"**.
+  Clicking it is the user's consent (explicit action with an explicit label, same
+  pattern as "Connect chats"), so the handler runs `account harvest --yes` directly.
+- **Execution**: goes through the existing `run_key_command`, so on success
+  `refresh_models` re-reads keys into the gateway. Standard busy handling: while
+  running the label becomes "Working…" and the button is disabled.
+- **Report**: `harvest` prints a one-line summary as its last stdout line
+  (`created: N, updated: N, unchanged: N, skipped: N, failed: N`) which the app shows
+  in the existing `message` banner; per-provider detail stays in the CLI output.
+- **Gate**: the button is disabled under `browser_blocked()` — harvest uses the same
+  browser profile as the web chats, exactly like the Connect/Check buttons.
+
 ## Error handling & report
 
 - Per-provider isolation: one failure never aborts the run.
 - Login wall, host mismatch, selector miss, timeout, validation failure each map to a
   distinct detail string in the report.
+- The last stdout line is always the one-line summary (see Desktop integration) so
+  non-interactive callers can surface it cheaply.
 - Exit code: 0 if at least one provider is `created`/`updated`/`unchanged` or the run
   was declined; 1 if every attempted provider ended in `failed`.
 
@@ -111,9 +131,12 @@ DOM scan + manual fallback still apply).
 - `test/key-harvest-browser.test.ts` (gated by `RUN_BROWSER_TESTS=1`) — local HTTP
   server serving a fake dashboard (key list + "Create" button) → real CDP browser →
   end-to-end: create → extract → record lands in a temp credential store.
+- Desktop: a unit test in `desktop/src/accounts.rs` asserting the button invokes
+  `args: harvest --yes` (mirrors the existing `add_api_key` argv test); the app must
+  compile (`cargo check`).
 
 ## Future work (out of scope)
 
 - `--all-profiles` batch runs across every `acct-*` profile.
-- Harvest from the web UI / desktop app (they can call the same CLI later).
+- Harvest button in the web UI (the desktop path is in scope above).
 - Verifying harvested keys against each provider's live endpoint after storing.
