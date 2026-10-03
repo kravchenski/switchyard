@@ -329,7 +329,14 @@ describe('harvest engine', () => {
   test('falls back to manual instructions when no key and no create button', async () => {
     const store = fakeStore();
     const page = fakePage({ finalUrl: adapter.keyUrl });
-    const result = await harvestOne(adapter, page, store, { label: 'default' });
+    const virtual = { now: 0 };
+    const result = await harvestOne(adapter, page, store, {
+      label: 'default',
+      now: () => virtual.now,
+      sleep: async ms => {
+        virtual.now += ms;
+      },
+    });
     expect(result.status).toBe('failed');
     expect(result.detail).toBe('no key found; create one manually at https://keys.example.com/dashboard');
   });
@@ -350,6 +357,14 @@ describe('harvest engine', () => {
     expect(store.removed).toEqual(['fake-1']);
     expect(store.list('fake')).toHaveLength(1);
     expect(store.list('fake')[0]?.token).toBe('sk-other-1234567890abcdefgh');
+  });
+
+  test('normalizes the label before matching and storing', () => {
+    const store = fakeStore();
+    expect(storeHarvestedKey(store, 'fake', '  DEFAULT ', KEY)).toBe('created');
+    expect(store.list('fake')[0]?.email).toBe('default');
+    expect(storeHarvestedKey(store, 'fake', 'Default', 'sk-other-1234567890abcdefgh')).toBe('updated');
+    expect(store.list('fake')).toHaveLength(1);
   });
 
   test('validates candidates and previews keys', () => {
@@ -605,6 +620,34 @@ describe('harvest create flow', () => {
     expect(result.status).toBe('failed');
     expect(result.detail).toBe('key did not appear after creating; check https://keys.example.com/dashboard');
   });
+
+  test('waits for a create button that appears after hydration', async () => {
+    const store = fakeStore();
+    const elements: Record<string, FakeElement> = {};
+    const state: FakeState = { finalUrl: adapter.keyUrl, elements, scanned: [] };
+    const virtual = { now: 0 };
+    let elapsed = 0;
+    const page = fakePage(state);
+    const result = await harvestOne(adapter, page, store, {
+      label: 'default',
+      now: () => virtual.now,
+      sleep: async ms => {
+        virtual.now += ms;
+        elapsed += ms;
+        if (elapsed >= 1000) {
+          state.elements!['button:has-text("Create")'] = {
+            visible: true,
+            text: 'Create',
+            click: () => {
+              state.scanned = [KEY];
+            },
+          };
+        }
+      },
+    });
+    expect(result.status).toBe('created');
+    expect(elapsed).toBeGreaterThanOrEqual(1000);
+  });
 });
 ```
 
@@ -622,6 +665,7 @@ In `src/browser/key-harvest.ts`:
 ```ts
 const FORBIDDEN_BUTTON = /\b(pay|buy|upgrade|subscribe|billing)\b/i;
 const CREATE_WAIT_MS = 15_000;
+const UI_WAIT_MS = 5_000;
 ```
 
 2. Add the helpers above `harvestOne`:
@@ -641,6 +685,22 @@ async function clickSafe(page: HarvestPage, keyUrl: string, target: { locator: H
   const text = ((await target.locator.textContent().catch(() => '')) ?? '').trim();
   if (FORBIDDEN_BUTTON.test(text)) throw new Error(`refusing to click "${text}"`);
   await target.locator.click({ timeout: 5_000 });
+}
+
+async function waitForVisible(
+  page: HarvestPage,
+  selectors: string[],
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+  timeoutMs: number,
+): Promise<{ locator: HarvestLocator; selector: string } | undefined> {
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    const found = await visibleLocator(page, selectors);
+    if (found) return found;
+    if (now() >= deadline) return undefined;
+    await sleep(250);
+  }
 }
 ```
 
@@ -663,16 +723,30 @@ with
 ```ts
     let key = await findKey();
     if (!key) {
-      const create = await visibleLocator(page, adapter.createSelectors);
+      const create = await waitForVisible(page, adapter.createSelectors, now, sleep, UI_WAIT_MS);
       if (!create) return failed(`no key found; create one manually at ${adapter.keyUrl}`);
       await clickSafe(page, adapter.keyUrl, create);
-      const name = await visibleLocator(page, adapter.nameFieldSelectors);
-      if (name) await name.locator.fill(`free-qwen-api-${new Date(now()).toISOString().slice(0, 10).replaceAll('-', '')}`);
-      const confirm = await visibleLocator(page, adapter.confirmSelectors);
-      if (confirm) await clickSafe(page, adapter.keyUrl, confirm);
-      const deadline = now() + CREATE_WAIT_MS;
+      const uiDeadline = now() + UI_WAIT_MS;
+      let filled = false;
+      for (;;) {
+        if (!filled) {
+          const name = await visibleLocator(page, adapter.nameFieldSelectors);
+          if (name) {
+            await name.locator.fill(`free-qwen-api-${new Date(now()).toISOString().slice(0, 10).replaceAll('-', '')}`);
+            filled = true;
+          }
+        }
+        const confirm = await visibleLocator(page, adapter.confirmSelectors);
+        if (confirm) {
+          await clickSafe(page, adapter.keyUrl, confirm);
+          break;
+        }
+        if (now() >= uiDeadline) break;
+        await sleep(250);
+      }
+      const keyDeadline = now() + CREATE_WAIT_MS;
       while (!(key = await findKey())) {
-        if (now() >= deadline) return failed(`key did not appear after creating; check ${adapter.keyUrl}`);
+        if (now() >= keyDeadline) return failed(`key did not appear after creating; check ${adapter.keyUrl}`);
         await sleep(250);
       }
     }
@@ -681,7 +755,7 @@ with
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test ./test/key-harvest.test.ts`
-Expected: PASS (11 tests)
+Expected: PASS (13 tests — 9 existing incl. the label-normalization test from Task 2's fix round, plus 4 new)
 
 - [ ] **Step 5: Run full CI and commit**
 
