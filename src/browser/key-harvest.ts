@@ -201,3 +201,53 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
     return failed(error instanceof Error ? error.message : String(error));
   }
 }
+
+export interface HarvestContext {
+  newPage(): Promise<HarvestPage & { close(): Promise<void> }>;
+}
+
+export interface HarvestBrowser {
+  contexts(): HarvestContext[];
+  close(): Promise<void>;
+}
+
+async function defaultLaunch({ profileDir }: { profileDir: string }): Promise<HarvestBrowser> {
+  const cdp = await launchCdpBrowser({ profileDir });
+  return {
+    contexts: () =>
+      cdp.browser.contexts().map(context => ({
+        newPage: async () => (await context.newPage()) as unknown as HarvestPage & { close(): Promise<void> },
+      })),
+    close: () => cdp.close(),
+  };
+}
+
+export async function harvestKeys(options: {
+  profileDir: string;
+  store: HarvestStore;
+  label: string;
+  providers?: string[];
+  adapters?: ProviderKeyAdapter[];
+  launch?: (options: { profileDir: string }) => Promise<HarvestBrowser>;
+}): Promise<HarvestResult[]> {
+  const adapters = (options.adapters ?? KEY_ADAPTERS).filter(adapter => !options.providers || options.providers.includes(adapter.provider));
+  const browser = await (options.launch ?? defaultLaunch)({ profileDir: options.profileDir });
+  try {
+    const context = browser.contexts()[0];
+    if (!context) throw new Error('Browser profile has no default context');
+    const results: HarvestResult[] = [];
+    for (const adapter of adapters) {
+      const page = await context.newPage();
+      try {
+        results.push(await harvestOne(adapter, page, options.store, { label: options.label }));
+      } catch (error) {
+        results.push({ provider: adapter.provider, status: 'failed', detail: error instanceof Error ? error.message : String(error) });
+      } finally {
+        await page.close().catch(() => {});
+      }
+    }
+    return results;
+  } finally {
+    await browser.close();
+  }
+}

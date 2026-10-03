@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { harvestOne, keyPreview, storeHarvestedKey, validateKey, type HarvestPage, type HarvestStore } from '../src/browser/key-harvest.ts';
+import { harvestKeys, harvestOne, keyPreview, storeHarvestedKey, validateKey, type HarvestPage, type HarvestStore } from '../src/browser/key-harvest.ts';
 import type { ProviderKeyAdapter } from '../src/providers/key-adapters.ts';
 
 const KEY = 'sk-live-1234567890abcdefghij';
@@ -271,5 +271,72 @@ describe('harvest create flow', () => {
     });
     expect(result.status).toBe('created');
     expect(elapsed).toBeGreaterThanOrEqual(1000);
+  });
+});
+
+describe('harvestKeys', () => {
+  const alpha: ProviderKeyAdapter = {
+    provider: 'alpha',
+    keyUrl: 'https://alpha.example/keys',
+    keyPattern: /^sk-[A-Za-z0-9-]{20,}$/,
+    createSelectors: ['button:has-text("Create")'],
+    nameFieldSelectors: [],
+    confirmSelectors: [],
+    keySelectors: ['#the-key'],
+  };
+  const beta: ProviderKeyAdapter = { ...alpha, provider: 'beta', keyUrl: 'https://beta.example/keys' };
+  const gamma: ProviderKeyAdapter = { ...alpha, provider: 'gamma', keyUrl: 'https://gamma.example/keys' };
+
+  test('walks providers in one browser session and isolates failures', async () => {
+    const store = fakeStore();
+    const entries = [
+      { page: fakePage({ finalUrl: alpha.keyUrl, elements: { '#the-key': { text: KEY } } }), closed: false },
+      { page: fakePage({ finalUrl: 'https://accounts.google.com/signin' }), closed: false },
+      { page: fakePage({ gotoError: 'boom' }), closed: false },
+    ];
+    let closed = false;
+    const results = await harvestKeys({
+      profileDir: '/tmp/unused',
+      store,
+      label: 'default',
+      adapters: [alpha, beta, gamma],
+      launch: async () => ({
+        contexts: () => [
+          {
+            newPage: async () => {
+              const entry = entries.shift();
+              if (!entry) throw new Error('no more pages');
+              return Object.assign(entry.page, { close: async () => { entry.closed = true; } });
+            },
+          },
+        ],
+        close: async () => {
+          closed = true;
+        },
+      }),
+    });
+    expect(results.map(result => [result.provider, result.status])).toEqual([
+      ['alpha', 'created'],
+      ['beta', 'skipped'],
+      ['gamma', 'failed'],
+    ]);
+    expect(entries.every(entry => entry.closed)).toBe(true);
+    expect(closed).toBe(true);
+  });
+
+  test('filters providers through the --provider list', async () => {
+    const store = fakeStore();
+    const results = await harvestKeys({
+      profileDir: '/tmp/unused',
+      store,
+      label: 'default',
+      providers: ['alpha'],
+      adapters: [alpha, beta],
+      launch: async () => ({
+        contexts: () => [{ newPage: async () => Object.assign(fakePage({ finalUrl: alpha.keyUrl, elements: { '#the-key': { text: KEY } } }), { close: async () => {} }) }],
+        close: async () => {},
+      }),
+    });
+    expect(results.map(result => result.provider)).toEqual(['alpha']);
   });
 });
