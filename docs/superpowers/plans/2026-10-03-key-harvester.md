@@ -288,7 +288,7 @@ function fakePage(state: FakeState = {}): HarvestPage {
     locator,
     evaluate: async (_fn, arg) => {
       const re = new RegExp((arg as { source: string }).source);
-      return (state.scanned ?? []).filter(token => re.test(token)) as never;
+      return (state.scanned ?? []).flatMap(text => text.split(/[\s"'`]+/)).filter(token => re.test(token)) as never;
     },
   };
 }
