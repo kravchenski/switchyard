@@ -287,8 +287,8 @@ impl Shell {
                     let result = command(cli);
                     let result = match (&result, reload_models && online) {
                         (Ok(output), true) => match refresh_models(&base_url, gateway_key.as_deref()) {
-                            Ok(count) => Ok(format!("{}\nModels reloaded: {count} available.", output.trim_end())),
-                            Err(error) => Ok(format!("{}\nSaved, but the models could not be reloaded yet: {error}", output.trim_end())),
+                            Ok(count) => Ok(format!("Models reloaded: {count} available.\n{}", output.trim_end())),
+                            Err(error) => Ok(format!("Saved, but the models could not be reloaded yet: {error}\n{}", output.trim_end())),
                         },
                         _ => result,
                     };
@@ -1088,6 +1088,13 @@ impl Shell {
                             cx.notify();
                         }))
                     }))
+                    .child(
+                        button("harvest-keys", if self.busy { "Working…" } else { "Get API keys automatically" }, None, Tone::Outline, !self.browser_blocked())
+                            .when(!self.browser_blocked(), |this| this.on_click(cx.listener(|shell, _, _, cx| {
+                                shell.run_key_command(cx, |cli| cli.harvest());
+                                cx.notify();
+                            }))),
+                    )
                     .child(div().flex_1())
                     .child(
                         button("add-key", if self.busy { "Working…" } else { "Save key" }, Some(IconName::KeyRound), Tone::Primary, can_save_key).when(can_save_key, |this| {
