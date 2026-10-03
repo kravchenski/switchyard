@@ -168,4 +168,12 @@ describe('harvest engine', () => {
     expect(validateKey(null, adapter.keyPattern)).toBeNull();
     expect(keyPreview(KEY)).toBe('sk-li…ghij');
   });
+
+  test('normalizes the label before matching and storing', () => {
+    const store = fakeStore();
+    expect(storeHarvestedKey(store, 'fake', '  DEFAULT ', KEY)).toBe('created');
+    expect(store.list('fake')[0]?.email).toBe('default');
+    expect(storeHarvestedKey(store, 'fake', 'Default', 'sk-other-1234567890abcdefgh')).toBe('updated');
+    expect(store.list('fake')).toHaveLength(1);
+  });
 });

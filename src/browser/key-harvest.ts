@@ -63,9 +63,10 @@ export function keyPreview(key: string): string {
 export function storeHarvestedKey(store: HarvestStore, provider: string, label: string, apiKey: string): 'created' | 'updated' | 'unchanged' {
   const existing = store.list(provider);
   if (existing.some(entry => entry.token === apiKey)) return 'unchanged';
-  const sameLabel = existing.find(entry => entry.method === 'api-key' && entry.email === label);
+  const normalized = label.trim().toLowerCase();
+  const sameLabel = existing.find(entry => entry.method === 'api-key' && entry.email === normalized);
   if (sameLabel) store.remove(sameLabel.id);
-  store.addApiKey({ provider, label, apiKey });
+  store.addApiKey({ provider, label: normalized, apiKey });
   return sameLabel ? 'updated' : 'created';
 }
 
