@@ -294,6 +294,7 @@ describe('harvestKeys', () => {
       { page: fakePage({ finalUrl: 'https://accounts.google.com/signin' }), closed: false },
       { page: fakePage({ gotoError: 'boom' }), closed: false },
     ];
+    let next = 0;
     let closed = false;
     const results = await harvestKeys({
       profileDir: '/tmp/unused',
@@ -304,7 +305,7 @@ describe('harvestKeys', () => {
         contexts: () => [
           {
             newPage: async () => {
-              const entry = entries.shift();
+              const entry = entries[next++];
               if (!entry) throw new Error('no more pages');
               return Object.assign(entry.page, { close: async () => { entry.closed = true; } });
             },
@@ -320,7 +321,7 @@ describe('harvestKeys', () => {
       ['beta', 'skipped'],
       ['gamma', 'failed'],
     ]);
-    expect(entries.every(entry => entry.closed)).toBe(true);
+    expect(entries.map(entry => entry.closed)).toEqual([true, true, true]);
     expect(closed).toBe(true);
   });
 
