@@ -22,6 +22,7 @@ import { INIT_MESSAGES, initAccountsSecret } from '../src/cli/accounts-secret.ts
 import { loadAccountsSecret, systemKeyring } from '../src/core/secrets/accounts-secret.ts';
 import { accountStates } from '../src/core/status.ts';
 import { loadDeepSeekAccounts } from '../src/providers/deepseek/accounts.ts';
+import { harvestKeys } from '../src/browser/key-harvest.ts';
 
 function withDb<T>(run: (db: Database) => T) {
   const db = openDatabase();
@@ -125,6 +126,7 @@ try {
       return verifyProviderKey(definition, apiKey);
     },
     accountLabel: provider => apiKeyProvider(provider)?.account?.label,
+    harvest: ({ profile, providers }) => harvestKeys({ profileDir: profileDir(profile), label: profile, providers, store }),
   });
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

@@ -1,6 +1,7 @@
 import type { ApiKeyCredential, Credential } from '../core/accounts/credential-store.ts';
 import type { SiteSignIn } from '../browser/sign-in-check.ts';
 import type { BrowserProfile } from '../browser/profiles.ts';
+import type { HarvestResult, HarvestStatus } from '../browser/key-harvest.ts';
 import { notSignedIn } from '../browser/browser-chat.ts';
 import { formatOverview, type ProviderOverview } from './overview.ts';
 import { API_KEY_PROVIDERS as API_KEY_DEFINITIONS } from '../providers/catalog.ts';
@@ -31,6 +32,7 @@ export interface AccountsCliDeps {
   secretSource?: () => Promise<string>;
   providerAuto?: (provider: string, auto?: boolean) => boolean;
   autoSettings?: (change: { focus?: string; mode?: string; agents?: Record<string, string | undefined> }) => { focus: string; mode: string; agents?: Record<string, boolean> };
+  harvest?: (options: { profile: string; providers?: string[] }) => Promise<HarvestResult[]>;
 }
 
 const API_KEY_PROVIDERS = new Set(API_KEY_DEFINITIONS.map(provider => provider.id));
@@ -62,6 +64,9 @@ export const ACCOUNTS_USAGE = `Usage: bun run account <command>
   google [--list] [--profile <id>]                Sign in to Google in a browser account, then list its Google accounts
   open <https-url> [--profile <id>]               Open a site in a browser account to sign in manually
   status [--profile <id>]                         Show which web chats each browser account is signed in to
+  harvest [--profile <id>] [--provider <id>] [--yes]
+                                                  Visit provider dashboards and create/update API keys from your
+                                                  signed-in browser accounts (asks for consent unless --yes)
 
 API key providers: ${[...API_KEY_PROVIDERS].join(', ')}
 Web chats sign in through the browser profile: bun run account open <url>`;
@@ -191,6 +196,28 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
   if (command === 'status' && deps.checkSignIns) {
     const profile = args.includes('--profile') ? profileOption(args, deps) : undefined;
     return reportSignIns(await deps.checkSignIns(undefined, profile), deps.log);
+  }
+
+  if (command === 'harvest' && deps.harvest) {
+    const profile = profileOption(args, deps);
+    const providerOption = option(args, '--provider');
+    const provider = providerOption ? requireProvider(providerOption) : undefined;
+    if (!args.includes('--yes')) {
+      const answer = (await deps.askHidden('This will open provider dashboards in your browser session and create/update API keys for your logged-in accounts. Continue? (y/n) ')).trim().toLowerCase();
+      if (!answer.startsWith('y')) {
+        deps.log('Cancelled.');
+        return 0;
+      }
+    }
+    const results = await deps.harvest({ profile, providers: provider ? [provider] : undefined });
+    for (const result of results) {
+      const preview = result.keyPreview ? `  ${result.keyPreview}` : '';
+      deps.log(`${result.provider.padEnd(14)} ${result.status.padEnd(10)} ${result.detail}${preview}`);
+    }
+    const count = (status: HarvestStatus) => results.filter(entry => entry.status === status).length;
+    deps.log(`created: ${count('created')}, updated: ${count('updated')}, unchanged: ${count('unchanged')}, skipped: ${count('skipped')}, failed: ${count('failed')}`);
+    const good = count('created') + count('updated') + count('unchanged');
+    return count('failed') > 0 && good === 0 ? 1 : 0;
   }
 
   if (command === 'add' && args.includes('--api-key')) {

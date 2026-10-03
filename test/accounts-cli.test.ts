@@ -74,4 +74,61 @@ describe('accounts CLI', () => {
     await expect(runAccountsCommand(['open', 'http://chat.z.ai'], deps)).rejects.toThrow('https');
     await expect(runAccountsCommand(['open', 'kimi.com'], deps)).rejects.toThrow('full https URL');
   });
+
+  test('asks for consent before harvesting and cancels on no', async () => {
+    const { deps, lines } = harness();
+    const calls: Array<{ profile: string; providers?: string[] }> = [];
+    deps.askHidden = async () => 'n';
+    deps.harvest = async options => {
+      calls.push(options);
+      return [{ provider: 'gemini', status: 'created', detail: 'created', keyPreview: 'AIza…1234' }];
+    };
+    expect(await runAccountsCommand(['harvest'], deps)).toBe(0);
+    expect(calls).toEqual([]);
+    expect(lines).toEqual(['Cancelled.']);
+  });
+
+  test('runs the harvest with --yes, prints the report and the summary last', async () => {
+    const { deps, lines } = harness();
+    const calls: Array<{ profile: string; providers?: string[] }> = [];
+    deps.askHidden = async () => {
+      throw new Error('must not ask when --yes is set');
+    };
+    deps.harvest = async options => {
+      calls.push(options);
+      return [
+        { provider: 'gemini', status: 'created', detail: 'created', keyPreview: 'AIza…1234' },
+        { provider: 'groq', status: 'unchanged', detail: 'already saved', keyPreview: 'gsk_…7890' },
+        { provider: 'mistral', status: 'skipped', detail: 'not signed in (bun run account connect)' },
+        { provider: 'zai', status: 'failed', detail: 'refusing to click "Upgrade plan"' },
+      ];
+    };
+    expect(await runAccountsCommand(['harvest', '--yes'], deps)).toBe(0);
+    expect(calls).toEqual([{ profile: 'default', providers: undefined }]);
+    expect(lines.at(-1)).toBe('created: 1, updated: 0, unchanged: 1, skipped: 1, failed: 1');
+    expect(lines.some(line => line.includes('gemini') && line.includes('created') && line.includes('AIza…1234'))).toBe(true);
+    expect(lines.some(line => line.includes('zai') && line.includes('refusing to click'))).toBe(true);
+  });
+
+  test('passes --provider through and rejects unknown providers and accounts', async () => {
+    const { deps } = harness();
+    const calls: Array<{ profile: string; providers?: string[] }> = [];
+    deps.harvest = async options => {
+      calls.push(options);
+      return [];
+    };
+    deps.profiles = { list: () => [{ id: 'default', label: 'Main' }], add: label => ({ id: 'acct-1', label }), remove: () => true };
+    expect(await runAccountsCommand(['harvest', '--yes', '--provider', 'gemini'], deps)).toBe(0);
+    expect(calls).toEqual([{ profile: 'default', providers: ['gemini'] }]);
+    await expect(runAccountsCommand(['harvest', '--yes', '--provider', 'nope'], deps)).rejects.toThrow('Unknown provider: nope');
+    await expect(runAccountsCommand(['harvest', '--yes', '--profile', 'acct-zzz'], deps)).rejects.toThrow('Unknown account: acct-zzz');
+  });
+
+  test('fails the run when everything attempted failed, but not when all skipped', async () => {
+    const { deps } = harness();
+    deps.harvest = async () => [{ provider: 'zai', status: 'failed', detail: 'timeout' }];
+    expect(await runAccountsCommand(['harvest', '--yes'], deps)).toBe(1);
+    deps.harvest = async () => [{ provider: 'zai', status: 'skipped', detail: 'not signed in (bun run account connect)' }];
+    expect(await runAccountsCommand(['harvest', '--yes'], deps)).toBe(0);
+  });
 });
