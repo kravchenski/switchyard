@@ -71,7 +71,7 @@ interface ProviderKeyAdapter {
 }
 ```
 
-All 21 catalog entries with a `keyUrl` get an adapter. Adapters are data-only; the
+All 20 catalog entries with a `keyUrl` get an adapter. Adapters are data-only; the
 engine is provider-agnostic and works even when selectors are missing (host guard +
 DOM scan + manual fallback still apply).
 
@@ -118,8 +118,9 @@ DOM scan + manual fallback still apply).
   distinct detail string in the report.
 - The last stdout line is always the one-line summary (see Desktop integration) so
   non-interactive callers can surface it cheaply.
-- Exit code: 0 if at least one provider is `created`/`updated`/`unchanged` or the run
-  was declined; 1 if every attempted provider ended in `failed`.
+- Exit code: 1 when the run produced at least one `failed` and no
+  `created`/`updated`/`unchanged`; 0 otherwise (declined runs, all-`skipped` runs and
+  runs with any successful provider included).
 
 ## Testing
 
