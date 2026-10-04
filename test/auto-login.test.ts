@@ -96,6 +96,37 @@ render();
 setInterval(render, 200);
 </script></body></html>`;
 
+const disabledLoginPage = `<!doctype html><html><body><div id="app"></div><script>
+function makeJwt(payload) {
+  const b64 = value => btoa(JSON.stringify(value));
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
+}
+let rendered = null;
+function render() {
+  const signedIn = Boolean(localStorage.getItem('token'));
+  if (signedIn === rendered) return;
+  rendered = signedIn;
+  const app = document.getElementById('app');
+  if (signedIn) {
+    app.innerHTML = '<h1>provider dashboard</h1>';
+    return;
+  }
+  app.innerHTML = '<button id="entry">Continue with email</button><input type="email" id="email" disabled>'
+    + '<form id="login" style="display:none"><input type="email" id="email2"><input type="password" id="password"><button type="submit">Sign in</button></form>';
+  document.getElementById('entry').addEventListener('click', () => {
+    document.getElementById('login').style.display = 'block';
+  });
+  document.getElementById('login').addEventListener('submit', event => {
+    event.preventDefault();
+    const email = document.getElementById('email2').value;
+    const password = document.getElementById('password').value;
+    if (email === 'user@example.com' && password === 'secret') localStorage.setItem('token', makeJwt({ id: 'u1' }));
+  });
+}
+render();
+setInterval(render, 200);
+</script></body></html>`;
+
 let server: ReturnType<typeof Bun.serve> | undefined;
 let origin = '';
 
@@ -107,6 +138,7 @@ beforeAll(() => {
       const html = path === '/google' ? googleEntryPage
         : path === '/glogin' ? googleLoginPage
         : path === '/empty' ? '<!doctype html><html><body><h1>landing</h1></body></html>'
+        : path === '/provider/disabled' ? disabledLoginPage
         : path.startsWith('/provider/') ? dashboardPage
         : loginPage;
       return new Response(html, { headers: { 'content-type': 'text/html' } });
@@ -166,8 +198,8 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       waitForSignInMs: 2_000,
       onSignIn: (id, result) => recorded.push(result),
     });
-    expect(results).toEqual([{ site: 'fake-chat', status: 'failed', detail: 'not signed in after the login attempt' }]);
-    expect(recorded).toEqual([{ signedIn: false, reason: 'not signed in after the login attempt' }]);
+    expect(results).toEqual([{ site: 'fake-chat', status: 'failed', detail: 'not signed in after the login attempt [direct form submitted]' }]);
+    expect(recorded).toEqual([{ signedIn: false, reason: 'not signed in after the login attempt [direct form submitted]' }]);
   }, 120_000);
 
   test('logs in through the Google popup', async () => {
@@ -228,6 +260,16 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
     expect(results).toHaveLength(1);
     expect(results[0].site).toBe('fake-dead');
     expect(results[0].status).toBe('failed');
+  }, 120_000);
+
+  test('signs into a dashboard whose email field starts disabled', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-disabled', url: `${origin}/provider/disabled` }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-disabled', status: 'logged-in', detail: 'signed in' }]);
   }, 120_000);
 
   test('skips sites without a sign-in rule without opening them', async () => {
