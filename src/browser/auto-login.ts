@@ -190,13 +190,12 @@ async function attemptSite(
 ): Promise<AutoLoginResult> {
   if (!site.signIn) return { site: site.id, status: 'skipped', detail: 'sign-in is optional' };
   const now = options.now ?? Date.now;
-  await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  await page.goto(site.authUrl ?? site.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
   const already = await readSignIn(page, site.signIn, now());
   if (already.signedIn) return { site: site.id, status: 'signed-in', detail: 'already signed in' };
   if (!options.credentials) return { site: site.id, status: 'skipped', detail: 'no credentials given' };
   const stale = await clearStaleToken(page, site.signIn);
-  if (site.authUrl) await page.goto(site.authUrl, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-  else if (stale) await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {});
+  if (stale) await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {});
   await autoSolveCaptcha(page, site.captcha);
   const failure = await login(page, options.credentials, Boolean(options.viaGoogle));
   if (failure) return { site: site.id, status: 'failed', detail: failure };
