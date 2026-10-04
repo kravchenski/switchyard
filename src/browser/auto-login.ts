@@ -59,8 +59,21 @@ const ENTRY_SELECTORS = [
   'button:has-text("Continue with email")',
   'button:has-text("Continue with Google")',
 ];
-const GOOGLE_SELECTORS = ['button:has-text("Google")', 'a:has-text("Google")', '[aria-label*="Google" i]'];
+const GOOGLE_SELECTORS = ['button:has-text("Google")', 'a:has-text("Google")', '[role="button"]:has-text("Google")', '[aria-label*="Google" i]'];
 const GOOGLE_AUTH_HOST = /(^|\.)accounts\.google\.com$/;
+const CONSENT_SELECTORS = [
+  'button:has-text("No thanks")',
+  'button:has-text("Reject all")',
+  'button:has-text("Only necessary")',
+  'button:has-text("Reject")',
+  'button:has-text("Decline")',
+  'button:has-text("Accept all")',
+  'button:has-text("Allow all")',
+  'button:has-text("Allow analytics")',
+  'button:has-text("I agree")',
+  'button:has-text("Got it")',
+  '[aria-label="Close"]',
+];
 const GOOGLE_EMAIL_SELECTORS = ['input[type="email"]', '#identifierId'];
 const PASSWORD_TOGGLE_SELECTORS = ['button:has-text("password")', 'a:has-text("password")'];
 
@@ -90,6 +103,13 @@ async function fillDirectForm(page: Page, credentials: AutoLoginCredentials): Pr
     const toggle = await firstVisible(page, PASSWORD_TOGGLE_SELECTORS, SHORT_TIMEOUT_MS);
     if (toggle) {
       await toggle.click().catch(() => {});
+      password = await firstVisible(page, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
+    }
+  }
+  if (!password) {
+    const advance = await firstVisible(page, ENTRY_SELECTORS, SHORT_TIMEOUT_MS);
+    if (advance) {
+      await advance.click().catch(() => {});
       password = await firstVisible(page, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
     }
   }
@@ -161,7 +181,29 @@ async function loginWithGoogle(page: Page, credentials: AutoLoginCredentials, tr
   return undefined;
 }
 
+const TERMS_PATTERN = /agree|terms|privacy|consent|policy|\bage\b|18\+|conditions/i;
+
+async function acceptTerms(page: Page): Promise<void> {
+  const boxes = page.locator('input[type="checkbox"]:not(:checked), [role="checkbox"][aria-checked="false"]');
+  const count = Math.min(await boxes.count().catch(() => 0), 10);
+  for (let i = 0; i < count; i++) {
+    const box = boxes.nth(i);
+    if (!(await box.isVisible().catch(() => false))) continue;
+    const text = await box.evaluate(el => {
+      const label = el.closest('label') ?? (el.id ? document.querySelector(`label[for="${el.id}"]`) : null);
+      return (label?.textContent ?? el.parentElement?.textContent ?? '').trim();
+    }).catch(() => '');
+    if (!TERMS_PATTERN.test(text)) continue;
+    const native = await box.evaluate(el => el.tagName === 'INPUT').catch(() => true);
+    if (native) await box.check({ timeout: 2_000 }).catch(async () => {
+      await box.click({ timeout: 2_000 }).catch(() => {});
+    });
+    else await box.click({ timeout: 2_000 }).catch(() => {});
+  }
+}
+
 async function login(page: Page, credentials: AutoLoginCredentials, viaGoogle: boolean, trace: string[]): Promise<string | undefined> {
+  await acceptTerms(page);
   if (GOOGLE_AUTH_HOST.test(new URL(page.url()).hostname)) {
     trace.push(await fillGoogleAuth(page, credentials));
     return undefined;
@@ -234,6 +276,7 @@ async function attemptSite(
   const stale = await clearStaleToken(page, site.signIn);
   if (stale) await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {});
   await autoSolveCaptcha(page, site.captcha);
+  await dismissConsent(page);
   const trace: string[] = [];
   const failure = await login(page, options.credentials, Boolean(options.viaGoogle), trace);
   if (failure) return { site: site.id, status: 'failed', detail: failure };
@@ -246,12 +289,18 @@ async function attemptSite(
   return { site: site.id, status: 'logged-in', detail: await signedInDetail(page, site.signIn) };
 }
 
+async function dismissConsent(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const button = await firstVisible(page, CONSENT_SELECTORS, 1_000);
+    if (!button) return;
+    await button.click().catch(() => {});
+  }
+}
+
 async function looksLikeLoginPage(page: Page, url: string): Promise<boolean> {
   if (!pageState(page.url(), url).ok) return true;
-  if (await firstVisible(page, EMAIL_SELECTORS, 0)) return true;
-  if (await firstVisible(page, GOOGLE_SELECTORS, 0)) return true;
-  if (await firstVisible(page, ENTRY_SELECTORS, 0)) return true;
-  return false;
+  const selector = [...EMAIL_SELECTORS, ...PASSWORD_SELECTORS, ...GOOGLE_SELECTORS, ...ENTRY_SELECTORS].join(', ');
+  return await page.locator(selector).first().isVisible().catch(() => false);
 }
 
 async function attemptDashboard(
@@ -264,6 +313,7 @@ async function attemptDashboard(
   if (!(await looksLikeLoginPage(page, target.url))) return { site: target.id, status: 'signed-in', detail: 'already signed in' };
   if (!options.credentials) return { site: target.id, status: 'skipped', detail: 'no credentials given' };
   await autoSolveCaptcha(page);
+  await dismissConsent(page);
   const trace: string[] = [];
   const failure = await login(page, options.credentials, Boolean(options.viaGoogle), trace);
   if (failure) return { site: target.id, status: 'failed', detail: failure };

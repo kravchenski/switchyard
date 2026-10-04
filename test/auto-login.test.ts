@@ -96,12 +96,14 @@ render();
 setInterval(render, 200);
 </script></body></html>`;
 
-const disabledLoginPage = `<!doctype html><html><body><div id="app"></div><script>
+const disabledLoginPage = `<!doctype html><html><body><div id="app"></div><div id="consent" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999"><div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;padding:16px"><p>We use cookies</p><button id="no-thanks">No thanks</button></div></div><script>
 function makeJwt(payload) {
   const b64 = value => btoa(JSON.stringify(value));
   return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
 }
 let rendered = null;
+let stage = 'entry';
+let emailValue = '';
 function render() {
   const signedIn = Boolean(localStorage.getItem('token'));
   if (signedIn === rendered) return;
@@ -111,18 +113,30 @@ function render() {
     app.innerHTML = '<h1>provider dashboard</h1>';
     return;
   }
-  app.innerHTML = '<button id="entry">Continue with email</button><input type="email" id="email" disabled>'
-    + '<form id="login" style="display:none"><input type="email" id="email2"><input type="password" id="password"><button type="submit">Sign in</button></form>';
-  document.getElementById('entry').addEventListener('click', () => {
-    document.getElementById('login').style.display = 'block';
-  });
+  if (stage === 'entry') {
+    app.innerHTML = '<button id="entry" disabled>Continue with email</button><input type="email" id="email" disabled>'
+      + '<label><input type="checkbox" id="terms"> I agree to the Terms of Service and Privacy Policy</label>';
+    document.getElementById('terms').addEventListener('change', () => {
+      const ok = document.getElementById('terms').checked;
+      document.getElementById('entry').disabled = !ok;
+      document.getElementById('email').disabled = !ok;
+    });
+    document.getElementById('entry').addEventListener('click', () => {
+      emailValue = document.getElementById('email').value;
+      stage = 'password';
+      rendered = null;
+      render();
+    });
+    return;
+  }
+  app.innerHTML = '<form id="login"><input type="password" id="password"><button type="submit">Sign in</button></form>';
   document.getElementById('login').addEventListener('submit', event => {
     event.preventDefault();
-    const email = document.getElementById('email2').value;
     const password = document.getElementById('password').value;
-    if (email === 'user@example.com' && password === 'secret') localStorage.setItem('token', makeJwt({ id: 'u1' }));
+    if (emailValue === 'user@example.com' && password === 'secret') localStorage.setItem('token', makeJwt({ id: 'u1' }));
   });
 }
+document.getElementById('no-thanks').addEventListener('click', () => document.getElementById('consent').remove());
 render();
 setInterval(render, 200);
 </script></body></html>`;
@@ -262,7 +276,7 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
     expect(results[0].status).toBe('failed');
   }, 120_000);
 
-  test('signs into a dashboard whose email field starts disabled', async () => {
+  test('signs into a dashboard behind a consent banner whose email field starts disabled', async () => {
     const results = await autoSignIn({
       sites: [],
       dashboards: [{ id: 'fake-disabled', url: `${origin}/provider/disabled` }],
