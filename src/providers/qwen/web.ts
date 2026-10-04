@@ -13,6 +13,7 @@ export const QWEN_CHAT_SITE: ChatSite = {
   inputSelector: 'textarea',
   responseUrl: /\/api\/v2\/chat\/completions/,
   signIn: { storageKey: 'token', claim: 'id' },
+  authUrl: 'https://chat.qwen.ai/auth',
   challengeResponse: /FAIL_SYS_USER_VALIDATE|\/punish\?/,
   ignoredResponse: /^\{"code":0,[^\n]*"sig":"from bx"/,
   captcha: { slider: true },

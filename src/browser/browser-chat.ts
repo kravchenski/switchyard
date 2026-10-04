@@ -27,6 +27,7 @@ export interface ChatSite {
   responseUrl: RegExp;
   verificationText?: RegExp;
   signIn?: SignInRule;
+  authUrl?: string;
   challengeResponse?: RegExp;
   ignoredResponse?: RegExp;
   captcha?: CaptchaHints;

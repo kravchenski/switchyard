@@ -73,9 +73,9 @@ export const ACCOUNTS_USAGE = `Usage: bun run account <command>
                                                   Visit provider dashboards and create/update API keys from your
                                                   signed-in browser accounts (asks for consent unless --yes)
   auto-login [--profile <id>] [--site <id,...>] [--google] [--email <address>] [--password <secret>]
-                                                  Sign in to every web chat with an account you provide; the email
-                                                  and password are prompted (LOGIN_EMAIL/LOGIN_PASSWORD work too),
-                                                  --google logs in through "Continue with Google"
+                                                  Sign in to every web chat with an account you provide; Google sign-in
+                                                  is preferred when the site offers it, --google forces it, the email
+                                                  and password are prompted (LOGIN_EMAIL/LOGIN_PASSWORD work too)
 
 API key providers: ${[...API_KEY_PROVIDERS].join(', ')}
 Web chat site ids: ${WEB_CHAT_IDS.join(', ')}

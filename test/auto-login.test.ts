@@ -13,6 +13,11 @@ function makeJwt(payload) {
   const b64 = value => btoa(JSON.stringify(value));
   return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
 }
+if (new URLSearchParams(location.search).has('stale') && !sessionStorage.getItem('stale-done')) {
+  sessionStorage.setItem('stale-done', '1');
+  localStorage.setItem('token', 'not-a-jwt');
+  location.reload();
+}
 if (localStorage.getItem('token')) {
   document.getElementById('app').innerHTML = '<h1>chat ready</h1>';
 } else {
@@ -149,6 +154,24 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       profileDir: profile(),
     });
     expect(results).toEqual([{ site: 'fake-google-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+  }, 120_000);
+
+  test('prefers Google by default when the site offers it', async () => {
+    const results = await autoSignIn({
+      sites: [site('fake-google-chat')],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-google-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+  }, 120_000);
+
+  test('clears a stale token that hides the login form', async () => {
+    const results = await autoSignIn({
+      sites: [{ ...site('fake-chat'), url: `${origin}/?stale` }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-chat', status: 'logged-in', detail: 'signed in as u1' }]);
   }, 120_000);
 
   test('skips sites without a sign-in rule without opening them', async () => {

@@ -54,6 +54,7 @@ const ENTRY_SELECTORS = [
 ];
 const GOOGLE_SELECTORS = ['button:has-text("Google")', 'a:has-text("Google")', '[aria-label*="Google" i]'];
 const GOOGLE_EMAIL_SELECTORS = ['input[type="email"]', '#identifierId'];
+const PASSWORD_TOGGLE_SELECTORS = ['button:has-text("password")', 'a:has-text("password")'];
 
 async function firstVisible(page: Page, selectors: string[], timeoutMs: number): Promise<Locator | null> {
   const deadline = Date.now() + timeoutMs;
@@ -71,7 +72,14 @@ async function fillDirectForm(page: Page, credentials: AutoLoginCredentials): Pr
   const email = await firstVisible(page, EMAIL_SELECTORS, STEP_TIMEOUT_MS);
   if (!email) return 'login form not found';
   await email.fill(credentials.email);
-  const password = await firstVisible(page, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
+  let password = await firstVisible(page, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
+  if (!password) {
+    const toggle = await firstVisible(page, PASSWORD_TOGGLE_SELECTORS, SHORT_TIMEOUT_MS);
+    if (toggle) {
+      await toggle.click().catch(() => {});
+      password = await firstVisible(page, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
+    }
+  }
   if (!password) return 'password field not found';
   await password.fill(credentials.password);
   const submit = await firstVisible(page, SUBMIT_SELECTORS, SHORT_TIMEOUT_MS);
@@ -80,48 +88,63 @@ async function fillDirectForm(page: Page, credentials: AutoLoginCredentials): Pr
   return undefined;
 }
 
-async function fillGoogleForm(auth: Page, credentials: AutoLoginCredentials): Promise<string | undefined> {
-  const email = await firstVisible(auth, GOOGLE_EMAIL_SELECTORS, STEP_TIMEOUT_MS);
-  if (!email) return 'Google login form not found';
-  await email.fill(credentials.email);
-  const identifierNext = await firstVisible(auth, ['#identifierNext', 'button:has-text("Next")'], SHORT_TIMEOUT_MS);
-  if (identifierNext) await identifierNext.click().catch(() => {});
-  else await email.press('Enter').catch(() => {});
-  const password = await firstVisible(auth, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
-  if (!password) return 'Google password step not found';
-  await password.fill(credentials.password);
-  const passwordNext = await firstVisible(auth, ['#passwordNext', 'button:has-text("Next")'], SHORT_TIMEOUT_MS);
-  if (passwordNext) await passwordNext.click().catch(() => {});
-  else await password.press('Enter').catch(() => {});
-  return undefined;
+async function fillGoogleAuth(target: Page, credentials: AutoLoginCredentials): Promise<void> {
+  try {
+    const email = await firstVisible(target, GOOGLE_EMAIL_SELECTORS, STEP_TIMEOUT_MS);
+    let password: Locator | null = null;
+    if (email) {
+      await email.fill(credentials.email);
+      const next = await firstVisible(target, ['#identifierNext', 'button:has-text("Next")'], SHORT_TIMEOUT_MS);
+      if (next) await next.click().catch(() => {});
+      else await email.press('Enter').catch(() => {});
+      password = await firstVisible(target, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
+    }
+    if (!password) {
+      const account = await firstVisible(target, ['[data-identifier]'], STEP_TIMEOUT_MS);
+      if (account) {
+        await account.click().catch(() => {});
+        password = await firstVisible(target, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
+      }
+    }
+    if (password) {
+      await password.fill(credentials.password);
+      const next = await firstVisible(target, ['#passwordNext', 'button:has-text("Next")'], SHORT_TIMEOUT_MS);
+      if (next) await next.click().catch(() => {});
+      else await password.press('Enter').catch(() => {});
+    }
+  } catch {}
 }
 
 async function loginWithGoogle(page: Page, credentials: AutoLoginCredentials): Promise<string | undefined> {
-  const popup = page.waitForEvent('popup', { timeout: 2 * STEP_TIMEOUT_MS }).catch(() => null);
+  const popup = page.waitForEvent('popup', { timeout: 16_000 }).catch(() => null);
   const google = await firstVisible(page, GOOGLE_SELECTORS, STEP_TIMEOUT_MS);
-  const entry = google ? null : await firstVisible(page, ENTRY_SELECTORS, STEP_TIMEOUT_MS);
-  const click = google ?? entry;
-  if (!click) return 'Google sign-in button not found';
-  await click.click().catch(() => {});
-  const opened = await popup;
-  const targets = opened ? [opened, page] : [page];
-  let failure = 'Google login form not found';
-  for (const target of targets) {
-    const error = await fillGoogleForm(target, credentials);
-    if (!error) return undefined;
-    failure = error;
-    if (error !== 'Google login form not found') return error;
+  if (google) {
+    await google.click().catch(() => {});
+  } else {
+    const entry = await firstVisible(page, ENTRY_SELECTORS, STEP_TIMEOUT_MS);
+    if (!entry) return 'Google sign-in button not found';
+    await entry.click().catch(() => {});
+    const openedEarly = await Promise.race([popup, Bun.sleep(2_000).then(() => null)]);
+    if (!openedEarly) {
+      const onSurface = await firstVisible(page, GOOGLE_SELECTORS, 5_000);
+      if (onSurface) await onSurface.click().catch(() => {});
+    }
   }
-  return failure;
+  const opened = await popup;
+  if (opened) await fillGoogleAuth(opened, credentials);
+  else await fillGoogleAuth(page, credentials);
+  return undefined;
 }
 
 async function login(page: Page, credentials: AutoLoginCredentials, viaGoogle: boolean): Promise<string | undefined> {
   if (viaGoogle) return loginWithGoogle(page, credentials);
-  if (await firstVisible(page, EMAIL_SELECTORS, STEP_TIMEOUT_MS)) return fillDirectForm(page, credentials);
+  if (await firstVisible(page, GOOGLE_SELECTORS, 4_000)) return loginWithGoogle(page, credentials);
+  if (await firstVisible(page, EMAIL_SELECTORS, 2_000)) return fillDirectForm(page, credentials);
   const entry = await firstVisible(page, ENTRY_SELECTORS, STEP_TIMEOUT_MS);
-  if (entry) await entry.click().catch(() => {});
+  if (!entry) return 'login form not found';
+  await entry.click().catch(() => {});
+  if (await firstVisible(page, GOOGLE_SELECTORS, 5_000)) return loginWithGoogle(page, credentials);
   if (await firstVisible(page, EMAIL_SELECTORS, 5_000)) return fillDirectForm(page, credentials);
-  if (await firstVisible(page, GOOGLE_SELECTORS, 3_000)) return loginWithGoogle(page, credentials);
   return 'login form not found';
 }
 
@@ -143,6 +166,23 @@ async function signedInDetail(page: Page, rule: SignInRule): Promise<string> {
   return typeof claim === 'string' && claim ? `signed in as ${claim}` : 'signed in';
 }
 
+async function clearStaleToken(page: Page, rule: SignInRule): Promise<boolean> {
+  return page.evaluate(key => {
+    const value = localStorage.getItem(key);
+    if (!value) return false;
+    const part = value.split('.')[1];
+    let readable = false;
+    if (part) {
+      try {
+        JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+        readable = true;
+      } catch {}
+    }
+    if (!readable) localStorage.removeItem(key);
+    return !readable;
+  }, rule.storageKey).catch(() => false);
+}
+
 async function attemptSite(
   page: Page,
   site: ChatSite,
@@ -153,8 +193,11 @@ async function attemptSite(
   await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
   const already = await readSignIn(page, site.signIn, now());
   if (already.signedIn) return { site: site.id, status: 'signed-in', detail: 'already signed in' };
-  await autoSolveCaptcha(page, site.captcha);
   if (!options.credentials) return { site: site.id, status: 'skipped', detail: 'no credentials given' };
+  const stale = await clearStaleToken(page, site.signIn);
+  if (site.authUrl) await page.goto(site.authUrl, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  else if (stale) await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {});
+  await autoSolveCaptcha(page, site.captcha);
   const failure = await login(page, options.credentials, Boolean(options.viaGoogle));
   if (failure) return { site: site.id, status: 'failed', detail: failure };
   const waitMs = options.waitForSignInMs ?? DEFAULT_WAIT_MS;
