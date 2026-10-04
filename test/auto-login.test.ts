@@ -47,6 +47,7 @@ const googleLoginPage = `<!doctype html><html><body>
 <button id="identifierNext" type="button">Next</button>
 <input type="password" id="password" style="display:none">
 <button id="passwordNext" type="button" style="display:none">Next</button>
+<div id="consent" style="display:none"><button id="consentNext" type="button">Продолжить</button><button id="consentCancel" type="button">Отмена</button></div>
 <div id="error"></div>
 <script>
 function makeJwt(payload) {
@@ -68,6 +69,16 @@ document.getElementById('passwordNext').addEventListener('click', () => {
     document.getElementById('error').textContent = 'Wrong password';
     return;
   }
+  document.getElementById('email').style.display = 'none';
+  document.getElementById('identifierNext').style.display = 'none';
+  document.getElementById('password').style.display = 'none';
+  document.getElementById('passwordNext').style.display = 'none';
+  document.getElementById('consent').style.display = 'block';
+});
+document.getElementById('consentCancel').addEventListener('click', () => {
+  document.getElementById('error').textContent = 'Consent declined';
+});
+document.getElementById('consentNext').addEventListener('click', () => {
   localStorage.setItem('token', makeJwt({ id: 'u1', email: document.getElementById('email').value }));
   window.close();
 });
@@ -141,6 +152,59 @@ render();
 setInterval(render, 200);
 </script></body></html>`;
 
+const cookieLoginPage = `<!doctype html><html><body><div id="app"></div><script>
+function makeJwt(payload) {
+  const b64 = value => btoa(JSON.stringify(value));
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
+}
+function setCookie() {
+  const token = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, email: 'user@example.com' });
+  document.cookie = 'arena-auth-prod-v1.0=base64-' + btoa(JSON.stringify({ access_token: token }));
+}
+if (new URLSearchParams(location.search).has('preset')) setCookie();
+let rendered = null;
+function render() {
+  const signedIn = Boolean(document.cookie.match(/(?:^|;\\s*)arena-auth-prod-v1\\.0=/));
+  if (signedIn === rendered) return;
+  rendered = signedIn;
+  const app = document.getElementById('app');
+  if (signedIn) {
+    app.innerHTML = '<h1>chat ready</h1>';
+    return;
+  }
+  app.innerHTML = '<form id="login"><input type="email" id="email"><input type="password" id="password"><button type="submit">Sign in</button></form>';
+  document.getElementById('login').addEventListener('submit', event => {
+    event.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    if (email === 'user@example.com' && password === 'secret') {
+      setCookie();
+      location.reload();
+    }
+  });
+}
+render();
+setInterval(render, 200);
+</script></body></html>`;
+
+function bouncePage(next: string): string {
+  return `<!doctype html><html><body><div id="app"></div><script>
+${next === 'done' ? `localStorage.setItem('token', makeJwt({ id: 'u1' }));` : ''}
+function makeJwt(payload) {
+  const b64 = value => btoa(JSON.stringify(value));
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
+}
+if (${next === 'done' ? 'true' : 'false'}) {
+  document.getElementById('app').innerHTML = '<h1>chat ready</h1>';
+} else {
+  document.getElementById('app').innerHTML = '<button id="google">Continue with Google</button>';
+  document.getElementById('google').addEventListener('click', () => {
+    location.href = location.origin.replace('127.0.0.1', 'localhost') + '${next === 'done' ? '' : next}';
+  });
+}
+</script></body></html>`;
+}
+
 let server: ReturnType<typeof Bun.serve> | undefined;
 let origin = '';
 
@@ -152,10 +216,14 @@ beforeAll(() => {
       const html = path === '/google' ? googleEntryPage
         : path === '/glogin' ? googleLoginPage
         : path === '/empty' ? '<!doctype html><html><body><h1>landing</h1></body></html>'
+        : path === '/cookie' ? cookieLoginPage
+        : path === '/bounce1' ? bouncePage('/bounce2')
+        : path === '/bounce2' ? bouncePage('/bounce3')
+        : path === '/bounce3' ? bouncePage('done')
         : path === '/provider/disabled' ? disabledLoginPage
         : path.startsWith('/provider/') ? dashboardPage
         : loginPage;
-      return new Response(html, { headers: { 'content-type': 'text/html' } });
+      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
     },
   });
   origin = `http://127.0.0.1:${server.port}`;
@@ -174,11 +242,20 @@ function profile() {
   return dir;
 }
 
-function site(id: 'fake-chat' | 'fake-google-chat' | 'fake-arena-chat'): ChatSite {
+function site(id: 'fake-chat' | 'fake-google-chat' | 'fake-arena-chat' | 'fake-bounce-chat'): ChatSite {
   if (id === 'fake-chat') return { id, url: `${origin}/`, inputSelector: '#email', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
   if (id === 'fake-google-chat') return { id, url: `${origin}/google`, inputSelector: '#google', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
+  if (id === 'fake-bounce-chat') return { id, url: `${origin}/bounce1`, inputSelector: '#google', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
   return { id, url: 'http://127.0.0.1:1/unreachable', inputSelector: '#never', responseUrl: /never/ };
 }
+
+const cookieSite = (query = ''): ChatSite => ({
+  id: 'fake-cookie-chat',
+  url: `${origin}/cookie${query}`,
+  inputSelector: '#email',
+  responseUrl: /chat/,
+  signIn: { cookie: 'arena-auth-prod-v1.0', tokenPattern: 'access_token":"([^"]+)', claim: 'email', expiring: true },
+});
 
 const credentials = { email: 'user@example.com', password: 'secret' };
 
@@ -301,5 +378,32 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       profileDir: profile(),
     });
     expect(results).toEqual([{ site: 'empty-chat', status: 'failed', detail: 'login form not found' }]);
+  }, 120_000);
+
+  test('reports an already signed-in site behind a cookie session', async () => {
+    const results = await autoSignIn({
+      sites: [cookieSite('?preset')],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-cookie-chat', status: 'signed-in', detail: 'already signed in' }]);
+  }, 120_000);
+
+  test('signs into a site that stores its session in a cookie', async () => {
+    const results = await autoSignIn({
+      sites: [cookieSite()],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-cookie-chat', status: 'logged-in', detail: 'signed in as user@example.com' }]);
+  }, 120_000);
+
+  test('retries Google sign-in when the provider bounces back to its login page', async () => {
+    const results = await autoSignIn({
+      sites: [site('fake-bounce-chat')],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-bounce-chat', status: 'logged-in', detail: 'signed in as u1' }]);
   }, 120_000);
 });

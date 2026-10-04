@@ -4,7 +4,7 @@ import { autoSolveCaptcha } from './captcha/index.ts';
 import type { ChatSite } from './browser-chat.ts';
 import { launchCdpBrowser, type CdpBrowser, type LaunchOptions } from './cdp.ts';
 import { pageState } from './key-harvest.ts';
-import { decodeJwtPayload, readSignIn, type SignInResult, type SignInRule } from './sign-in.ts';
+import { decodeJwtPayload, readSignIn, readSignInValue, type SignInResult, type SignInRule } from './sign-in.ts';
 
 export type AutoLoginStatus = 'signed-in' | 'logged-in' | 'skipped' | 'failed';
 
@@ -76,6 +76,16 @@ const CONSENT_SELECTORS = [
 ];
 const GOOGLE_EMAIL_SELECTORS = ['input[type="email"]', '#identifierId'];
 const PASSWORD_TOGGLE_SELECTORS = ['button:has-text("password")', 'a:has-text("password")'];
+const GOOGLE_PROCEED_SELECTORS = [
+  'button:has-text("Continue")',
+  'button:has-text("Allow")',
+  'button:has-text("Продолжить")',
+  'button:has-text("Continuer")',
+  'button:has-text("Weiter")',
+  'button:has-text("Continuar")',
+  'button:has-text("继续")',
+];
+const SITE_OAUTH_TEXT = /google|github|discord|apple|microsoft|email|passkey|guest/i;
 
 async function firstVisible(page: Page, selectors: string[], timeoutMs: number): Promise<Locator | null> {
   const deadline = Date.now() + timeoutMs;
@@ -87,6 +97,24 @@ async function firstVisible(page: Page, selectors: string[], timeoutMs: number):
         const locator = matches.nth(index);
         if (await locator.isVisible().catch(() => false) && await locator.isEnabled().catch(() => false)) return locator;
       }
+    }
+    if (Date.now() >= deadline) break;
+    await Bun.sleep(200);
+  } while (Date.now() < deadline);
+  return null;
+}
+
+async function firstProceed(page: Page): Promise<Locator | null> {
+  const deadline = Date.now() + SHORT_TIMEOUT_MS;
+  do {
+    const matches = page.locator(GOOGLE_PROCEED_SELECTORS.join(', '));
+    const count = Math.min(await matches.count().catch(() => 0), 5);
+    for (let index = 0; index < count; index++) {
+      const locator = matches.nth(index);
+      if (!(await locator.isVisible().catch(() => false)) || !(await locator.isEnabled().catch(() => false))) continue;
+      const text = ((await locator.textContent().catch(() => '')) ?? '').trim();
+      if (SITE_OAUTH_TEXT.test(text)) continue;
+      return locator;
     }
     if (Date.now() >= deadline) break;
     await Bun.sleep(200);
@@ -151,8 +179,10 @@ async function fillGoogleAuth(target: Page, credentials: AutoLoginCredentials): 
       if (next) await next.click().catch(() => {});
       else await passwordInput.press('Enter').catch(() => {});
     }
-    const proceed = await firstVisible(target, ['button:has-text("Continue")', 'button:has-text("Allow")'], SHORT_TIMEOUT_MS);
-    if (proceed) await proceed.click().catch(() => {});
+    if (email || chooser || password || GOOGLE_AUTH_HOST.test(new URL(target.url()).hostname)) {
+      const proceed = await firstProceed(target);
+      if (proceed) await proceed.click().catch(() => {});
+    }
   } catch (error) {
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 80);
     return `email=${email} password=${password} chooser=${chooser} error=${message}`;
@@ -161,23 +191,37 @@ async function fillGoogleAuth(target: Page, credentials: AutoLoginCredentials): 
 }
 
 async function loginWithGoogle(page: Page, credentials: AutoLoginCredentials, trace: string[]): Promise<string | undefined> {
-  const popup = page.waitForEvent('popup', { timeout: 16_000 }).catch(() => null);
-  const google = await firstVisible(page, GOOGLE_SELECTORS, STEP_TIMEOUT_MS);
-  if (google) {
-    await google.click().catch(() => {});
-  } else {
-    const entry = await firstVisible(page, ENTRY_SELECTORS, STEP_TIMEOUT_MS);
-    if (!entry) return 'Google sign-in button not found';
-    await entry.click().catch(() => {});
-    const openedEarly = await Promise.race([popup, Bun.sleep(2_000).then(() => null)]);
-    if (!openedEarly) {
-      const onSurface = await firstVisible(page, GOOGLE_SELECTORS, 5_000);
-      if (onSurface) await onSurface.click().catch(() => {});
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const popup = page.waitForEvent('popup', { timeout: 16_000 }).catch(() => null);
+    const startHost = new URL(page.url()).hostname;
+    const navigated = page.waitForURL(url => {
+      try {
+        return new URL(url).hostname !== startHost;
+      } catch {
+        return false;
+      }
+    }, { timeout: 16_000 }).catch(() => null);
+    const google = await firstVisible(page, GOOGLE_SELECTORS, STEP_TIMEOUT_MS);
+    if (google) {
+      await google.click().catch(() => {});
+    } else if (attempt === 0) {
+      const entry = await firstVisible(page, ENTRY_SELECTORS, STEP_TIMEOUT_MS);
+      if (!entry) return 'Google sign-in button not found';
+      await entry.click().catch(() => {});
+      const openedEarly = await Promise.race([popup, Bun.sleep(2_000).then(() => null)]);
+      if (!openedEarly) {
+        const onSurface = await firstVisible(page, GOOGLE_SELECTORS, 5_000);
+        if (onSurface) await onSurface.click().catch(() => {});
+      }
+    } else {
+      break;
     }
+    const opened = await Promise.race([popup, navigated.then(() => null)]);
+    const note = opened ? await fillGoogleAuth(opened, credentials) : await fillGoogleAuth(page, credentials);
+    trace.push(`${opened ? 'popup' : 'same page'}${attempt ? ' retry' : ''} ${note}`);
+    if (note !== 'email=false password=false chooser=false') break;
+    if (!(await firstVisible(page, GOOGLE_SELECTORS, 2_000))) break;
   }
-  const opened = await popup;
-  const note = opened ? await fillGoogleAuth(opened, credentials) : await fillGoogleAuth(page, credentials);
-  trace.push(`${opened ? 'popup' : 'same page'} ${note}`);
   return undefined;
 }
 
@@ -239,13 +283,14 @@ async function waitForSignIn(page: Page, rule: SignInRule, waitMs: number, now: 
 }
 
 async function signedInDetail(page: Page, rule: SignInRule): Promise<string> {
-  const value = await page.evaluate(key => localStorage.getItem(key), rule.storageKey).catch(() => null);
+  const value = await readSignInValue(page, rule);
   const payload = value ? decodeJwtPayload(value) : undefined;
   const claim = rule.claim && payload ? payload[rule.claim] : undefined;
   return typeof claim === 'string' && claim ? `signed in as ${claim}` : 'signed in';
 }
 
 async function clearStaleToken(page: Page, rule: SignInRule): Promise<boolean> {
+  if (!rule.storageKey) return false;
   return page.evaluate(key => {
     const value = localStorage.getItem(key);
     if (!value) return false;

@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import { runAccountsCommand, type AccountsCliDeps } from '../src/cli/accounts.ts';
 import { buildOverview, formatOverview, type OverviewInput } from '../src/cli/overview.ts';
 import type { Credential } from '../src/core/accounts/credential-store.ts';
-import { ARENA_CHAT_SITE } from '../src/providers/arena/web.ts';
 import { KIMI_CHAT_SITE } from '../src/providers/kimi/web.ts';
 import { ZAI_CHAT_SITE } from '../src/providers/glm/web.ts';
 
@@ -53,8 +52,8 @@ describe('account overview', () => {
   });
 
   test('shows a web chat without sign-in as connected', () => {
-    const rows = buildOverview(input({ webSites: [ARENA_CHAT_SITE] }));
-    expect(rows[1]).toEqual({ id: 'arena-chat', kind: 'web', state: 'connected', detail: 'arena.ai: no sign-in needed', url: 'https://arena.ai/text/direct', auto: true });
+    const rows = buildOverview(input({ webSites: [{ ...ZAI_CHAT_SITE, signIn: undefined }] }));
+    expect(rows[1]).toEqual({ id: 'glm-chat', kind: 'web', state: 'connected', detail: 'chat.z.ai: no sign-in needed', url: 'https://chat.z.ai/', auto: true });
   });
 
   test('reports a pool where every account is signed out as not connected', () => {

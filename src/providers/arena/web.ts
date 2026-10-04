@@ -11,6 +11,7 @@ export const ARENA_CHAT_SITE: ChatSite = {
   inputSelector: 'textarea[name="message"]',
   responseUrl: /\/nextjs-api\/stream\/(?:create|post-to)-evaluation/,
   verificationText: /verify you are human|security verification/i,
+  signIn: { cookie: 'arena-auth-prod-v1.0', tokenPattern: 'access_token":"([^"]+)', claim: 'email', expiring: true },
   modelFields: model => ({ modelAId: model }),
   images: true,
   attachImages: async (page, files) => {
