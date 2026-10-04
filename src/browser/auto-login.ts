@@ -3,6 +3,7 @@ import type { Locator, Page } from 'playwright-core';
 import { autoSolveCaptcha } from './captcha/index.ts';
 import type { ChatSite } from './browser-chat.ts';
 import { launchCdpBrowser, type CdpBrowser, type LaunchOptions } from './cdp.ts';
+import { pageState } from './key-harvest.ts';
 import { decodeJwtPayload, readSignIn, type SignInResult, type SignInRule } from './sign-in.ts';
 
 export type AutoLoginStatus = 'signed-in' | 'logged-in' | 'skipped' | 'failed';
@@ -18,8 +19,14 @@ interface AutoLoginCredentials {
   password: string;
 }
 
+export interface AutoLoginDashboard {
+  id: string;
+  url: string;
+}
+
 export interface AutoLoginOptions {
   sites: ChatSite[];
+  dashboards?: AutoLoginDashboard[];
   credentials?: AutoLoginCredentials;
   profileDir?: string;
   viaGoogle?: boolean;
@@ -53,6 +60,7 @@ const ENTRY_SELECTORS = [
   'button:has-text("Continue with Google")',
 ];
 const GOOGLE_SELECTORS = ['button:has-text("Google")', 'a:has-text("Google")', '[aria-label*="Google" i]'];
+const GOOGLE_AUTH_HOST = /(^|\.)accounts\.google\.com$/;
 const GOOGLE_EMAIL_SELECTORS = ['input[type="email"]', '#identifierId'];
 const PASSWORD_TOGGLE_SELECTORS = ['button:has-text("password")', 'a:has-text("password")'];
 
@@ -63,6 +71,7 @@ async function firstVisible(page: Page, selectors: string[], timeoutMs: number):
       const locator = page.locator(selector).first();
       if (await locator.isVisible().catch(() => false)) return locator;
     }
+    if (Date.now() >= deadline) break;
     await Bun.sleep(200);
   } while (Date.now() < deadline);
   return null;
@@ -112,6 +121,8 @@ async function fillGoogleAuth(target: Page, credentials: AutoLoginCredentials): 
       if (next) await next.click().catch(() => {});
       else await password.press('Enter').catch(() => {});
     }
+    const proceed = await firstVisible(target, ['button:has-text("Continue")', 'button:has-text("Allow")'], SHORT_TIMEOUT_MS);
+    if (proceed) await proceed.click().catch(() => {});
   } catch {}
 }
 
@@ -137,6 +148,10 @@ async function loginWithGoogle(page: Page, credentials: AutoLoginCredentials): P
 }
 
 async function login(page: Page, credentials: AutoLoginCredentials, viaGoogle: boolean): Promise<string | undefined> {
+  if (GOOGLE_AUTH_HOST.test(new URL(page.url()).hostname)) {
+    await fillGoogleAuth(page, credentials);
+    return undefined;
+  }
   if (viaGoogle) return loginWithGoogle(page, credentials);
   if (await firstVisible(page, GOOGLE_SELECTORS, 4_000)) return loginWithGoogle(page, credentials);
   if (await firstVisible(page, EMAIL_SELECTORS, 2_000)) return fillDirectForm(page, credentials);
@@ -208,6 +223,36 @@ async function attemptSite(
   return { site: site.id, status: 'logged-in', detail: await signedInDetail(page, site.signIn) };
 }
 
+async function looksLikeLoginPage(page: Page, url: string): Promise<boolean> {
+  if (!pageState(page.url(), url).ok) return true;
+  if (await firstVisible(page, EMAIL_SELECTORS, 0)) return true;
+  if (await firstVisible(page, GOOGLE_SELECTORS, 0)) return true;
+  if (await firstVisible(page, ENTRY_SELECTORS, 0)) return true;
+  return false;
+}
+
+async function attemptDashboard(
+  page: Page,
+  target: AutoLoginDashboard,
+  options: AutoLoginOptions,
+): Promise<AutoLoginResult> {
+  const now = options.now ?? Date.now;
+  await page.goto(target.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  if (!(await looksLikeLoginPage(page, target.url))) return { site: target.id, status: 'signed-in', detail: 'already signed in' };
+  if (!options.credentials) return { site: target.id, status: 'skipped', detail: 'no credentials given' };
+  await autoSolveCaptcha(page);
+  const failure = await login(page, options.credentials, Boolean(options.viaGoogle));
+  if (failure) return { site: target.id, status: 'failed', detail: failure };
+  const deadline = now() + (options.waitForSignInMs ?? DEFAULT_WAIT_MS);
+  while (now() < deadline) {
+    if (!(await looksLikeLoginPage(page, target.url))) return { site: target.id, status: 'logged-in', detail: 'signed in' };
+    await Bun.sleep(POLL_MS);
+  }
+  await page.goto(target.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {});
+  if (!(await looksLikeLoginPage(page, target.url))) return { site: target.id, status: 'logged-in', detail: 'signed in' };
+  return { site: target.id, status: 'failed', detail: 'not signed in after the login attempt' };
+}
+
 export async function autoSignIn(options: AutoLoginOptions): Promise<AutoLoginResult[]> {
   const launch = options.launch ?? launchCdpBrowser;
   const browser = await launch({ profileDir: options.profileDir });
@@ -228,6 +273,18 @@ export async function autoSignIn(options: AutoLoginOptions): Promise<AutoLoginRe
         const detail = (error instanceof Error ? error.message : String(error)).slice(0, 200);
         results.push({ site: site.id, status: 'failed', detail });
         if (site.signIn) options.onSignIn?.(site.id, { signedIn: false, reason: detail });
+      } finally {
+        await page.close().catch(() => {});
+      }
+    }
+    for (const target of options.dashboards ?? []) {
+      const page = await context.newPage();
+      try {
+        const result = await attemptDashboard(page, target, options);
+        results.push({ ...result, detail: result.detail.slice(0, 200) });
+      } catch (error) {
+        const detail = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+        results.push({ site: target.id, status: 'failed', detail });
       } finally {
         await page.close().catch(() => {});
       }

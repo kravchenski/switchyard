@@ -157,16 +157,38 @@ describe('accounts CLI', () => {
     deps.askHidden = async () => {
       throw new Error('must not prompt when credentials are provided');
     };
-    const calls: Array<{ profile: string; sites?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }> = [];
+    const calls: Array<{ profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }> = [];
     deps.autoLogin = async options => {
       calls.push(options);
       return [];
     };
     deps.env = { LOGIN_EMAIL: 'env@example.com', LOGIN_PASSWORD: 'env-secret' };
     expect(await runAccountsCommand(['auto-login', '--site', 'qwen-chat, kimi-chat', '--google'], deps)).toBe(0);
-    expect(calls).toEqual([{ profile: 'default', sites: ['qwen-chat', 'kimi-chat'], credentials: { email: 'env@example.com', password: 'env-secret' }, viaGoogle: true }]);
+    expect(calls).toEqual([{ profile: 'default', sites: ['qwen-chat', 'kimi-chat'], providers: [], credentials: { email: 'env@example.com', password: 'env-secret' }, viaGoogle: true }]);
     expect(await runAccountsCommand(['auto-login', '--email', 'flag@example.com', '--password', 'flag-secret'], deps)).toBe(0);
     expect(calls[1].credentials).toEqual({ email: 'flag@example.com', password: 'flag-secret' });
+    expect(calls[1].sites).toBeUndefined();
+    expect(calls[1].providers).toBeUndefined();
+  });
+
+  test('auto-login filters provider dashboards with --provider and rejects unknown providers', async () => {
+    const { deps } = harness();
+    deps.askHidden = async () => {
+      throw new Error('must not prompt when credentials are provided');
+    };
+    const calls: Array<{ sites?: string[]; providers?: string[] }> = [];
+    deps.autoLogin = async options => {
+      calls.push(options);
+      return [];
+    };
+    deps.env = { LOGIN_EMAIL: 'env@example.com', LOGIN_PASSWORD: 'env-secret' };
+    expect(await runAccountsCommand(['auto-login', '--provider', 'groq, nvidia'], deps)).toBe(0);
+    expect(calls[0].sites).toEqual([]);
+    expect(calls[0].providers).toEqual(['groq', 'nvidia']);
+    expect(await runAccountsCommand(['auto-login', '--site', 'qwen-chat'], deps)).toBe(0);
+    expect(calls[1].sites).toEqual(['qwen-chat']);
+    expect(calls[1].providers).toEqual([]);
+    await expect(runAccountsCommand(['auto-login', '--provider', 'nope'], deps)).rejects.toThrow('Unknown provider: nope');
   });
 
   test('auto-login rejects unknown sites and empty credentials', async () => {

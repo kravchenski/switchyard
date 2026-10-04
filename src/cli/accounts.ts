@@ -35,7 +35,7 @@ export interface AccountsCliDeps {
   providerAuto?: (provider: string, auto?: boolean) => boolean;
   autoSettings?: (change: { focus?: string; mode?: string; agents?: Record<string, string | undefined> }) => { focus: string; mode: string; agents?: Record<string, boolean> };
   harvest?: (options: { profile: string; providers?: string[] }) => Promise<HarvestResult[]>;
-  autoLogin?: (options: { profile: string; sites?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }) => Promise<AutoLoginResult[]>;
+  autoLogin?: (options: { profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }) => Promise<AutoLoginResult[]>;
   env?: Record<string, string | undefined>;
 }
 
@@ -72,10 +72,12 @@ export const ACCOUNTS_USAGE = `Usage: bun run account <command>
   harvest [--profile <id>] [--provider <id>] [--yes]
                                                   Visit provider dashboards and create/update API keys from your
                                                   signed-in browser accounts (asks for consent unless --yes)
-  auto-login [--profile <id>] [--site <id,...>] [--google] [--email <address>] [--password <secret>]
-                                                  Sign in to every web chat with an account you provide; Google sign-in
-                                                  is preferred when the site offers it, --google forces it, the email
-                                                  and password are prompted (LOGIN_EMAIL/LOGIN_PASSWORD work too)
+  auto-login [--profile <id>] [--site <id,...>] [--provider <id,...>] [--google] [--email <address>] [--password <secret>]
+                                                  Sign in to every web chat and provider dashboard with an account you
+                                                  provide; Google sign-in is preferred when the site offers it,
+                                                  --google forces it, the email and password are prompted
+                                                  (LOGIN_EMAIL/LOGIN_PASSWORD work too); without --site/--provider
+                                                  every chat and dashboard is attempted
 
 API key providers: ${[...API_KEY_PROVIDERS].join(', ')}
 Web chat site ids: ${WEB_CHAT_IDS.join(', ')}
@@ -84,6 +86,10 @@ Web chats sign in through the browser profile: bun run account open <url>`;
 function option(args: string[], name: string) {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
+}
+
+function splitIds(value: string) {
+  return value.split(',').map(entry => entry.trim()).filter(Boolean);
 }
 
 function requireProvider(provider: string | undefined) {
@@ -233,15 +239,20 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
   if (command === 'auto-login' && deps.autoLogin) {
     const profile = profileOption(args, deps);
     const siteOption = option(args, '--site');
-    const sites = siteOption ? siteOption.split(',').map(value => value.trim()).filter(Boolean) : undefined;
+    const providerOption = option(args, '--provider');
+    const sites = siteOption ? splitIds(siteOption) : providerOption ? [] : undefined;
+    const providers = providerOption ? splitIds(providerOption) : siteOption ? [] : undefined;
     for (const id of sites ?? []) {
       if (!WEB_CHAT_IDS.includes(id)) throw new Error(`Unknown site: ${id}. Web chats: ${WEB_CHAT_IDS.join(', ')}\n\n${ACCOUNTS_USAGE}`);
+    }
+    for (const id of providers ?? []) {
+      requireProvider(id);
     }
     const email = (option(args, '--email') ?? deps.env?.LOGIN_EMAIL ?? (await deps.askHidden('Email: '))).trim();
     const password = option(args, '--password') ?? deps.env?.LOGIN_PASSWORD ?? await deps.askHidden('Password: ');
     if (!email) throw new Error('Email is required');
     if (!password) throw new Error('Password is required');
-    const results = await deps.autoLogin({ profile, sites, credentials: { email, password }, viaGoogle: args.includes('--google') });
+    const results = await deps.autoLogin({ profile, sites, providers, credentials: { email, password }, viaGoogle: args.includes('--google') });
     for (const result of results) deps.log(`${result.site.padEnd(12)} ${result.status.padEnd(10)} ${result.detail}`);
     const count = (status: AutoLoginStatus) => results.filter(entry => entry.status === status).length;
     deps.log(`signed-in: ${count('signed-in')}, logged-in: ${count('logged-in')}, skipped: ${count('skipped')}, failed: ${count('failed')}`);

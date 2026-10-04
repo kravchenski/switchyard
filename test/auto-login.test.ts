@@ -73,6 +73,29 @@ document.getElementById('passwordNext').addEventListener('click', () => {
 });
 </script></body></html>`;
 
+const dashboardPage = `<!doctype html><html><body><div id="app"></div><script>
+function makeJwt(payload) {
+  const b64 = value => btoa(JSON.stringify(value));
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
+}
+if (new URLSearchParams(location.search).has('preset')) localStorage.setItem('token', makeJwt({ id: 'u1' }));
+let rendered = null;
+function render() {
+  const signedIn = Boolean(localStorage.getItem('token'));
+  if (signedIn === rendered) return;
+  rendered = signedIn;
+  const app = document.getElementById('app');
+  if (signedIn) {
+    app.innerHTML = '<h1>provider dashboard</h1><button>Create key</button>';
+  } else {
+    app.innerHTML = '<button id="google">Continue with Google</button><input type="email" id="email">';
+    document.getElementById('google').addEventListener('click', () => window.open('/glogin', 'auth', 'width=480,height=640'));
+  }
+}
+render();
+setInterval(render, 200);
+</script></body></html>`;
+
 let server: ReturnType<typeof Bun.serve> | undefined;
 let origin = '';
 
@@ -84,6 +107,7 @@ beforeAll(() => {
       const html = path === '/google' ? googleEntryPage
         : path === '/glogin' ? googleLoginPage
         : path === '/empty' ? '<!doctype html><html><body><h1>landing</h1></body></html>'
+        : path.startsWith('/provider/') ? dashboardPage
         : loginPage;
       return new Response(html, { headers: { 'content-type': 'text/html' } });
     },
@@ -172,6 +196,38 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       profileDir: profile(),
     });
     expect(results).toEqual([{ site: 'fake-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+  }, 120_000);
+
+  test('signs into a provider dashboard through Google', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-provider', url: `${origin}/provider/keys` }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-provider', status: 'logged-in', detail: 'signed in' }]);
+  }, 120_000);
+
+  test('reports an already signed-in provider dashboard', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-provider', url: `${origin}/provider/keys?preset` }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-provider', status: 'signed-in', detail: 'already signed in' }]);
+  }, 120_000);
+
+  test('reports a failed provider dashboard when the page is unreachable', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-dead', url: 'http://127.0.0.1:1/keys' }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].site).toBe('fake-dead');
+    expect(results[0].status).toBe('failed');
   }, 120_000);
 
   test('skips sites without a sign-in rule without opening them', async () => {

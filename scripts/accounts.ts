@@ -129,13 +129,17 @@ try {
     accountLabel: provider => apiKeyProvider(provider)?.account?.label,
     harvest: ({ profile, providers }) => harvestKeys({ profileDir: profileDir(profile), label: profile, providers, store }),
     env: process.env,
-    autoLogin: async ({ profile, sites, credentials, viaGoogle }) => {
+    autoLogin: async ({ profile, sites, providers, credentials, viaGoogle }) => {
       const chosen = WEB_CHAT_SITES.filter(site => !sites || sites.includes(site.id));
+      const dashboards = API_KEY_PROVIDERS
+        .filter(provider => !providers || providers.includes(provider.id))
+        .map(provider => ({ id: provider.id, url: provider.keyUrl }));
       const db = openDatabase();
       try {
         const status = new WebSignInStatus({ load: (provider, id) => loadSignIn(db, provider, id), save: record => saveSignIn(db, record) });
         return await autoSignIn({
           sites: chosen,
+          dashboards,
           credentials,
           viaGoogle,
           profileDir: profileDir(profile),
