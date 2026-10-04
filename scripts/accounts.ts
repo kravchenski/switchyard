@@ -23,6 +23,7 @@ import { loadAccountsSecret, systemKeyring } from '../src/core/secrets/accounts-
 import { accountStates } from '../src/core/status.ts';
 import { loadDeepSeekAccounts } from '../src/providers/deepseek/accounts.ts';
 import { harvestKeys } from '../src/browser/key-harvest.ts';
+import { autoSignIn } from '../src/browser/auto-login.ts';
 
 function withDb<T>(run: (db: Database) => T) {
   const db = openDatabase();
@@ -127,6 +128,23 @@ try {
     },
     accountLabel: provider => apiKeyProvider(provider)?.account?.label,
     harvest: ({ profile, providers }) => harvestKeys({ profileDir: profileDir(profile), label: profile, providers, store }),
+    env: process.env,
+    autoLogin: async ({ profile, sites, credentials, viaGoogle }) => {
+      const chosen = WEB_CHAT_SITES.filter(site => !sites || sites.includes(site.id));
+      const db = openDatabase();
+      try {
+        const status = new WebSignInStatus({ load: (provider, id) => loadSignIn(db, provider, id), save: record => saveSignIn(db, record) });
+        return await autoSignIn({
+          sites: chosen,
+          credentials,
+          viaGoogle,
+          profileDir: profileDir(profile),
+          onSignIn: (siteId, result) => status.record(siteId, result.signedIn, result.signedIn ? undefined : result.reason, profile),
+        });
+      } finally {
+        db.close();
+      }
+    },
   });
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

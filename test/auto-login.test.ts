@@ -1,0 +1,170 @@
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { autoSignIn } from '../src/browser/auto-login.ts';
+import type { ChatSite } from '../src/browser/browser-chat.ts';
+import type { SignInResult } from '../src/browser/sign-in.ts';
+import { findBrowserExecutable } from '../src/platform/browserExecutable.ts';
+
+const loginPage = `<!doctype html><html><body><div id="app"></div><script>
+function makeJwt(payload) {
+  const b64 = value => btoa(JSON.stringify(value));
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
+}
+if (localStorage.getItem('token')) {
+  document.getElementById('app').innerHTML = '<h1>chat ready</h1>';
+} else {
+  document.getElementById('app').innerHTML = '<form id="login"><input type="email" id="email"><input type="password" id="password"><button type="submit">Sign in</button></form><div id="error"></div>';
+  document.getElementById('login').addEventListener('submit', event => {
+    event.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    if (email === 'user@example.com' && password === 'secret') {
+      localStorage.setItem('token', makeJwt({ id: 'u1', email }));
+      location.reload();
+    } else {
+      document.getElementById('error').textContent = 'Wrong email or password';
+    }
+  });
+}
+</script></body></html>`;
+
+const googleEntryPage = `<!doctype html><html><body>
+<button id="google">Sign in with Google</button>
+<script>
+document.getElementById('google').addEventListener('click', () => window.open('/glogin', 'auth', 'width=480,height=640'));
+</script></body></html>`;
+
+const googleLoginPage = `<!doctype html><html><body>
+<input type="email" id="email">
+<button id="identifierNext" type="button">Next</button>
+<input type="password" id="password" style="display:none">
+<button id="passwordNext" type="button" style="display:none">Next</button>
+<div id="error"></div>
+<script>
+function makeJwt(payload) {
+  const b64 = value => btoa(JSON.stringify(value));
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
+}
+document.getElementById('identifierNext').addEventListener('click', () => {
+  const email = document.getElementById('email').value;
+  if (email !== 'user@example.com') {
+    document.getElementById('error').textContent = 'Wrong email';
+    return;
+  }
+  document.getElementById('password').style.display = 'block';
+  document.getElementById('passwordNext').style.display = 'block';
+});
+document.getElementById('passwordNext').addEventListener('click', () => {
+  const password = document.getElementById('password').value;
+  if (password !== 'secret') {
+    document.getElementById('error').textContent = 'Wrong password';
+    return;
+  }
+  localStorage.setItem('token', makeJwt({ id: 'u1', email: document.getElementById('email').value }));
+  window.close();
+});
+</script></body></html>`;
+
+let server: ReturnType<typeof Bun.serve> | undefined;
+let origin = '';
+
+beforeAll(() => {
+  server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const path = new URL(request.url).pathname;
+      const html = path === '/google' ? googleEntryPage
+        : path === '/glogin' ? googleLoginPage
+        : path === '/empty' ? '<!doctype html><html><body><h1>landing</h1></body></html>'
+        : loginPage;
+      return new Response(html, { headers: { 'content-type': 'text/html' } });
+    },
+  });
+  origin = `http://127.0.0.1:${server.port}`;
+});
+
+const profileDirs: string[] = [];
+
+afterAll(() => {
+  server?.stop(true);
+  for (const dir of profileDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+function profile() {
+  const dir = mkdtempSync(join(tmpdir(), 'auto-login-'));
+  profileDirs.push(dir);
+  return dir;
+}
+
+function site(id: 'fake-chat' | 'fake-google-chat' | 'fake-arena-chat'): ChatSite {
+  if (id === 'fake-chat') return { id, url: `${origin}/`, inputSelector: '#email', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
+  if (id === 'fake-google-chat') return { id, url: `${origin}/google`, inputSelector: '#google', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
+  return { id, url: 'http://127.0.0.1:1/unreachable', inputSelector: '#never', responseUrl: /never/ };
+}
+
+const credentials = { email: 'user@example.com', password: 'secret' };
+
+describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable())('auto sign-in', () => {
+  test('logs in through the email and password form, then reports the profile as already signed in', async () => {
+    const dir = profile();
+    const recorded: Array<[string, SignInResult]> = [];
+    const first = await autoSignIn({
+      sites: [site('fake-chat')],
+      credentials,
+      profileDir: dir,
+      onSignIn: (id, result) => recorded.push([id, result]),
+    });
+    expect(first).toEqual([{ site: 'fake-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+    expect(recorded).toEqual([['fake-chat', { signedIn: true }]]);
+
+    const second = await autoSignIn({
+      sites: [site('fake-chat')],
+      credentials,
+      profileDir: dir,
+    });
+    expect(second).toEqual([{ site: 'fake-chat', status: 'signed-in', detail: 'already signed in' }]);
+  }, 120_000);
+
+  test('reports a failure and the sign-in state when the password is wrong', async () => {
+    const recorded: SignInResult[] = [];
+    const results = await autoSignIn({
+      sites: [site('fake-chat')],
+      credentials: { email: 'user@example.com', password: 'wrong' },
+      profileDir: profile(),
+      waitForSignInMs: 2_000,
+      onSignIn: (id, result) => recorded.push(result),
+    });
+    expect(results).toEqual([{ site: 'fake-chat', status: 'failed', detail: 'not signed in after the login attempt' }]);
+    expect(recorded).toEqual([{ signedIn: false, reason: 'not signed in after the login attempt' }]);
+  }, 120_000);
+
+  test('logs in through the Google popup', async () => {
+    const results = await autoSignIn({
+      sites: [site('fake-google-chat')],
+      credentials,
+      viaGoogle: true,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-google-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+  }, 120_000);
+
+  test('skips sites without a sign-in rule without opening them', async () => {
+    const results = await autoSignIn({
+      sites: [site('fake-arena-chat')],
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-arena-chat', status: 'skipped', detail: 'sign-in is optional' }]);
+  }, 120_000);
+
+  test('reports a failure when the login form cannot be found', async () => {
+    const results = await autoSignIn({
+      sites: [{ id: 'empty-chat', url: `${origin}/empty`, inputSelector: '#x', responseUrl: /x/, signIn: { storageKey: 'token', claim: 'id' } }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'empty-chat', status: 'failed', detail: 'login form not found' }]);
+  }, 120_000);
+});

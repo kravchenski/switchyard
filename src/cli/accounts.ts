@@ -2,9 +2,11 @@ import type { ApiKeyCredential, Credential } from '../core/accounts/credential-s
 import type { SiteSignIn } from '../browser/sign-in-check.ts';
 import type { BrowserProfile } from '../browser/profiles.ts';
 import type { HarvestResult, HarvestStatus } from '../browser/key-harvest.ts';
+import type { AutoLoginResult, AutoLoginStatus } from '../browser/auto-login.ts';
 import { notSignedIn } from '../browser/browser-chat.ts';
 import { formatOverview, type ProviderOverview } from './overview.ts';
 import { API_KEY_PROVIDERS as API_KEY_DEFINITIONS } from '../providers/catalog.ts';
+import { WEB_CHAT_SITES } from '../providers/web-chat-sites.ts';
 
 export interface AccountsCliDeps {
   store: {
@@ -33,9 +35,12 @@ export interface AccountsCliDeps {
   providerAuto?: (provider: string, auto?: boolean) => boolean;
   autoSettings?: (change: { focus?: string; mode?: string; agents?: Record<string, string | undefined> }) => { focus: string; mode: string; agents?: Record<string, boolean> };
   harvest?: (options: { profile: string; providers?: string[] }) => Promise<HarvestResult[]>;
+  autoLogin?: (options: { profile: string; sites?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }) => Promise<AutoLoginResult[]>;
+  env?: Record<string, string | undefined>;
 }
 
 const API_KEY_PROVIDERS = new Set(API_KEY_DEFINITIONS.map(provider => provider.id));
+const WEB_CHAT_IDS = WEB_CHAT_SITES.map(site => site.id);
 
 export type ProfileSignIn = SiteSignIn & { profile?: BrowserProfile };
 
@@ -67,8 +72,13 @@ export const ACCOUNTS_USAGE = `Usage: bun run account <command>
   harvest [--profile <id>] [--provider <id>] [--yes]
                                                   Visit provider dashboards and create/update API keys from your
                                                   signed-in browser accounts (asks for consent unless --yes)
+  auto-login [--profile <id>] [--site <id,...>] [--google] [--email <address>] [--password <secret>]
+                                                  Sign in to every web chat with an account you provide; the email
+                                                  and password are prompted (LOGIN_EMAIL/LOGIN_PASSWORD work too),
+                                                  --google logs in through "Continue with Google"
 
 API key providers: ${[...API_KEY_PROVIDERS].join(', ')}
+Web chat site ids: ${WEB_CHAT_IDS.join(', ')}
 Web chats sign in through the browser profile: bun run account open <url>`;
 
 function option(args: string[], name: string) {
@@ -217,6 +227,25 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
     const count = (status: HarvestStatus) => results.filter(entry => entry.status === status).length;
     deps.log(`created: ${count('created')}, updated: ${count('updated')}, unchanged: ${count('unchanged')}, skipped: ${count('skipped')}, failed: ${count('failed')}`);
     const good = count('created') + count('updated') + count('unchanged');
+    return count('failed') > 0 && good === 0 ? 1 : 0;
+  }
+
+  if (command === 'auto-login' && deps.autoLogin) {
+    const profile = profileOption(args, deps);
+    const siteOption = option(args, '--site');
+    const sites = siteOption ? siteOption.split(',').map(value => value.trim()).filter(Boolean) : undefined;
+    for (const id of sites ?? []) {
+      if (!WEB_CHAT_IDS.includes(id)) throw new Error(`Unknown site: ${id}. Web chats: ${WEB_CHAT_IDS.join(', ')}\n\n${ACCOUNTS_USAGE}`);
+    }
+    const email = (option(args, '--email') ?? deps.env?.LOGIN_EMAIL ?? (await deps.askHidden('Email: '))).trim();
+    const password = option(args, '--password') ?? deps.env?.LOGIN_PASSWORD ?? await deps.askHidden('Password: ');
+    if (!email) throw new Error('Email is required');
+    if (!password) throw new Error('Password is required');
+    const results = await deps.autoLogin({ profile, sites, credentials: { email, password }, viaGoogle: args.includes('--google') });
+    for (const result of results) deps.log(`${result.site.padEnd(12)} ${result.status.padEnd(10)} ${result.detail}`);
+    const count = (status: AutoLoginStatus) => results.filter(entry => entry.status === status).length;
+    deps.log(`signed-in: ${count('signed-in')}, logged-in: ${count('logged-in')}, skipped: ${count('skipped')}, failed: ${count('failed')}`);
+    const good = count('signed-in') + count('logged-in');
     return count('failed') > 0 && good === 0 ? 1 : 0;
   }
 
