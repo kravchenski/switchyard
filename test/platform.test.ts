@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { browserCandidates, findBrowserExecutable } from '../src/platform/browserExecutable.ts';
 import { parseStartupArgs } from '../src/cli/startup.ts';
+import { containerChromeFlags } from '../src/browser/cdp.ts';
 
 describe('cross-platform runtime', () => {
     test('discovers standard browser locations on each supported OS', () => {
@@ -32,5 +33,15 @@ describe('cross-platform runtime', () => {
         expect(() => parseStartupArgs(['--service=qwen'])).toThrow('qwen');
         expect(() => parseStartupArgs(['--service=gateway'])).toThrow('gateway');
         expect(() => parseStartupArgs(['--service', 'unknown'])).toThrow();
+    });
+
+    test('adds chrome sandbox flags only inside a container', () => {
+        expect(containerChromeFlags({}, () => false)).toEqual([]);
+        expect(containerChromeFlags({ CHROME_SANDBOX: 'off' }, () => false))
+            .toEqual(['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']);
+        expect(containerChromeFlags({}, file => file === '/.dockerenv'))
+            .toEqual(['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']);
+        expect(containerChromeFlags({}, file => file === '/run/.containerenv'))
+            .toEqual(['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']);
     });
 });

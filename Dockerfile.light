@@ -5,11 +5,16 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 FROM oven/bun:1.4.2-slim
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    CHROME_PATH=/usr/bin/chromium
 WORKDIR /app
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium ca-certificates fonts-liberation \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=builder --chown=bun:bun /app/node_modules ./node_modules
 COPY --chown=bun:bun package.json bun.lock deepseek.ts ./
 COPY --chown=bun:bun src ./src
+COPY --chown=bun:bun scripts ./scripts
 RUN install -d -o bun -g bun /app/session /app/logs /app/data \
  && find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 USER bun
