@@ -213,6 +213,11 @@ beforeAll(() => {
     port: 0,
     fetch(request) {
       const path = new URL(request.url).pathname;
+      if (path === '/provider/redirect' || path === '/provider/redirect-login') {
+        const target = path.endsWith('redirect-login') ? '/provider/keys' : '/provider/landed';
+        const host = new URL(request.url).hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1';
+        return new Response(null, { status: 302, headers: { location: `http://${host}:${server!.port}${target}` } });
+      }
       const html = path === '/google' ? googleEntryPage
         : path === '/glogin' ? googleLoginPage
         : path === '/empty' ? '<!doctype html><html><body><h1>landing</h1></body></html>'
@@ -220,6 +225,7 @@ beforeAll(() => {
         : path === '/bounce1' ? bouncePage('/bounce2')
         : path === '/bounce2' ? bouncePage('/bounce3')
         : path === '/bounce3' ? bouncePage('done')
+        : path === '/provider/landed' ? '<!doctype html><html><body><h1>provider dashboard</h1><button>Create key</button></body></html>'
         : path === '/provider/disabled' ? disabledLoginPage
         : path.startsWith('/provider/') ? dashboardPage
         : loginPage;
@@ -405,5 +411,25 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       profileDir: profile(),
     });
     expect(results).toEqual([{ site: 'fake-bounce-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+  }, 120_000);
+
+  test('reports a dashboard that redirects to another host without a login form as already signed in', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-redirect', url: `${origin}/provider/redirect` }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-redirect', status: 'signed-in', detail: 'already signed in' }]);
+  }, 120_000);
+
+  test('signs in when the dashboard login lands on another host', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-redirect-login', url: `${origin}/provider/redirect-login` }],
+      credentials,
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-redirect-login', status: 'logged-in', detail: 'signed in' }]);
   }, 120_000);
 });

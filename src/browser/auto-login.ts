@@ -343,9 +343,17 @@ async function dismissConsent(page: Page): Promise<void> {
 }
 
 async function looksLikeLoginPage(page: Page, url: string): Promise<boolean> {
-  if (!pageState(page.url(), url).ok) return true;
   const selector = [...EMAIL_SELECTORS, ...PASSWORD_SELECTORS, ...GOOGLE_SELECTORS, ...ENTRY_SELECTORS].join(', ');
-  return await page.locator(selector).first().isVisible().catch(() => false);
+  const visible = async () => page.locator(selector).first().isVisible().catch(() => false);
+  const state = pageState(page.url(), url);
+  if (state.ok) return visible();
+  if (state.detail?.startsWith('not signed in')) return true;
+  const deadline = Date.now() + 3_000;
+  do {
+    if (await visible()) return true;
+    await Bun.sleep(200);
+  } while (Date.now() < deadline);
+  return false;
 }
 
 async function attemptDashboard(
