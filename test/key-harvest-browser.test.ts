@@ -28,6 +28,7 @@ interface FakeState {
   scanned?: string[];
   gotoError?: string;
   wall?: boolean;
+  clipboard?: string;
 }
 
 interface FakeRow {
@@ -96,6 +97,7 @@ function fakePage(state: FakeState = {}): HarvestPage {
     url: () => current,
     locator,
     evaluate: async (_fn, arg) => {
+      if (arg === 'clipboard') return (state.clipboard ?? '') as never;
       if (!arg || typeof arg !== 'object' || !('source' in arg)) return Boolean(state.wall) as never;
       const re = new RegExp((arg as { source: string }).source);
       return (state.scanned ?? []).flatMap(text => text.split(/[\s"'`]+/)).filter(token => re.test(token)) as never;

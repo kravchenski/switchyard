@@ -27,6 +27,7 @@ interface FakeState {
   scanned?: string[];
   gotoError?: string;
   wall?: boolean;
+  clipboard?: string;
 }
 
 interface FakeRow {
@@ -95,6 +96,7 @@ function fakePage(state: FakeState = {}): HarvestPage {
     url: () => current,
     locator,
     evaluate: async (_fn, arg) => {
+      if (arg === 'clipboard') return (state.clipboard ?? '') as never;
       if (!arg || typeof arg !== 'object' || !('source' in arg)) return Boolean(state.wall) as never;
       const re = new RegExp((arg as { source: string }).source);
       return (state.scanned ?? []).flatMap(text => text.split(/[\s"'`]+/)).filter(token => re.test(token)) as never;
@@ -116,6 +118,19 @@ describe('harvest engine', () => {
     const page = fakePage({ finalUrl: adapter.keyUrl, scanned: [`prefix ${KEY} suffix`] });
     const result = await harvestOne(adapter, page, store, { label: 'default' });
     expect(result.status).toBe('created');
+  });
+
+  test('reads a key from the clipboard when the list only shows masked rows', async () => {
+    const store = fakeStore();
+    const page = fakePage({
+      finalUrl: adapter.keyUrl,
+      elements: { 'button:has-text("content_copy")': { visible: true } },
+      clipboard: KEY,
+    });
+    const result = await harvestOne(adapter, page, store, { label: 'default' });
+    expect(result.status).toBe('created');
+    expect(result.keyPreview).toBe('sk-li…ghij');
+    expect(store.list('fake')).toHaveLength(1);
   });
 
   test('skips a page that landed on a google login', async () => {

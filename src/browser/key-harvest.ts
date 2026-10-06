@@ -62,6 +62,7 @@ const DISMISS_SELECTORS = [
   'button:has-text("Accept all")',
   'button:has-text("Allow all")',
   'button:has-text("Allow analytics")',
+  'button:has-text("Save My Preferences")',
   'button:has-text("I agree")',
   'button:has-text("Got it")',
   '[aria-label="Close"]',
@@ -112,6 +113,24 @@ async function readCandidate(locator: HarvestLocator): Promise<string | null> {
   return null;
 }
 
+const COPY_SELECTORS = [
+  'button:has-text("content_copy")',
+  '[aria-label*="copy key" i]',
+  'button:has-text("Copy key")',
+  'button:has-text("Copy API key")',
+  'button:has-text("Copy")',
+];
+
+async function readViaCopy(page: HarvestPage, pattern: RegExp, sleep: (ms: number) => Promise<void>): Promise<string | null> {
+  const target = await visibleLocator(page, COPY_SELECTORS);
+  if (!target) return null;
+  await target.locator.click({ timeout: 2_000 }).catch(() => {});
+  await sleep(300);
+  const read = page.evaluate(() => navigator.clipboard.readText().catch(() => ''), 'clipboard').catch(() => '');
+  const text = await Promise.race([read, sleep(4_000).then(() => '')]);
+  return validateKey(typeof text === 'string' ? text : '', pattern);
+}
+
 async function scanDom(page: HarvestPage, pattern: RegExp): Promise<string[]> {
   const scan = page.evaluate(
     ({ source }) => {
@@ -121,7 +140,7 @@ async function scanDom(page: HarvestPage, pattern: RegExp): Promise<string[]> {
         if (!raw) return;
         for (const token of raw.split(/[\s"'`]+/)) if (re.test(token)) found.push(token);
       };
-      for (const element of Array.from(document.querySelectorAll('input, code, pre, [data-key], [data-api-key]'))) {
+      for (const element of Array.from(document.querySelectorAll('input, textarea, code, pre, [data-key], [data-api-key]'))) {
         const input = element as HTMLInputElement;
         push(input.value || input.textContent);
       }
@@ -161,11 +180,18 @@ async function looksLikeAuthWall(page: HarvestPage): Promise<boolean> {
         return rect.width > 0 && rect.height > 0;
       };
       const AUTH_BUTTON = /^(continue with\b|sign in\b|log in\b|login\b|sign up\b)/i;
+      const inputs = Array.from(document.querySelectorAll('input[type="password"], input[type="email"]')).some(visible);
+      const onInteractive = (element: Element) => {
+        if (element.matches('button, [role="button"], a') && visible(element)) {
+          return AUTH_BUTTON.test((element.textContent || '').trim().slice(0, 60));
+        }
+        if (!inputs || !element.matches('div, span') || !visible(element)) return false;
+        const text = (element.textContent || '').trim();
+        return text.length < 80 && AUTH_BUTTON.test(text);
+      };
       const hasPassword = Array.from(document.querySelectorAll('input[type="password"]')).some(visible);
-      const hasAuthButton = Array.from(document.querySelectorAll('button, [role="button"], a')).some(
-        element => visible(element) && AUTH_BUTTON.test((element.textContent || '').trim().slice(0, 40)),
-      );
-      return hasPassword || hasAuthButton;
+      const hasAuthText = Array.from(document.querySelectorAll('button, [role="button"], a, div, span')).some(onInteractive);
+      return hasPassword || hasAuthText;
     }, undefined)
     .catch(() => false);
   return await Promise.race([scan, Bun.sleep(6_000).then(() => false)]);
@@ -173,9 +199,18 @@ async function looksLikeAuthWall(page: HarvestPage): Promise<boolean> {
 
 async function clearBlockingUi(page: HarvestPage): Promise<void> {
   const selectors = [...DIALOG_PROCEED_SELECTORS, ...DISMISS_SELECTORS];
+  const nameFields = ['input[name="name"]', 'input[placeholder*="name" i]'];
   let checkboxSeen = false;
-  for (let round = 0; round < 3; round++) {
+  for (let round = 0; round < 6; round++) {
     let clicked = false;
+    const name = await visibleLocator(page, nameFields);
+    if (name) {
+      const value = await name.locator.inputValue({ timeout: 800 }).catch(() => '');
+      if (!value) {
+        await name.locator.fill('free-qwen-api').catch(() => {});
+        clicked = true;
+      }
+    }
     const dialogCheckbox = page.locator('[role="dialog"] input[type="checkbox"]:not(:checked)').first();
     if (await dialogCheckbox.isVisible().catch(() => false)) {
       await dialogCheckbox.click({ timeout: 1_500 }).catch(() => {});
@@ -184,7 +219,7 @@ async function clearBlockingUi(page: HarvestPage): Promise<void> {
     }
     const pageContinue = page.locator('button:text-is("Continue"), button:text-is("Accept and continue")').first();
     if (await pageContinue.isVisible().catch(() => false)) {
-      if (!checkboxSeen) {
+      if (round > 0 && !checkboxSeen) {
         const pageCheckbox = page.locator('input[type="checkbox"]:not(:checked)').first();
         if (await pageCheckbox.isVisible().catch(() => false)) {
           await pageCheckbox.click({ timeout: 1_500 }).catch(() => {});
@@ -192,10 +227,8 @@ async function clearBlockingUi(page: HarvestPage): Promise<void> {
           clicked = true;
         }
       }
-      if (checkboxSeen) {
-        await pageContinue.click({ timeout: 1_500 }).catch(() => {});
-        clicked = true;
-      }
+      await pageContinue.click({ timeout: 1_500 }).catch(() => {});
+      clicked = true;
     }
     for (const selector of selectors) {
       const button = page.locator(selector).first();
@@ -257,6 +290,8 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
         const found = validateKey(token, adapter.keyPattern);
         if (found) return found;
       }
+      const copied = await readViaCopy(page, adapter.keyPattern, sleep);
+      if (copied) return copied;
       return null;
     };
 
@@ -266,7 +301,10 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
       let confirm = await visibleLocator(page, adapter.confirmSelectors.filter(selector => selector.includes('[role="dialog"]')));
       if (!confirm) {
         const create = await waitForVisible(page, adapter.createSelectors, now, sleep, UI_WAIT_MS);
-        if (!create) return failed(`no key found; create one manually at ${adapter.keyUrl}`);
+        if (!create) {
+          if (await looksLikeAuthWall(page)) return skipped('not signed in (bun run account connect)');
+          return failed(`no key found; create one manually at ${adapter.keyUrl}`);
+        }
         try {
           await clickSafe(page, adapter.keyUrl, create);
         } catch (error) {
@@ -322,6 +360,7 @@ export interface HarvestBrowser {
 
 async function defaultLaunch({ profileDir }: { profileDir: string }): Promise<HarvestBrowser> {
   const cdp = await launchCdpBrowser({ profileDir });
+  await cdp.browser.contexts()[0]?.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
   return {
     contexts: () =>
       cdp.browser.contexts().map(context => ({
