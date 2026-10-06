@@ -178,7 +178,7 @@ export const FREE_API_PROVIDERS: ApiProviderDefinition[] = [
     label: 'LLM7.io',
     baseUrl: 'https://api.llm7.io/v1',
     apiKeyEnv: 'LLM7_API_KEY',
-    keyUrl: 'https://token.llm7.io',
+    keyUrl: 'https://dash.llm7.io',
     namespace: true,
     modelFilter: isApiChatModel,
   },

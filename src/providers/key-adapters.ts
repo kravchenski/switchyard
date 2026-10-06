@@ -22,9 +22,16 @@ const NAME_FIELDS = [
   'input[placeholder*="Name" i]',
   'input[name="description"]',
   '#token-name',
+  '[role="dialog"] input[type="text"]',
+  '[role="dialog"] input:not([type])',
 ];
 
 const CONFIRMS = [
+  '[role="dialog"] button:has-text("Create")',
+  '[role="dialog"] button:has-text("Generate")',
+  'button:has-text("Create Key")',
+  'button:has-text("Save")',
+  'button:has-text("Submit")',
   'button:has-text("Confirm")',
   'button:has-text("I agree")',
   'button:has-text("Got it")',
@@ -36,6 +43,7 @@ const CREATORS = [
   'a:has-text("Create")',
   'button:has-text("Generate")',
   'button:has-text("Get API Key")',
+  'button:has-text("Add API Key")',
   'button:has-text("New")',
 ];
 
@@ -70,7 +78,7 @@ export const KEY_ADAPTERS: ProviderKeyAdapter[] = [
   { provider: 'ovhcloud', keyUrl: keyUrl('ovhcloud'), keyPattern: /^[A-Za-z0-9]{32,64}$/, ...common },
   { provider: 'llm7', keyUrl: keyUrl('llm7'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'zai', keyUrl: keyUrl('zai'), keyPattern: /^[A-Za-z0-9]{32,64}$/, ...common },
-  { provider: 'ollama-cloud', keyUrl: keyUrl('ollama-cloud'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
+  { provider: 'ollama-cloud', keyUrl: keyUrl('ollama-cloud'), keyPattern: /^(?:sk-[A-Za-z0-9_-]{20,}|[a-f0-9]{40,})$/i, ...common },
   { provider: 'opencode-zen', keyUrl: keyUrl('opencode-zen'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'kilo', keyUrl: keyUrl('kilo'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'cloudflare', keyUrl: keyUrl('cloudflare'), keyPattern: /^[A-Za-z0-9]{40}$/, ...common },

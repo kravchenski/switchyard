@@ -34,7 +34,7 @@ export interface AccountsCliDeps {
   secretSource?: () => Promise<string>;
   providerAuto?: (provider: string, auto?: boolean) => boolean;
   autoSettings?: (change: { focus?: string; mode?: string; agents?: Record<string, string | undefined> }) => { focus: string; mode: string; agents?: Record<string, boolean> };
-  harvest?: (options: { profile: string; providers?: string[] }) => Promise<HarvestResult[]>;
+  harvest?: (options: { profile: string; providers?: string[]; onResult?: (result: HarvestResult) => void }) => Promise<HarvestResult[]>;
   autoLogin?: (options: { profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }) => Promise<AutoLoginResult[]>;
   env?: Record<string, string | undefined>;
 }
@@ -225,11 +225,12 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
         return 0;
       }
     }
-    const results = await deps.harvest({ profile, providers: provider ? [provider] : undefined });
-    for (const result of results) {
+    const format = (result: HarvestResult) => {
       const preview = result.keyPreview ? `  ${result.keyPreview}` : '';
-      deps.log(`${result.provider.padEnd(14)} ${result.status.padEnd(10)} ${result.detail}${preview}`);
-    }
+      return `${result.provider.padEnd(14)} ${result.status.padEnd(10)} ${result.detail}${preview}`;
+    };
+    deps.log('Visiting provider dashboards...');
+    const results = await deps.harvest({ profile, providers: provider ? [provider] : undefined, onResult: result => deps.log(format(result)) });
     const count = (status: HarvestStatus) => results.filter(entry => entry.status === status).length;
     deps.log(`created: ${count('created')}, updated: ${count('updated')}, unchanged: ${count('unchanged')}, skipped: ${count('skipped')}, failed: ${count('failed')}`);
     const good = count('created') + count('updated') + count('unchanged');

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { runAccountsCommand, type AccountsCliDeps } from '../src/cli/accounts.ts';
 import type { Credential } from '../src/core/accounts/credential-store.ts';
+import type { HarvestResult } from '../src/browser/key-harvest.ts';
 
 function harness() {
   const saved: Credential[] = [];
@@ -90,21 +91,24 @@ describe('accounts CLI', () => {
 
   test('runs the harvest with --yes, prints the report and the summary last', async () => {
     const { deps, lines } = harness();
-    const calls: Array<{ profile: string; providers?: string[] }> = [];
+    const calls: Array<{ profile: string; providers?: string[]; onResult?: (result: HarvestResult) => void }> = [];
     deps.askHidden = async () => {
       throw new Error('must not ask when --yes is set');
     };
     deps.harvest = async options => {
       calls.push(options);
-      return [
+      const results: HarvestResult[] = [
         { provider: 'gemini', status: 'created', detail: 'created', keyPreview: 'AIza…1234' },
         { provider: 'groq', status: 'unchanged', detail: 'already saved', keyPreview: 'gsk_…7890' },
         { provider: 'mistral', status: 'skipped', detail: 'not signed in (bun run account connect)' },
         { provider: 'zai', status: 'failed', detail: 'refusing to click "Upgrade plan"' },
       ];
+      for (const result of results) options.onResult?.(result);
+      return results;
     };
     expect(await runAccountsCommand(['harvest', '--yes'], deps)).toBe(0);
-    expect(calls).toEqual([{ profile: 'default', providers: undefined }]);
+    expect(calls).toEqual([{ profile: 'default', providers: undefined, onResult: expect.any(Function) }]);
+    expect(lines[0]).toBe('Visiting provider dashboards...');
     expect(lines.at(-1)).toBe('created: 1, updated: 0, unchanged: 1, skipped: 1, failed: 1');
     expect(lines.some(line => line.includes('gemini') && line.includes('created') && line.includes('AIza…1234'))).toBe(true);
     expect(lines.some(line => line.includes('zai') && line.includes('refusing to click'))).toBe(true);
@@ -119,7 +123,7 @@ describe('accounts CLI', () => {
     };
     deps.profiles = { list: () => [{ id: 'default', label: 'Main' }], add: label => ({ id: 'acct-1', label }), remove: () => true };
     expect(await runAccountsCommand(['harvest', '--yes', '--provider', 'gemini'], deps)).toBe(0);
-    expect(calls).toEqual([{ profile: 'default', providers: ['gemini'] }]);
+    expect(calls.map(({ profile, providers }) => ({ profile, providers }))).toEqual([{ profile: 'default', providers: ['gemini'] }]);
     await expect(runAccountsCommand(['harvest', '--yes', '--provider', 'nope'], deps)).rejects.toThrow('Unknown provider: nope');
     await expect(runAccountsCommand(['harvest', '--yes', '--profile', 'acct-zzz'], deps)).rejects.toThrow('Unknown account: acct-zzz');
   });

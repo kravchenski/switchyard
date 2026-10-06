@@ -14,8 +14,8 @@ export interface HarvestLocator {
   count(): Promise<number>;
   first(): HarvestLocator;
   click(options?: { timeout?: number }): Promise<void>;
-  inputValue(): Promise<string>;
-  textContent(): Promise<string | null>;
+  inputValue(options?: { timeout?: number }): Promise<string>;
+  textContent(options?: { timeout?: number }): Promise<string | null>;
   isVisible(): Promise<boolean>;
   fill(value: string): Promise<void>;
 }
@@ -48,10 +48,29 @@ export interface HarvestOptions {
 }
 
 const LOGIN_HOSTS = /(^|\.)accounts\.google\.com$/;
-const LOGIN_PATH = /\/(login|signin|sign-in|auth|oauth|challenge)\//i;
+const LOGIN_PATH = /\/(login|signin|sign_?in|sign-in|auth|oauth|authorize|authenticate|challenge)(\/|$)/i;
 const FORBIDDEN_BUTTON = /\b(pay|buy|upgrade|subscribe|billing)\b/i;
 const CREATE_WAIT_MS = 15_000;
 const UI_WAIT_MS = 5_000;
+
+const DISMISS_SELECTORS = [
+  'button:has-text("No thanks")',
+  'button:has-text("Reject all")',
+  'button:has-text("Only necessary")',
+  'button:has-text("Reject")',
+  'button:has-text("Decline")',
+  'button:has-text("Accept all")',
+  'button:has-text("Allow all")',
+  'button:has-text("Allow analytics")',
+  'button:has-text("I agree")',
+  'button:has-text("Got it")',
+  '[aria-label="Close"]',
+];
+const DIALOG_PROCEED_SELECTORS = [
+  '[role="dialog"] button:has-text("Continue")',
+  '[role="dialog"] button:has-text("Accept and continue")',
+  '[role="dialog"] button:has-text("Save")',
+];
 
 export function validateKey(candidate: string | null | undefined, pattern: RegExp): string | null {
   const value = candidate?.trim();
@@ -76,23 +95,25 @@ export function storeHarvestedKey(store: HarvestStore, provider: string, label: 
 export function pageState(pageUrl: string, keyUrl: string): { ok: boolean; detail?: string } {
   const page = new URL(pageUrl);
   const key = new URL(keyUrl);
+  if (LOGIN_HOSTS.test(page.hostname) || LOGIN_PATH.test(page.pathname)) {
+    return { ok: false, detail: 'not signed in (bun run account connect)' };
+  }
   if (page.hostname === key.hostname || page.hostname.endsWith(`.${key.hostname}`)) return { ok: true };
-  const login = LOGIN_HOSTS.test(page.hostname) || LOGIN_PATH.test(page.pathname);
-  return { ok: false, detail: login ? 'not signed in (bun run account connect)' : `redirected to ${page.hostname}` };
+  return { ok: false, detail: `redirected to ${page.hostname}` };
 }
 
 async function readCandidate(locator: HarvestLocator): Promise<string | null> {
   try {
-    return await locator.inputValue();
+    return await locator.inputValue({ timeout: 1_500 });
   } catch {}
   try {
-    return await locator.textContent();
+    return await locator.textContent({ timeout: 1_500 });
   } catch {}
   return null;
 }
 
 async function scanDom(page: HarvestPage, pattern: RegExp): Promise<string[]> {
-  return page.evaluate(
+  const scan = page.evaluate(
     ({ source }) => {
       const re = new RegExp(source);
       const found: string[] = [];
@@ -108,7 +129,8 @@ async function scanDom(page: HarvestPage, pattern: RegExp): Promise<string[]> {
       return [...new Set(found)];
     },
     { source: pattern.source },
-  );
+  ).catch(() => [] as string[]);
+  return await Promise.race([scan, Bun.sleep(8_000).then(() => [] as string[])]);
 }
 
 async function visibleLocator(page: HarvestPage, selectors: string[]) {
@@ -119,9 +141,78 @@ async function visibleLocator(page: HarvestPage, selectors: string[]) {
   return undefined;
 }
 
+async function settleUrl(page: HarvestPage, now: () => number, sleep: (ms: number) => Promise<void>): Promise<void> {
+  const deadline = now() + 3_000;
+  let previous = page.url();
+  for (;;) {
+    await sleep(300);
+    const current = page.url();
+    if (current === previous) return;
+    previous = current;
+    if (now() >= deadline) return;
+  }
+}
+
+async function looksLikeAuthWall(page: HarvestPage): Promise<boolean> {
+  const scan = page
+    .evaluate(() => {
+      const visible = (element: Element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+      const AUTH_BUTTON = /^(continue with\b|sign in\b|log in\b|login\b|sign up\b)/i;
+      const hasPassword = Array.from(document.querySelectorAll('input[type="password"]')).some(visible);
+      const hasAuthButton = Array.from(document.querySelectorAll('button, [role="button"], a')).some(
+        element => visible(element) && AUTH_BUTTON.test((element.textContent || '').trim().slice(0, 40)),
+      );
+      return hasPassword || hasAuthButton;
+    }, undefined)
+    .catch(() => false);
+  return await Promise.race([scan, Bun.sleep(6_000).then(() => false)]);
+}
+
+async function clearBlockingUi(page: HarvestPage): Promise<void> {
+  const selectors = [...DIALOG_PROCEED_SELECTORS, ...DISMISS_SELECTORS];
+  let checkboxSeen = false;
+  for (let round = 0; round < 3; round++) {
+    let clicked = false;
+    const dialogCheckbox = page.locator('[role="dialog"] input[type="checkbox"]:not(:checked)').first();
+    if (await dialogCheckbox.isVisible().catch(() => false)) {
+      await dialogCheckbox.click({ timeout: 1_500 }).catch(() => {});
+      checkboxSeen = true;
+      clicked = true;
+    }
+    const pageContinue = page.locator('button:text-is("Continue"), button:text-is("Accept and continue")').first();
+    if (await pageContinue.isVisible().catch(() => false)) {
+      if (!checkboxSeen) {
+        const pageCheckbox = page.locator('input[type="checkbox"]:not(:checked)').first();
+        if (await pageCheckbox.isVisible().catch(() => false)) {
+          await pageCheckbox.click({ timeout: 1_500 }).catch(() => {});
+          checkboxSeen = true;
+          clicked = true;
+        }
+      }
+      if (checkboxSeen) {
+        await pageContinue.click({ timeout: 1_500 }).catch(() => {});
+        clicked = true;
+      }
+    }
+    for (const selector of selectors) {
+      const button = page.locator(selector).first();
+      if (await button.isVisible().catch(() => false)) {
+        await button.click({ timeout: 1_500 }).catch(() => {});
+        clicked = true;
+        break;
+      }
+    }
+    if (!clicked) return;
+    await Bun.sleep(400);
+  }
+}
+
 async function clickSafe(page: HarvestPage, keyUrl: string, target: { locator: HarvestLocator; selector: string }) {
   const state = pageState(page.url(), keyUrl);
-  if (!state.ok) throw new Error(state.detail);
+  if (state.detail?.startsWith('not signed in')) throw new Error(state.detail);
   const text = ((await target.locator.textContent().catch(() => '')) ?? '').trim();
   if (FORBIDDEN_BUTTON.test(text)) throw new Error(`refusing to click "${text}"`);
   await target.locator.click({ timeout: 5_000 });
@@ -150,8 +241,12 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
   const skipped = (detail: string): HarvestResult => ({ provider: adapter.provider, status: 'skipped', detail });
   try {
     await page.goto(adapter.keyUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await settleUrl(page, now, sleep);
     const state = pageState(page.url(), adapter.keyUrl);
-    if (!state.ok) return skipped(state.detail!);
+    if (state.detail?.startsWith('not signed in')) return skipped(state.detail);
+    const password = await page.locator('input[type="password"]').first().isVisible().catch(() => false);
+    if (password) return skipped('not signed in (bun run account connect)');
+    if (await looksLikeAuthWall(page)) return skipped('not signed in (bun run account connect)');
 
     const findKey = async (): Promise<string | null> => {
       for (const selector of adapter.keySelectors) {
@@ -165,11 +260,25 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
       return null;
     };
 
+    await clearBlockingUi(page);
     let key = await findKey();
     if (!key) {
-      const create = await waitForVisible(page, adapter.createSelectors, now, sleep, UI_WAIT_MS);
-      if (!create) return failed(`no key found; create one manually at ${adapter.keyUrl}`);
-      await clickSafe(page, adapter.keyUrl, create);
+      let confirm = await visibleLocator(page, adapter.confirmSelectors.filter(selector => selector.includes('[role="dialog"]')));
+      if (!confirm) {
+        const create = await waitForVisible(page, adapter.createSelectors, now, sleep, UI_WAIT_MS);
+        if (!create) return failed(`no key found; create one manually at ${adapter.keyUrl}`);
+        try {
+          await clickSafe(page, adapter.keyUrl, create);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (/not enabled/i.test(message)) return failed('create button is disabled (paid plan or onboarding required)');
+          if (!/intercepts pointer events/i.test(message)) throw error;
+          await clearBlockingUi(page);
+          await create.locator.click({ timeout: 5_000 }).catch(() => {});
+        }
+        await clearBlockingUi(page);
+        confirm = await visibleLocator(page, adapter.confirmSelectors);
+      }
       const uiDeadline = now() + UI_WAIT_MS;
       let filled = false;
       for (;;) {
@@ -180,9 +289,9 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
             filled = true;
           }
         }
-        const confirm = await visibleLocator(page, adapter.confirmSelectors);
-        if (confirm) {
-          await clickSafe(page, adapter.keyUrl, confirm);
+        const current = confirm ?? (confirm = await visibleLocator(page, adapter.confirmSelectors));
+        if (current) {
+          await clickSafe(page, adapter.keyUrl, current);
           break;
         }
         if (now() >= uiDeadline) break;
@@ -229,6 +338,7 @@ export async function harvestKeys(options: {
   providers?: string[];
   adapters?: ProviderKeyAdapter[];
   launch?: (options: { profileDir: string }) => Promise<HarvestBrowser>;
+  onResult?: (result: HarvestResult) => void;
 }): Promise<HarvestResult[]> {
   const adapters = (options.adapters ?? KEY_ADAPTERS).filter(adapter => !options.providers || options.providers.includes(adapter.provider));
   const browser = await (options.launch ?? defaultLaunch)({ profileDir: options.profileDir });
@@ -239,9 +349,13 @@ export async function harvestKeys(options: {
     for (const adapter of adapters) {
       const page = await context.newPage();
       try {
-        results.push(await harvestOne(adapter, page, options.store, { label: options.label }));
+        const result = await harvestOne(adapter, page, options.store, { label: options.label });
+        results.push(result);
+        options.onResult?.(result);
       } catch (error) {
-        results.push({ provider: adapter.provider, status: 'failed', detail: error instanceof Error ? error.message : String(error) });
+        const result: HarvestResult = { provider: adapter.provider, status: 'failed', detail: error instanceof Error ? error.message : String(error) };
+        results.push(result);
+        options.onResult?.(result);
       } finally {
         await page.close().catch(() => {});
       }

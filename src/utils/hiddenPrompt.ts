@@ -1,10 +1,29 @@
 import readline from 'node:readline';
 
+const PROMPT_TIMEOUT_MS = 60_000;
+
 export function askHidden(question: string): Promise<string> {
   const stdin = process.stdin;
   if (!stdin.isTTY) {
+    process.stdout.write(`${question}\n`);
     const rl = readline.createInterface({ input: stdin });
-    return new Promise(resolve => rl.once('line', line => { rl.close(); resolve(line); }));
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        rl.close();
+        reject(new Error(`No input received for: ${question}`));
+      }, PROMPT_TIMEOUT_MS);
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      rl.once('line', line => settle(() => { rl.close(); resolve(line); }));
+      rl.once('close', () => settle(() => reject(new Error(`No input received for: ${question}`))));
+    });
   }
   process.stdout.write(question);
   stdin.setRawMode(true);

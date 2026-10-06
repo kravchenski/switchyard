@@ -27,6 +27,7 @@ interface FakeState {
   elements?: Record<string, FakeElement>;
   scanned?: string[];
   gotoError?: string;
+  wall?: boolean;
 }
 
 interface FakeRow {
@@ -95,6 +96,7 @@ function fakePage(state: FakeState = {}): HarvestPage {
     url: () => current,
     locator,
     evaluate: async (_fn, arg) => {
+      if (!arg || typeof arg !== 'object' || !('source' in arg)) return Boolean(state.wall) as never;
       const re = new RegExp((arg as { source: string }).source);
       return (state.scanned ?? []).flatMap(text => text.split(/[\s"'`]+/)).filter(token => re.test(token)) as never;
     },
@@ -140,12 +142,27 @@ describeIf(BROWSER_GATE, 'E2E browser harvest', () => {
       expect(result.status).toBe('created');
     });
 
-    test('skips a page redirected to another host', async () => {
+    test('follows a redirect to another host when it is not a login page', async () => {
       const store = fakeStore();
-      const page = fakePage({ finalUrl: 'https://evil.example.com/phish' });
+      const page = fakePage({ finalUrl: 'https://other.example.com/keys', scanned: [KEY] });
+      const result = await harvestOne(adapter, page, store, { label: 'default' });
+      expect(result.status).toBe('created');
+    });
+
+    test('skips a page on a login path', async () => {
+      const store = fakeStore();
+      const page = fakePage({ finalUrl: 'https://other.example.com/login' });
       const result = await harvestOne(adapter, page, store, { label: 'default' });
       expect(result.status).toBe('skipped');
-      expect(result.detail).toBe('redirected to evil.example.com');
+      expect(result.detail).toContain('not signed in');
+    });
+
+    test('skips a page behind an auth wall without a login path', async () => {
+      const store = fakeStore();
+      const page = fakePage({ finalUrl: adapter.keyUrl, wall: true });
+      const result = await harvestOne(adapter, page, store, { label: 'default' });
+      expect(result.status).toBe('skipped');
+      expect(result.detail).toContain('not signed in');
     });
 
     test('falls back to manual instructions when no key and no create button', async () => {

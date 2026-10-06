@@ -127,7 +127,7 @@ try {
       return verifyProviderKey(definition, apiKey);
     },
     accountLabel: provider => apiKeyProvider(provider)?.account?.label,
-    harvest: ({ profile, providers }) => harvestKeys({ profileDir: profileDir(profile), label: profile, providers, store }),
+    harvest: ({ profile, providers, onResult }) => harvestKeys({ profileDir: profileDir(profile), label: profile, providers, store, onResult }),
     env: process.env,
     autoLogin: async ({ profile, sites, providers, credentials, viaGoogle }) => {
       const chosen = WEB_CHAT_SITES.filter(site => !sites || sites.includes(site.id));

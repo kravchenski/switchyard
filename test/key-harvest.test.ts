@@ -26,6 +26,7 @@ interface FakeState {
   elements?: Record<string, FakeElement>;
   scanned?: string[];
   gotoError?: string;
+  wall?: boolean;
 }
 
 interface FakeRow {
@@ -94,6 +95,7 @@ function fakePage(state: FakeState = {}): HarvestPage {
     url: () => current,
     locator,
     evaluate: async (_fn, arg) => {
+      if (!arg || typeof arg !== 'object' || !('source' in arg)) return Boolean(state.wall) as never;
       const re = new RegExp((arg as { source: string }).source);
       return (state.scanned ?? []).flatMap(text => text.split(/[\s"'`]+/)).filter(token => re.test(token)) as never;
     },
@@ -125,12 +127,35 @@ describe('harvest engine', () => {
     expect(result.detail).toContain('bun run account connect');
   });
 
-  test('skips a page redirected to another host', async () => {
+  test('skips a page that landed on a login path of the same host', async () => {
     const store = fakeStore();
-    const page = fakePage({ finalUrl: 'https://evil.example.com/phish' });
+    const page = fakePage({ finalUrl: 'https://keys.example.com/login?next=%2Fdashboard' });
     const result = await harvestOne(adapter, page, store, { label: 'default' });
     expect(result.status).toBe('skipped');
-    expect(result.detail).toBe('redirected to evil.example.com');
+    expect(result.detail).toContain('not signed in');
+  });
+
+  test('follows a redirect to another host when it is not a login page', async () => {
+    const store = fakeStore();
+    const page = fakePage({ finalUrl: 'https://other.example.com/keys', scanned: [KEY] });
+    const result = await harvestOne(adapter, page, store, { label: 'default' });
+    expect(result.status).toBe('created');
+  });
+
+  test('skips a page showing a password form', async () => {
+    const store = fakeStore();
+    const page = fakePage({ finalUrl: adapter.keyUrl, elements: { 'input[type="password"]': { visible: true } } });
+    const result = await harvestOne(adapter, page, store, { label: 'default' });
+    expect(result.status).toBe('skipped');
+    expect(result.detail).toContain('not signed in');
+  });
+
+  test('skips a page behind an auth wall without a login path', async () => {
+    const store = fakeStore();
+    const page = fakePage({ finalUrl: adapter.keyUrl, wall: true });
+    const result = await harvestOne(adapter, page, store, { label: 'default' });
+    expect(result.status).toBe('skipped');
+    expect(result.detail).toContain('not signed in');
   });
 
   test('falls back to manual instructions when no key and no create button', async () => {
@@ -296,11 +321,13 @@ describe('harvestKeys', () => {
     ];
     let next = 0;
     let closed = false;
+    const streamed: string[] = [];
     const results = await harvestKeys({
       profileDir: '/tmp/unused',
       store,
       label: 'default',
       adapters: [alpha, beta, gamma],
+      onResult: result => streamed.push(`${result.provider}:${result.status}`),
       launch: async () => ({
         contexts: () => [
           {
@@ -321,6 +348,7 @@ describe('harvestKeys', () => {
       ['beta', 'skipped'],
       ['gamma', 'failed'],
     ]);
+    expect(streamed).toEqual(['alpha:created', 'beta:skipped', 'gamma:failed']);
     expect(entries.map(entry => entry.closed)).toEqual([true, true, true]);
     expect(closed).toBe(true);
   });
