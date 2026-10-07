@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { completionRejection, fileStatuses, uploadedFileId } from '../src/providers/deepseek/client.ts';
+import { completionRejection, deepSeekCompletion, fileStatuses, uploadedFileId } from '../src/providers/deepseek/client.ts';
 import { createDeepSeekProvider } from '../src/providers/deepseek/provider.ts';
 
 describe('DeepSeek images', () => {
@@ -23,5 +23,16 @@ describe('DeepSeek images', () => {
     expect(completionRejection({ code: 0, msg: '', data: { biz_code: 1, biz_msg: 'invalid chat session id', biz_data: null } })).toBe('invalid chat session id');
     expect(completionRejection({ code: 40003, msg: 'INVALID_TOKEN', data: null })).toBe('INVALID_TOKEN');
     expect(completionRejection({ code: 0, data: { biz_code: 0, biz_data: {} } })).toBeUndefined();
+  });
+
+  test('reports an expired account token as an auth error', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ code: 40003, msg: 'Authorization Failed (invalid token)', data: null })) as unknown as typeof fetch;
+    try {
+      await expect(deepSeekCompletion({ messages: [{ role: 'user', content: 'hi' }], conversationId: `expired-${Date.now()}`, account: { id: 'env', token: 'expired', cookies: [] } }))
+        .rejects.toMatchObject({ kind: 'auth', message: expect.stringContaining('bun run auth:deepseek') });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

@@ -89,8 +89,13 @@ async function createSession(account: DeepSeekAccount) {
     if (!response.ok) throw await upstreamError('DeepSeek session create', response);
     const body = await response.json() as any;
     const id = body?.data?.biz_data?.chat_session?.id || body?.data?.biz_data?.id;
-    if (!id) throw new Error('DeepSeek did not return a chat session id');
-    return id as string;
+    if (id) return id as string;
+    const reason = completionRejection(body) ?? 'no chat session id';
+    if (INVALID_TOKEN.test(reason)) {
+        if (account.id !== 'env') markDeepSeekAccountInvalid(account.id);
+        throw new ProviderError(`DeepSeek rejected the account token (${reason}); sign in again: bun run auth:deepseek`, 'auth', 401);
+    }
+    throw new ProviderError(`DeepSeek did not create a chat session: ${reason}`, 'upstream', 502);
 }
 
 async function getSession(account: DeepSeekAccount, key: string) {
@@ -199,6 +204,7 @@ export async function deepSeekCompletion(options: {
 }
 
 const STALE_SESSION = /invalid chat session|chat session .*not (?:found|exist)/i;
+const INVALID_TOKEN = /invalid token|authorization failed|token expired/i;
 
 export function completionRejection(body: unknown): string | undefined {
     const root = body as { code?: unknown; msg?: unknown; data?: { biz_code?: unknown; biz_msg?: unknown } } | null;

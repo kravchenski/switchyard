@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 - **`src/`**: Core modules including `api`, `browser`, `gateway`, `providers`, and `middleware`.
-- **Root `.ts` files**: Entry points for individual services (`deepseek.ts`; the main server is `src/unified/server.ts`).
+- **Service entry points**: the main server is `src/unified/server.ts`; the standalone DeepSeek web API is `src/providers/deepseek/server.ts` (OpenAPI spec at `/api/openapi.json`).
 - **`src/unified/server.ts`**: Main OpenCode-compatible API server (port 3260).
 - **`test/`**: Unit and integration tests using Bun's test runner.
 - **`scripts/`**: Automation for auth, setup, and CI checks.
