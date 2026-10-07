@@ -186,10 +186,32 @@ export async function deepSeekCompletion(options: {
 }) {
     const account = options.account ?? getAccount();
     const key = options.conversationId || conversationKey(options.messages);
+    for (let attempt = 0; ; attempt++) {
+        const completion = await sendCompletion(account, key, options.messages, options.model || 'deepseek-default');
+        if (completion.response.headers.get('content-type')?.includes('text/event-stream')) return completion;
+        const reason = completionRejection(await completion.response.json().catch(() => null)) ?? 'DeepSeek returned no answer stream';
+        if (attempt === 0 && STALE_SESSION.test(reason)) {
+            sessions.delete(`${account.id}:${key}`);
+            continue;
+        }
+        throw new ProviderError(`DeepSeek completion: ${reason}`, 'upstream', 502);
+    }
+}
+
+const STALE_SESSION = /invalid chat session|chat session .*not (?:found|exist)/i;
+
+export function completionRejection(body: unknown): string | undefined {
+    const root = body as { code?: unknown; msg?: unknown; data?: { biz_code?: unknown; biz_msg?: unknown } } | null;
+    const code = root?.data?.biz_code || root?.code;
+    if (!code) return undefined;
+    const message = root?.data?.biz_msg || root?.msg;
+    return typeof message === 'string' && message ? message : `error code ${String(code)}`;
+}
+
+async function sendCompletion(account: DeepSeekAccount, key: string, messages: Array<Record<string, any>>, model: string) {
     const sessionId = await getSession(account, key);
-    const fileIds = await attachImages(account, sessionId, options.messages);
+    const fileIds = await attachImages(account, sessionId, messages);
     const pow = await getPow(account, sessionId);
-    const model = options.model || 'deepseek-default';
     const response = await fetch(`${BASE_URL}/api/v0/chat/completion`, {
         method: 'POST',
         headers: headers(account, {
@@ -200,7 +222,7 @@ export async function deepSeekCompletion(options: {
         body: JSON.stringify({
             chat_session_id: sessionId,
             parent_message_id: null,
-            prompt: messagesToPrompt(stripImages(options.messages, fileIds.length > 0)),
+            prompt: messagesToPrompt(stripImages(messages, fileIds.length > 0)),
             ref_file_ids: fileIds,
             thinking_enabled: model.includes('reasoner') || model.includes('r1'),
             search_enabled: model.includes('search'),
