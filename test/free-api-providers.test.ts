@@ -66,7 +66,7 @@ describe('free API providers', () => {
   test('every provider has a unique id, an env variable and a key page', () => {
     const ids = API_KEY_PROVIDERS.map(provider => provider.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(['nvidia', 'openrouter', 'groq', 'gemini', 'cerebras', 'mistral', 'sambanova', 'github-models', 'huggingface', 'bigmodel', 'cohere', 'aion', 'ovhcloud', 'llm7', 'zai', 'ollama-cloud', 'opencode-zen', 'kilo', 'cloudflare', 'xkiro']);
+    expect(ids).toEqual(['nvidia', 'openrouter', 'groq', 'gemini', 'cerebras', 'mistral', 'sambanova', 'github-models', 'huggingface', 'bigmodel', 'cohere', 'aion', 'ovhcloud', 'llm7', 'zai', 'ollama-cloud', 'opencode-zen', 'kilo', 'cloudflare', 'aihubmix', 'ashna', 'nararouter', 'xkiro']);
     for (const provider of FREE_API_PROVIDERS) {
       expect(provider.apiKeyEnv).toMatch(/^[A-Z0-9_]+_API_KEY$/);
       expect(provider.keyUrl).toStartWith('https://');
@@ -243,5 +243,35 @@ describe('more free providers', () => {
     expect(await provider.listModels()).toEqual(['xkiro/deepseek/deepseek-v4.1-flash:free', 'xkiro/cohere/command-a']);
     expect(defaultAuto('xkiro')).toBeFalse();
     expect(defaultAuto('groq')).toBeTrue();
+  });
+
+  test('AIHubMix keeps only the free catalog and stays unavailable without a key', async () => {
+    const { fetchFn, calls } = upstream(['coding-glm-5.3-free', 'gpt-6.1-sol', 'xiaomi-mimo-v2.6-pro-free', 'text-embedding-3-free']);
+    expect(createApiProvider(definition('aihubmix'), { env: {}, fetch: fetchFn }).health()).toEqual({ available: false, reason: 'AIHUBMIX_API_KEY is not set; or run: bun run account add aihubmix --api-key' });
+    const provider = createApiProvider(definition('aihubmix'), { env: { AIHUBMIX_API_KEY: 'k' }, fetch: fetchFn });
+    expect(await provider.listModels()).toEqual(['aihubmix/coding-glm-5.3-free', 'aihubmix/xiaomi-mimo-v2.6-pro-free']);
+    await collectChunks((await provider.stream({ model: 'aihubmix/coding-glm-5.3-free', messages: [] })).chunks);
+    expect(calls.at(-1)).toMatchObject({ url: 'https://api.aihubmix.com/v1/chat/completions', body: { model: 'coding-glm-5.3-free' }, auth: 'Bearer k' });
+    expect(defaultAuto('aihubmix')).toBeTrue();
+  });
+
+  test('AshnaAI serves chat models from its own base path and needs a key', async () => {
+    const { fetchFn, calls } = upstream(['gpt-4o-mini', 'glm-5.3-flash', 'bge-m3', 'whisper-1']);
+    expect(createApiProvider(definition('ashna'), { env: {}, fetch: fetchFn }).health()).toEqual({ available: false, reason: 'ASHNA_API_KEY is not set; or run: bun run account add ashna --api-key' });
+    const provider = createApiProvider(definition('ashna'), { env: { ASHNA_API_KEY: 'k' }, fetch: fetchFn });
+    expect(await provider.listModels()).toEqual(['ashna/gpt-4o-mini', 'ashna/glm-5.3-flash']);
+    await collectChunks((await provider.stream({ model: 'ashna/gpt-4o-mini', messages: [] })).chunks);
+    expect(calls.at(-1)).toMatchObject({ url: 'https://api.ashna.ai/v1/api/chat/completions', auth: 'Bearer k' });
+    expect(defaultAuto('ashna')).toBeFalse();
+  });
+
+  test('NaraRouter needs a key and stays out of auto until enabled', async () => {
+    const { fetchFn, calls } = upstream(['deepseek-v4-flash', 'nara-rerank-v3', 'bge-m3']);
+    expect(createApiProvider(definition('nararouter'), { env: {}, fetch: fetchFn }).health()).toEqual({ available: false, reason: 'NARAROUTER_API_KEY is not set; or run: bun run account add nararouter --api-key' });
+    const provider = createApiProvider(definition('nararouter'), { env: { NARAROUTER_API_KEY: 'k' }, fetch: fetchFn });
+    expect(await provider.listModels()).toEqual(['nararouter/deepseek-v4-flash']);
+    await collectChunks((await provider.stream({ model: 'nararouter/deepseek-v4-flash', messages: [] })).chunks);
+    expect(calls.at(-1)).toMatchObject({ url: 'https://router.bynara.id/v1/chat/completions', auth: 'Bearer k' });
+    expect(defaultAuto('nararouter')).toBeFalse();
   });
 });
