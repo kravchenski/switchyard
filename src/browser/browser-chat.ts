@@ -39,6 +39,7 @@ export interface ChatSite {
   parseModels?: (body: unknown) => WebChatModel[];
   pageModels?: (page: Page) => Promise<WebChatModel[]>;
   defaultModels?: WebChatModel[];
+  reuseThread?: boolean;
 }
 
 const MIME_EXTENSIONS: Record<string, string> = {
@@ -362,7 +363,7 @@ export class BrowserChatSession {
   }
 
   private async prepare(site: ChatSite, prompt: string, model?: string, conversation?: SendContext) {
-    const thread = this.matchThread(site.id, model, conversation);
+    const thread = this.matchThread(site, model, conversation);
     if (thread) {
       try {
         return await this.resumeThread(thread, site, conversation!);
@@ -373,28 +374,37 @@ export class BrowserChatSession {
     return this.openPage(site, prompt, model, conversation);
   }
 
-  private matchThread(siteId: string, model: string | undefined, conversation?: SendContext): ChatThread | undefined {
-    const list = this.threads.get(siteId) ?? [];
+  private matchThread(site: ChatSite, model: string | undefined, conversation?: SendContext): ChatThread | undefined {
+    const list = this.threads.get(site.id) ?? [];
     const alive: ChatThread[] = [];
     const stale: ChatThread[] = [];
     let matched: ChatThread | undefined;
+    const hasConversationId = Boolean(conversation?.conversationId);
     for (const thread of list) {
       if (thread.page.isClosed() || Date.now() - thread.lastUsed > THREAD_IDLE_MS) {
         stale.push(thread);
         continue;
       }
       alive.push(thread);
-      if (!matched && thread.model === model
-        && (!thread.conversationId || !conversation?.conversationId || thread.conversationId === conversation.conversationId)
-        && isHistoryPrefix(thread.sent, conversation?.messages)) {
+      const modelMatches = thread.model === model;
+      const conversationIdMatches = !thread.conversationId || !hasConversationId || thread.conversationId === conversation?.conversationId;
+      const historyMatches = isHistoryPrefix(thread.sent, conversation?.messages);
+      if (!matched && modelMatches && conversationIdMatches && historyMatches) {
         matched = thread;
+      }
+    }
+    if (!matched && site.reuseThread && !hasConversationId) {
+      for (const thread of alive) {
+        if (!thread.conversationId && (!matched || thread.lastUsed > matched.lastUsed)) {
+          matched = thread;
+        }
       }
     }
     for (const thread of stale) {
       this.pageQueues.delete(thread.page);
       thread.page.close().catch(() => {});
     }
-    this.threads.set(siteId, alive);
+    this.threads.set(site.id, alive);
     return matched;
   }
 
