@@ -2,6 +2,7 @@ import path from 'path';
 import type { Page } from 'playwright-core';
 
 import { prompt } from '../../utils/prompt.ts';
+import { askHidden } from '../../utils/hiddenPrompt.ts';
 import { launchCdpBrowser } from '../../browser/cdp.ts';
 import {
     addDeepSeekAccount,
@@ -10,6 +11,7 @@ import {
     type DeepSeekAccount
 } from './accounts.ts';
 import { isDeepSeekUrl } from './url.ts';
+import { completionRejection } from './client.ts';
 
 const baseUrl = process.env.DEEPSEEK_BASE_URL || 'https://chat.deepseek.com';
 const signInUrl = process.env.DEEPSEEK_SIGN_IN_URL || `${baseUrl}/sign_in`;
@@ -89,6 +91,48 @@ export async function addDeepSeekAccountInteractive(replaceId?: string) {
     }
 }
 
+export function normalizeDeepSeekToken(raw: string) {
+    let value = raw.trim().replace(/^bearer\s+/i, '');
+    if (value.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(value);
+            if (typeof parsed?.value === 'string') value = parsed.value;
+        } catch {}
+    }
+    return value.trim().replace(/^"(.*)"$/, '$1');
+}
+
+export async function checkDeepSeekToken(token: string, fetchFn: typeof fetch = fetch): Promise<string | undefined> {
+    const response = await fetchFn(`${baseUrl}/api/v0/users/current`, {
+        headers: { authorization: `Bearer ${token}`, origin: baseUrl, referer: `${baseUrl}/` },
+    });
+    if (!response.ok) return `HTTP ${response.status}`;
+    return completionRejection(await response.json().catch(() => null));
+}
+
+export async function addDeepSeekAccountFromToken(options: {
+    replaceId?: string;
+    ask?: (question: string) => Promise<string>;
+    check?: (token: string) => Promise<string | undefined>;
+    save?: (account: DeepSeekAccount) => void;
+} = {}) {
+    console.log('\n======================================================');
+    console.log(options.replaceId ? `New token for DeepSeek account: ${options.replaceId}` : 'Adding a DeepSeek account from a token');
+    console.log('1. Sign in at chat.deepseek.com in your usual browser.');
+    console.log('2. DevTools (F12) > Application > Local Storage > https://chat.deepseek.com');
+    console.log('3. Copy the value of "userToken" (the whole JSON or just its "value").');
+    console.log('The token gives full access to the account; it is saved only in session/deepseek.');
+    console.log('======================================================');
+    const token = normalizeDeepSeekToken(await (options.ask ?? askHidden)('DeepSeek userToken (hidden): '));
+    if (!token) throw new Error('No token entered');
+    const rejected = await (options.check ?? checkDeepSeekToken)(token);
+    if (rejected) throw new Error(`DeepSeek did not accept this token: ${rejected}`);
+    const id = options.replaceId || `deepseek_${Date.now()}`;
+    (options.save ?? addDeepSeekAccount)({ id, token, cookies: [], invalid: false, resetAt: null });
+    console.log(`DeepSeek account ${id} saved.`);
+    return id;
+}
+
 function printAccounts(accounts: DeepSeekAccount[]) {
     console.log('\nDeepSeek accounts:');
     if (!accounts.length) console.log('  (none)');
@@ -106,9 +150,11 @@ async function pickAccount(question: string) {
     return Number.isInteger(choice) && choice >= 1 && choice <= accounts.length ? accounts[choice - 1] : null;
 }
 
-export async function reloginDeepSeekAccountInteractive() {
+export async function reloginDeepSeekAccountInteractive(withToken = false) {
     const account = await pickAccount('Account number to sign in again: ');
-    if (account) await addDeepSeekAccountInteractive(account.id);
+    if (!account) return;
+    if (withToken) await addDeepSeekAccountFromToken({ replaceId: account.id });
+    else await addDeepSeekAccountInteractive(account.id);
 }
 
 export async function removeDeepSeekAccountInteractive() {
@@ -127,11 +173,13 @@ export async function runDeepSeekAccountMenu() {
         console.log('2 - Sign in to an account again');
         console.log('3 - Start the proxy (default)');
         console.log('4 - Remove an account');
+        console.log('5 - Add an account with a token from your browser');
         let choice = await prompt('Your choice (Enter = 3): ');
         if (!choice) choice = '3';
         if (choice === '1') await addDeepSeekAccountInteractive();
         else if (choice === '2') await reloginDeepSeekAccountInteractive();
         else if (choice === '4') await removeDeepSeekAccountInteractive();
+        else if (choice === '5') await addDeepSeekAccountFromToken().catch(error => console.log(error instanceof Error ? error.message : error));
         else if (choice === '3') {
             if (accounts.some(account => !account.invalid)) return;
             console.log('At least one valid DeepSeek account is required.');
