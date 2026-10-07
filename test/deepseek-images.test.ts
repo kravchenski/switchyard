@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { fileStatuses, uploadedFileId } from '../src/providers/deepseek/client.ts';
+import { completionRejection, fileStatuses, uploadedFileId } from '../src/providers/deepseek/client.ts';
 import { createDeepSeekProvider } from '../src/providers/deepseek/provider.ts';
 
 describe('DeepSeek images', () => {
@@ -17,5 +17,11 @@ describe('DeepSeek images', () => {
 
   test('marks DeepSeek models as able to read images', () => {
     expect(createDeepSeekProvider({ hasAccount: () => true }).capabilities('deepseek-default').vision).toBeTrue();
+  });
+
+  test('reads why DeepSeek answered with JSON instead of a stream', () => {
+    expect(completionRejection({ code: 0, msg: '', data: { biz_code: 1, biz_msg: 'invalid chat session id', biz_data: null } })).toBe('invalid chat session id');
+    expect(completionRejection({ code: 40003, msg: 'INVALID_TOKEN', data: null })).toBe('INVALID_TOKEN');
+    expect(completionRejection({ code: 0, data: { biz_code: 0, biz_data: {} } })).toBeUndefined();
   });
 });

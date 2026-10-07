@@ -19,6 +19,10 @@ export class PersistentStringMap {
         this.#save();
     }
 
+    delete(key: string) {
+        if (this.#values.delete(key)) this.#save();
+    }
+
     #load() {
         try {
             return new Map<string, string>(Object.entries(JSON.parse(fs.readFileSync(this.#file, 'utf8'))));
