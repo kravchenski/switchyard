@@ -60,6 +60,24 @@ describe('DeepSeek provider adapter', () => {
     });
   });
 
+  test('waits the minimum interval between two requests on the same account', async () => {
+    let now = 5_000_000;
+    const waits: number[] = [];
+    const deepseek = provider(event({ p: 'response/content', v: 'ok' }), {
+      accounts: () => [{ id: 'paced-account', token: 'p', cookies: [] }],
+      pool: () => new AccountPool(openDatabase(':memory:'), 'deepseek', () => now),
+      now: () => now,
+      minIntervalMs: 10_000,
+      sleep: async ms => { waits.push(ms); now += ms; },
+    });
+    await deepseek.stream({ model: 'deepseek-default', messages: [] });
+    now += 4_000;
+    await deepseek.stream({ model: 'deepseek-default', messages: [] });
+    now += 12_000;
+    await deepseek.stream({ model: 'deepseek-default', messages: [] });
+    expect(waits).toEqual([6_000]);
+  });
+
   test('rotates to another account on rate limits and records account health', async () => {
     let now = 1_000_000;
     const pool = new AccountPool(openDatabase(':memory:'), 'deepseek', () => now);

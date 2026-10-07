@@ -1,22 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
-import { conversationKey, isEmptyToolCallResponse, messagesToPrompt, parseDeepSeekEvent } from '../src/providers/deepseek/client.ts';
+import { isEmptyToolCallResponse, messagesToPrompt, parseDeepSeekEvent } from '../src/providers/deepseek/client.ts';
 import { validateDeepSeekPowSolver } from '../src/providers/deepseek/pow.ts';
 import { hasValidDeepSeekAccounts } from '../src/providers/deepseek/accounts.ts';
 import { isDeepSeekUrl } from '../src/providers/deepseek/url.ts';
 
 describe('DeepSeek web provider', () => {
-    test('keeps a stable conversation key during a pi tool loop', () => {
-        const initial = [{ role: 'user', content: 'build a feature' }];
-        const continued = [
-            ...initial,
-            { role: 'assistant', tool_calls: [{ function: { name: 'read' } }] },
-            { role: 'tool', content: 'result' }
-        ];
-
-        expect(conversationKey(continued)).toBe(conversationKey(initial));
-    });
-
     test('folds tool results into the DeepSeek prompt', () => {
         expect(messagesToPrompt([
             { role: 'user', content: 'inspect it' },

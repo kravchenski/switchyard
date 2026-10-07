@@ -841,7 +841,7 @@ impl Shell {
         }));
         let modes: [(&'static str, &'static str, &'static str); 3] = [
             ("fallback", "One by one", "Tries the chain in order and moves on only when a model fails."),
-            ("race", "All at once", "Sends each request to the first three models at the same time and keeps the first answer. Faster, but uses the limits of several providers."),
+            ("race", "All at once", "Sends each request to the first three API models at the same time and keeps the first answer; web chats are tried one at a time after them. Faster, but uses the limits of several providers."),
             ("decide", "Decision model", "A fast model reads each request and picks the model that suits it best; the rest of the chain stays as backup. Adds a few seconds per request. Images are not affected."),
         ];
         let agent_rows: Vec<Div> = auto.as_ref().map(|auto| auto.agents.clone()).unwrap_or_default().into_iter().map(|(name, on)| {

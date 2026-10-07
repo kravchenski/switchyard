@@ -92,6 +92,7 @@ export interface BrowserChatOptions {
   headless?: boolean;
   firstChunkTimeoutMs?: number;
   idleTimeoutMs?: number;
+  minIntervalMs?: number;
   launch?: (options: LaunchOptions) => Promise<CdpBrowser>;
   onSignIn?: (siteId: string, result: SignInResult) => void;
   onModels?: (siteId: string, models: WebChatModel[]) => void;
@@ -243,6 +244,7 @@ export class BrowserChatSession {
   private browser?: Promise<CdpBrowser>;
   private closing?: Promise<void>;
   private readonly queues = new Map<string, Promise<unknown>>();
+  private readonly lastSent = new Map<string, number>();
   private readonly pageQueues = new Map<Page, ChunkQueue>();
   private readonly threads = new Map<string, ChatThread[]>();
 
@@ -353,6 +355,7 @@ export class BrowserChatSession {
     this.queues.set(site.id, previous.then(() => done));
     return previous.then(async () => {
       try {
+        await this.pace(site.id);
         const { page, queue } = await this.prepare(site, prompt, model, conversation);
         return this.stream(site, { page, queue }, release);
       } catch (error) {
@@ -360,6 +363,12 @@ export class BrowserChatSession {
         throw error;
       }
     });
+  }
+
+  private async pace(siteId: string) {
+    const wait = (this.lastSent.get(siteId) ?? -Infinity) + (this.options.minIntervalMs ?? 0) - Date.now();
+    if (wait > 0) await Bun.sleep(wait);
+    this.lastSent.set(siteId, Date.now());
   }
 
   private async prepare(site: ChatSite, prompt: string, model?: string, conversation?: SendContext) {
@@ -393,9 +402,9 @@ export class BrowserChatSession {
         matched = thread;
       }
     }
-    if (!matched && site.reuseThread && !hasConversationId) {
+    if (!matched && site.reuseThread !== false && !hasConversationId) {
       for (const thread of alive) {
-        if (!thread.conversationId && (!matched || thread.lastUsed > matched.lastUsed)) {
+        if (!thread.conversationId && thread.model === model && (!matched || thread.lastUsed > matched.lastUsed)) {
           matched = thread;
         }
       }
@@ -429,7 +438,7 @@ export class BrowserChatSession {
 
   private async resumeThread(thread: ChatThread, site: ChatSite, conversation: SendContext) {
     const messages = conversation.messages!;
-    let delta = messages.slice(thread.sent.length);
+    let delta = isHistoryPrefix(thread.sent, messages) ? messages.slice(thread.sent.length) : messages;
     if (!delta.length) {
       const last = messages[messages.length - 1];
       if (!last || last.role !== 'user') throw new Error(`${site.id} thread cannot continue`);

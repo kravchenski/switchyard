@@ -9,6 +9,7 @@ describe('parseEnv', () => {
             SESSION_DIR: 'session',
             GATEWAY_API_KEY: undefined,
             AUTO_MODELS: undefined,
+            WEB_CHAT_MIN_INTERVAL_MS: 10_000,
             AUTO_FIRST_CHUNK_TIMEOUT_MS: 60_000,
             MODEL_REFRESH_MINUTES: 360,
         });

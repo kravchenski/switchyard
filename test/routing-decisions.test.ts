@@ -10,6 +10,7 @@ function provider(id: string, behaviour: 'ok' | 'fail' | 'down', delayMs = 0): P
   return {
     id,
     ownedBy: id,
+    fallback: true,
     supports: model => model === `${id}-model`,
     listModels: async () => [`${id}-model`],
     capabilities: () => ({ nativeTools: false, reasoning: false, vision: false }),

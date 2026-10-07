@@ -20,7 +20,6 @@ export const QWEN_CHAT_SITE: ChatSite = {
   captcha: { slider: true },
   modelFields: model => ({ model, 'messages.*.models': [model] }),
   images: true,
-  reuseThread: true,
   attachImages: async (page, files) => {
     const uploaded = page.waitForResponse(response => response.request().method() === 'PUT' && /oss-accelerate/.test(response.url()) && response.ok(), { timeout: 60_000 }).catch(() => undefined);
     await page.locator('div.mode-select-open').first().click({ timeout: 15_000 });

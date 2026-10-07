@@ -94,7 +94,7 @@ const credentialStore = openCredentialStore();
 
 export const registry = new ProviderRegistry()
     .register(createNvidiaProvider({}, credentialStore))
-    .register(createDeepSeekProvider());
+    .register(createDeepSeekProvider({ minIntervalMs: config.WEB_CHAT_MIN_INTERVAL_MS }));
 
 for (const definition of FREE_API_PROVIDERS) registry.register(createApiProvider(definition, {}, credentialStore));
 
@@ -149,6 +149,7 @@ function browserSession(profile: string) {
         session = new BrowserChatSession({
             profileDir: profileDir(profile),
             firstChunkTimeoutMs: config.AUTO_FIRST_CHUNK_TIMEOUT_MS,
+            minIntervalMs: config.WEB_CHAT_MIN_INTERVAL_MS,
             onSignIn: (siteId, result) => {
                 const site = WEB_CHAT_SITES.find(entry => entry.id === siteId);
                 signIns.record(siteId, result.signedIn, result.signedIn || !site ? undefined : notSignedIn(site, result), profile);
