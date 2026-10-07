@@ -38,9 +38,11 @@ export type InstallResult = {
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3260/api';
 const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:4000';
 const DEFAULT_API_KEY = 'dummy-key';
-const DEFAULT_MODEL = 'auto';
+const DEFAULT_MODEL = 'agent';
 const FALLBACK_MODELS = [
     'auto',
+    'agent',
+    'vision',
     'deepseek-default',
     'deepseek-reasoner',
     'deepseek-expert',

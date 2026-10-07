@@ -57,10 +57,10 @@ curl http://localhost:3260/v1/chat/completions \
 
 | Agent | Setup |
 |---|---|
-| **Claude Code** | `ANTHROPIC_BASE_URL=http://localhost:3260 ANTHROPIC_AUTH_TOKEN=<GATEWAY_API_KEY or any text> ANTHROPIC_MODEL=auto claude` |
+| **Claude Code** | `ANTHROPIC_BASE_URL=http://localhost:3260 ANTHROPIC_AUTH_TOKEN=<GATEWAY_API_KEY or any text> ANTHROPIC_MODEL=agent claude` |
 | **OpenCode, pi, Continue, Hermes, Aider, Cline** | `bun run setup:agents` writes their configs ([details](docs/AGENT_INTEGRATIONS.md)) |
 | **Codex** | OpenAI Responses API at `http://localhost:3260/v1/responses` |
-| **Anything OpenAI-compatible** | base URL `http://localhost:3260/v1`, model `auto` or any id from `/v1/models` |
+| **Anything OpenAI-compatible** | base URL `http://localhost:3260/v1`, model `auto`, `vision`, `agent` or any id from `/v1/models` |
 
 A bearer token is only required when `GATEWAY_API_KEY` is set.
 
@@ -88,7 +88,15 @@ All providers below have free tiers or work through your own signed-in web accou
 
 ## Routing
 
-`model=auto` walks a chain built from measured latency and success. Tune it with `bun run account auto` or on the desktop Settings page:
+Three virtual models, each with its own chain built from measured latency and success:
+
+| Model | Chain | Use it for |
+|---|---|---|
+| `auto` | one model per web chat, then API models | chat; a request with images switches to `vision` by itself |
+| `vision` | only models that can see images: the web chats and multimodal API models (`*-vision-*`, `*-VL-*`, omni, Gemini, Gemma, Pixtral, …) | screenshots, charts, photos |
+| `agent` | strong API models with native tool calling first, then the `auto` chain with emulated tools | Claude Code, Codex, OpenCode, pi and other coding agents |
+
+The chains are listed in `GET /v1/gateway/status` (`autoModels`, `visionModels`, `agentModels`). Tune them with `bun run account auto` or on the desktop Settings page:
 
 | Option | Values | What it does |
 |---|---|---|
@@ -126,7 +134,7 @@ The headers `x-gateway-compacted`, `x-gateway-tools` and `x-gateway-rtk` show wh
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions, streaming and tools |
 | `POST` | `/v1/messages` | Anthropic Messages |
 | `POST` | `/v1/responses` | OpenAI Responses |
-| `GET` | `/v1/models` | All available models, `auto` first |
+| `GET` | `/v1/models` | All available models, `auto`, `vision` and `agent` first |
 | `POST` | `/v1/images/generations` · `GET /v1/images/models` | Image generation |
 | `POST` | `/v1/decisions` (also `/v1/systemone`) | Decision API in TypeSafe's System One shape: `choice` / `noul` / `boolean` questions answered with probabilities |
 | `GET` | `/v1/gateway/decisions` | Recent routing decisions |

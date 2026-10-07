@@ -1,5 +1,6 @@
 import { readLines } from '../core/streaming/sse.ts';
 import { parseOpenAIEvent } from '../providers/openai-compatible.ts';
+import { isVirtualModel } from '../core/router/smart-router.ts';
 
 export interface ProbeOptions {
   baseUrl: string;
@@ -34,7 +35,7 @@ export async function listGatewayModels(options: ProbeOptions): Promise<ModelInf
   const response = await (options.fetch ?? fetch)(`${options.baseUrl}/models`, { headers: headers(options) });
   if (!response.ok) throw new Error(`GET /models failed: ${response.status}`);
   const body = await response.json() as { data?: Array<{ id?: unknown; owned_by?: unknown }> };
-  return (body.data ?? []).flatMap(model => typeof model.id === 'string' && model.id !== 'auto'
+  return (body.data ?? []).flatMap(model => typeof model.id === 'string' && !isVirtualModel(model.id)
     ? [{ id: model.id, ownedBy: typeof model.owned_by === 'string' ? model.owned_by : 'unknown' }]
     : []);
 }

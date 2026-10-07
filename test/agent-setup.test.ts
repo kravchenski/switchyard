@@ -108,6 +108,8 @@ describe('agent integration setup', () => {
     test('falls back to the built-in model list when the gateway is not running', async () => {
         const models = await loadAvailableModelIds('http://127.0.0.1:1/api');
         expect(models[0]).toBe('auto');
+        expect(models).toContain('agent');
+        expect(models).toContain('vision');
         expect(models).toContain('glm-chat');
         expect(models).toContain('kimi-chat');
         expect(models).toContain('deepseek-default');
