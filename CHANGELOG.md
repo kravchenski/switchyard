@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.6.0](https://github.com/kravchenski/switchyard/compare/v2.5.0...v2.6.0) (2026-10-07)
+
+
+### Features
+
+* **deepseek:** add an account from a browser token with auth:deepseek --token ([1aeba25](https://github.com/kravchenski/switchyard/commit/1aeba2584681347cdc9cf13dd09cf58de56a45a3))
+* **deepseek:** add an account from a browser token with auth:deepseek --token ([d3e923d](https://github.com/kravchenski/switchyard/commit/d3e923d60fa5418fe36b618d0a7abbd13b888df4))
+* **deepseek:** move the DeepSeek service into providers and describe it with OpenAPI ([877559f](https://github.com/kravchenski/switchyard/commit/877559f00912728c24dbee3de325dcd0af6e72e7))
+* **deepseek:** move the DeepSeek service into providers and describe it with OpenAPI ([1f938a4](https://github.com/kravchenski/switchyard/commit/1f938a48bb1f3612f18365c6fbfc79f15f7aae98))
+* **web-chat:** one chat per account, paced messages and no web chats in races ([a659c8a](https://github.com/kravchenski/switchyard/commit/a659c8aeb2369542b19c288087b994620309a522))
+* **web-chat:** one chat per account, paced messages and no web chats in races ([71153dc](https://github.com/kravchenski/switchyard/commit/71153dc00935cc641f7352d8708e5df365a9f5fe))
+
+
+### Bug Fixes
+
+* **router:** keep a conversation on its pinned route and fall through after a failed race ([d03cf67](https://github.com/kravchenski/switchyard/commit/d03cf67be6656bba89c9262e5a33d865d229eada))
+* **router:** keep a conversation on its pinned route and fall through after a failed race ([a9141f4](https://github.com/kravchenski/switchyard/commit/a9141f4e0b6159dfa99ff9742b0a978d32e49f9c))
+* **web-chat:** resend a prompt the site ignored and wait for every GLM image upload ([98a0b12](https://github.com/kravchenski/switchyard/commit/98a0b128a348bb3eb01581ba7309f060182ee24a))
+* **web-chat:** resend a prompt the site ignored and wait for every GLM image upload ([4899c56](https://github.com/kravchenski/switchyard/commit/4899c5611ed84f955dedd9d91d3f83cbf2891067))
+
 ## [2.5.0](https://github.com/kravchenski/switchyard/compare/v2.4.1...v2.5.0) (2026-10-07)
 
 
