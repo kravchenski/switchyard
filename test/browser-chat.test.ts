@@ -28,6 +28,10 @@ const precheckPage = chatPage.replace("const response = await fetch('/api/stream
 const jsonPage = chatPage.replace("body: event.target.value", "body: JSON.stringify({ model: 'site-default', messages: [{ models: ['site-default'], content: event.target.value }] })");
 const framedPage = chatPage.replace("body: event.target.value", "body: (() => { const json = new TextEncoder().encode(JSON.stringify({ options: { model: 'site-default' } })); const out = new Uint8Array(5 + json.length); new DataView(out.buffer).setUint32(1, json.length); out.set(json, 5); return out; })()");
 
+const slowSendPage = chatPage
+  .replace('<script>', '<script>\nlet ready = false;\nsetTimeout(() => { ready = true; }, 1500);')
+  .replace("if (event.key !== 'Enter') return;", "if (event.key !== 'Enter' || !ready) return;");
+
 const verifyPage = '<!doctype html><textarea></textarea><p>Please complete security verification</p>';
 
 const jwt = (payload: Record<string, unknown>) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.sig`;
@@ -35,6 +39,7 @@ const withToken = (payload: Record<string, unknown>) => `<script>localStorage.se
 const clearToken = `<script>localStorage.removeItem('token')</script>${chatPage}`;
 
 let server: ReturnType<typeof Bun.serve>;
+let streamCalls = 0;
 let origin = '';
 
 beforeAll(() => {
@@ -46,6 +51,7 @@ beforeAll(() => {
         return Response.json({ code: 0, sig: 'from bx' });
       }
       if (url.pathname === '/api/stream') {
+        streamCalls++;
         const bytes = new Uint8Array(await request.arrayBuffer());
         if (bytes[0] === 0 && bytes.length > 5) {
           return new Response(`data: ${new TextDecoder().decode(bytes.subarray(5))}\n\n`);
@@ -64,6 +70,7 @@ beforeAll(() => {
         }), { headers: { 'content-type': 'text/event-stream' } });
       }
       const html = url.pathname === '/verify' ? verifyPage
+        : url.pathname === '/slow-send' ? slowSendPage
         : url.pathname === '/precheck' ? precheckPage
         : url.pathname === '/json' ? jsonPage
         : url.pathname === '/framed' ? framedPage
@@ -99,6 +106,17 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       const [a, b] = await Promise.all([session.send(site(), 'one').then(collect), session.send(site(), 'two').then(collect)]);
       expect(a).toContain('echo one');
       expect(b).toContain('echo two');
+    } finally {
+      await session.close();
+    }
+  }, 90_000);
+
+  test('presses Enter again when the page ignored the first one and sends the prompt once', async () => {
+    const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true });
+    try {
+      const before = streamCalls;
+      expect(await collect(await session.send(site('/slow-send'), 'late send'))).toContain('echo late send');
+      expect(streamCalls - before).toBe(1);
     } finally {
       await session.close();
     }
