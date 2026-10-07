@@ -23,14 +23,22 @@ export function qwenImageSite(width: number, height: number): ChatSite {
   };
 }
 
-export function createQwenChatImages(sessions: () => ProfileSession[], available: () => boolean): ImageProvider {
+export function createQwenChatImages(
+  sessions: () => ProfileSession[],
+  available: () => boolean,
+  ensureSignIn?: () => Promise<void>,
+): ImageProvider {
   return {
     id: 'qwen-chat',
     available,
     supports: model => model === MODEL,
     listModels: async () => available() ? [MODEL] : [],
     async generate(request: ImageRequest): Promise<GeneratedImage> {
-      const candidates = sessions();
+      let candidates = sessions();
+      if (!candidates.length && ensureSignIn) {
+        await ensureSignIn();
+        candidates = sessions();
+      }
       if (!candidates.length) throw new ProviderError('qwen-chat: no account is signed in', 'unavailable');
       const failures: string[] = [];
       for (const candidate of candidates) {

@@ -24,16 +24,19 @@ export interface AutoLoginDashboard {
   url: string;
 }
 
-export interface AutoLoginOptions {
+export interface SiteLoginOptions {
+  credentials?: AutoLoginCredentials;
+  viaGoogle?: boolean;
+  waitForSignInMs?: number;
+  now?: () => number;
+}
+
+export interface AutoLoginOptions extends SiteLoginOptions {
   sites: ChatSite[];
   dashboards?: AutoLoginDashboard[];
-  credentials?: AutoLoginCredentials;
   profileDir?: string;
-  viaGoogle?: boolean;
   launch?: (options: LaunchOptions) => Promise<CdpBrowser>;
   closeBrowser?: boolean;
-  now?: () => number;
-  waitForSignInMs?: number;
   onSignIn?: (site: string, result: SignInResult) => void;
 }
 
@@ -324,10 +327,10 @@ async function clearStaleToken(page: Page, rule: SignInRule): Promise<boolean> {
   }, rule.storageKey).catch(() => false);
 }
 
-async function attemptSite(
+export async function attemptSite(
   page: Page,
   site: ChatSite,
-  options: AutoLoginOptions,
+  options: SiteLoginOptions,
 ): Promise<AutoLoginResult> {
   if (!site.signIn) return { site: site.id, status: 'skipped', detail: 'sign-in is optional' };
   const now = options.now ?? Date.now;

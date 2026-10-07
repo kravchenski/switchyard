@@ -108,4 +108,203 @@ describe('browser accounts', () => {
     });
     await expect(failing.stream({ model: 'kimi-chat', messages: [] })).rejects.toThrow('kimi-chat failed on every account: a: a broke; b: b broke');
   });
+
+  const pongAnswer = async function* () { yield new TextEncoder().encode('data: {"type":"chat:completion","data":{"delta_content":"pong","phase":"answer"}}\n\n'); };
+  const pongParse = async function* (bytes: AsyncIterable<Uint8Array>) {
+    for await (const chunk of bytes) {
+      if (new TextDecoder().decode(chunk).includes('pong')) yield { type: 'content' as const, text: 'pong' };
+    }
+  };
+
+  test('re-signs in automatically when every account is signed out', async () => {
+    let signedIn = false;
+    let logins = 0;
+    const provider = createBrowserChatProvider({
+      id: 'qwen-chat',
+      ownedBy: 'qwen-web',
+      model: 'qwen-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      sessions: () => signedIn ? [{ profile: 'default', session: { send: async () => pongAnswer() } }] : [],
+      ensureSignIn: async () => { logins++; signedIn = true; },
+    });
+    const { chunks } = await provider.stream({ model: 'qwen-chat', messages: [{ role: 'user', content: 'hi' }] });
+    expect((await collectChunks(chunks)).content).toBe('pong');
+    expect(logins).toBe(1);
+  });
+
+  test('recovers from an auth error by re-signing in and retrying once', async () => {
+    let signedIn = false;
+    let logins = 0;
+    let sends = 0;
+    const provider = createBrowserChatProvider({
+      id: 'glm-chat',
+      ownedBy: 'z-ai-web',
+      model: 'glm-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      sessions: () => [{
+        profile: 'a',
+        session: {
+          send: async () => {
+            sends++;
+            if (!signedIn) throw new ProviderError('chat.z.ai: not signed in', 'auth');
+            return pongAnswer();
+          },
+        },
+      }],
+      ensureSignIn: async () => { logins++; signedIn = true; },
+    });
+    const { chunks } = await provider.stream({ model: 'glm-chat', messages: [{ role: 'user', content: 'hi' }] });
+    expect((await collectChunks(chunks)).content).toBe('pong');
+    expect(logins).toBe(1);
+    expect(sends).toBe(2);
+  });
+
+  test('solves a verification challenge and retries the send once', async () => {
+    let sends = 0;
+    let solved = 0;
+    const provider = createBrowserChatProvider({
+      id: 'arena-chat',
+      ownedBy: 'arena-web',
+      model: 'arena-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      sessions: () => [{
+        profile: 'a',
+        session: {
+          send: async () => {
+            sends++;
+            if (sends === 1) throw new ProviderError('Arena asks for a verification; complete it in the browser window', 'unavailable');
+            return pongAnswer();
+          },
+          solveVerification: async () => { solved++; },
+        },
+      }],
+    });
+    const { chunks } = await provider.stream({ model: 'arena-chat', messages: [{ role: 'user', content: 'hi' }] });
+    expect((await collectChunks(chunks)).content).toBe('pong');
+    expect(solved).toBe(1);
+    expect(sends).toBe(2);
+  });
+
+  test('gives up on a verification that survives the single recovery', async () => {
+    let solved = 0;
+    const provider = createBrowserChatProvider({
+      id: 'arena-chat',
+      ownedBy: 'arena-web',
+      model: 'arena-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      sessions: () => [{
+        profile: 'a',
+        session: {
+          send: async () => { throw new ProviderError('Arena asks for a verification; complete it in the browser window', 'unavailable'); },
+          solveVerification: async () => { solved++; },
+        },
+      }],
+    });
+    await expect(provider.stream({ model: 'arena-chat', messages: [] })).rejects.toThrow('asks for a verification');
+    expect(solved).toBe(1);
+  });
+
+  test('retries a rate-limited stream after a short delay', async () => {
+    let sends = 0;
+    const provider = createBrowserChatProvider({
+      id: 'kimi-chat',
+      ownedBy: 'kimi-web',
+      model: 'kimi-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      recoveryDelayMs: 1,
+      sessions: () => [{
+        profile: 'a',
+        session: {
+          send: async () => {
+            sends++;
+            if (sends === 1) throw new ProviderError('Kimi chat failed: resource_exhausted', 'rate_limit', 429);
+            return pongAnswer();
+          },
+        },
+      }],
+    });
+    const { chunks } = await provider.stream({ model: 'kimi-chat', messages: [{ role: 'user', content: 'hi' }] });
+    expect((await collectChunks(chunks)).content).toBe('pong');
+    expect(sends).toBe(2);
+  });
+
+  test('auto-retries an upstream stream failure before giving up', async () => {
+    let sends = 0;
+    const provider = createBrowserChatProvider({
+      id: 'glm-chat',
+      ownedBy: 'z-ai-web',
+      model: 'glm-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      recoveryDelayMs: 1,
+      sessions: () => [{
+        profile: 'a',
+        session: {
+          send: async () => {
+            sends++;
+            if (sends < 3) throw new ProviderError('z-ai stopped streaming', 'upstream');
+            return pongAnswer();
+          },
+        },
+      }],
+    });
+    const { chunks } = await provider.stream({ model: 'glm-chat', messages: [{ role: 'user', content: 'hi' }] });
+    expect((await collectChunks(chunks)).content).toBe('pong');
+    expect(sends).toBe(3);
+  });
+
+  test('stops retrying upstream failures after two attempts', async () => {
+    let sends = 0;
+    const provider = createBrowserChatProvider({
+      id: 'glm-chat',
+      ownedBy: 'z-ai-web',
+      model: 'glm-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      recoveryDelayMs: 1,
+      sessions: () => [{
+        profile: 'a',
+        session: {
+          send: async () => {
+            sends++;
+            throw new ProviderError('z-ai stopped streaming', 'upstream');
+          },
+        },
+      }],
+    });
+    await expect(provider.stream({ model: 'glm-chat', messages: [] })).rejects.toThrow('stopped streaming');
+    expect(sends).toBe(3);
+  });
+
+  test('picks sessions per request and pins the profile that answers', async () => {
+    const request = { model: 'qwen-chat', messages: [{ role: 'user', content: 'hi' }] };
+    let selected: string[] = [];
+    const pinned: Array<[string, string]> = [];
+    const provider = createBrowserChatProvider({
+      id: 'qwen-chat',
+      ownedBy: 'qwen-web',
+      model: 'qwen-chat',
+      site: ZAI_CHAT_SITE,
+      parse: pongParse,
+      sessions: () => [],
+      sessionsFor: req => {
+        selected = req.messages.length > 1 ? ['b'] : ['a', 'b'];
+        return selected.map(profile => ({ profile, session: { send: async () => pongAnswer() } }));
+      },
+      pin: (req, profile) => pinned.push([req.messages.length > 1 ? 'continuation' : 'first', profile]),
+    });
+    const first = await provider.stream(request);
+    expect((await collectChunks(first.chunks)).content).toBe('pong');
+    expect(selected).toEqual(['a', 'b']);
+    expect(pinned).toEqual([['first', 'a']]);
+    const next = await provider.stream({ model: 'qwen-chat', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'pong' }, { role: 'user', content: 'again' }] });
+    expect((await collectChunks(next.chunks)).content).toBe('pong');
+    expect(selected).toEqual(['b']);
+    expect(pinned).toEqual([['first', 'a'], ['continuation', 'b']]);
+  });
 });

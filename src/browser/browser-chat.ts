@@ -1,5 +1,6 @@
 import type { Page } from 'playwright-core';
 
+import type { AutoLoginResult, SiteLoginOptions } from './auto-login.ts';
 import { autoSolveCaptcha, type CaptchaHints } from './captcha/index.ts';
 import { ProviderError } from '../core/providers/errors.ts';
 import { launchCdpBrowser, type CdpBrowser, type LaunchOptions } from './cdp.ts';
@@ -291,6 +292,59 @@ export class BrowserChatSession {
     await browser?.close();
   }
 
+  signIn(site: ChatSite, options: SiteLoginOptions = {}): Promise<AutoLoginResult> {
+    return this.withSiteLock(site.id, async () => {
+      const { attemptSite } = await import('./auto-login.ts');
+      const context = await this.context();
+      const page = await context.newPage();
+      try {
+        return await attemptSite(page, site, options);
+      } finally {
+        await page.close().catch(() => {});
+      }
+    });
+  }
+
+  async solveVerification(site: ChatSite): Promise<void> {
+    let created: Page | undefined;
+    try {
+      let page = (this.threads.get(site.id) ?? []).find(thread => !thread.page.isClosed())?.page;
+      if (!page) {
+        const context = await this.context();
+        page = created = await context.newPage();
+        await page.goto(site.authUrl ?? site.url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
+        await Bun.sleep(2_000);
+      }
+      const deadline = Date.now() + 12_000;
+      for (;;) {
+        await autoSolveCaptcha(page, site.captcha);
+        const verification = site.verificationText;
+        const visible = verification
+          ? await page.getByText(verification).first().isVisible().catch(() => false)
+          : false;
+        if (!visible) return;
+        if (Date.now() >= deadline) return;
+        await Bun.sleep(1_000);
+      }
+    } catch {} finally {
+      await created?.close().catch(() => {});
+    }
+  }
+
+  private withSiteLock<T>(siteId: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.queues.get(siteId) ?? Promise.resolve();
+    let release!: () => void;
+    const done = new Promise<void>(resolve => { release = resolve; });
+    this.queues.set(siteId, previous.then(() => done));
+    return previous.then(async () => {
+      try {
+        return await run();
+      } finally {
+        release();
+      }
+    });
+  }
+
   send(site: ChatSite, prompt: string, model?: string, conversation?: SendContext): Promise<AsyncGenerator<Uint8Array>> {
     const previous = this.queues.get(site.id) ?? Promise.resolve();
     let release!: () => void;
@@ -365,8 +419,13 @@ export class BrowserChatSession {
 
   private async resumeThread(thread: ChatThread, site: ChatSite, conversation: SendContext) {
     const messages = conversation.messages!;
-    const delta = messages.slice(thread.sent.length);
-    if (thread.page.isClosed() || !delta.length || !conversation.toPrompt) {
+    let delta = messages.slice(thread.sent.length);
+    if (!delta.length) {
+      const last = messages[messages.length - 1];
+      if (!last || last.role !== 'user') throw new Error(`${site.id} thread cannot continue`);
+      delta = [last];
+    }
+    if (thread.page.isClosed() || !conversation.toPrompt) {
       throw new Error(`${site.id} thread cannot continue`);
     }
     const queue = new ChunkQueue();
@@ -387,15 +446,14 @@ export class BrowserChatSession {
     return { page: thread.page, queue };
   }
 
-  private finishThread(siteId: string, page: Page, clean: boolean) {
+  private finishThread(siteId: string, page: Page) {
     this.pageQueues.delete(page);
     const thread = (this.threads.get(siteId) ?? []).find(entry => entry.page === page);
-    if (clean && thread) {
+    if (thread) {
       thread.lastUsed = Date.now();
       return;
     }
-    if (thread) this.dropThread(siteId, thread);
-    else page.close().catch(() => {});
+    page.close().catch(() => {});
   }
 
   private watchModels(site: ChatSite, page: Page) {
@@ -546,7 +604,7 @@ export class BrowserChatSession {
         }
       }
       release();
-      this.finishThread(site.id, page, clean);
+      this.finishThread(site.id, page);
     }
   }
 }
