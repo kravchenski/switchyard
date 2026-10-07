@@ -978,6 +978,7 @@ impl Shell {
             let all = profile.chats.len();
             let connect_id = profile.id.clone();
             let check_id = profile.id.clone();
+            let collect_id = profile.id.clone();
             let remove_id = profile.id.clone();
             card()
                 .w(px(if compact { 320. } else { 390. }))
@@ -1051,6 +1052,14 @@ impl Shell {
                             this.on_click(cx.listener(move |shell, _, _, cx| {
                                 let id = check_id.clone();
                                 shell.run_command(cx, move |cli| cli.check_profile(&id));
+                                cx.notify();
+                            }))
+                        }))
+                        .child(button(SharedString::from(format!("collect-{}", profile.id)), "Auto-collect keys", Some(IconName::KeyRound), Tone::Outline, !blocked).when(!blocked, |this| {
+                            this.on_click(cx.listener(move |shell, _, _, cx| {
+                                let id = collect_id.clone();
+                                shell.message = Some((true, "Signing in to your chats and dashboards, then collecting API keys. This can take several minutes.".into()));
+                                shell.run_key_command(cx, move |cli| cli.auto_collect(&id));
                                 cx.notify();
                             }))
                         }))

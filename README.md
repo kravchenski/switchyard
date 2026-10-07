@@ -55,12 +55,13 @@ Each browser account is its own browser profile. Sign it in to Google once and u
 ```bash
 bun run account profile add Work          # create an account
 bun run account connect --profile <id>    # open Google and every web chat in it, then check the sign-ins
+bun run account auto-collect --profile <id> --yes   # sign in everywhere with that account's Google session, then create its API keys
 bun run account profiles                  # list accounts (--json for scripts)
 bun run account status                    # check every account
 bun run account profile remove <id>
 ```
 
-The desktop app does the same on the Accounts page (Add account, Connect chats, Check, Remove). Stop the API before connecting or checking, because it uses the same browser profiles.
+The desktop app does the same on the Accounts page (Add account, Connect chats, Check, Auto-collect keys, Remove). Stop the API before connecting, checking or auto-collecting, because it uses the same browser profiles.
 
 ### Tuning `auto`
 

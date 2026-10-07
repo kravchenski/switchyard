@@ -78,6 +78,11 @@ export const ACCOUNTS_USAGE = `Usage: bun run account <command>
                                                   --google forces it, the email and password are prompted
                                                   (LOGIN_EMAIL/LOGIN_PASSWORD work too); without --site/--provider
                                                   every chat and dashboard is attempted
+  auto-collect [--profile <id>] [--site <id,...>] [--provider <id,...>] [--google] [--yes]
+                                                  Sign in (the browser profile's Google session or LOGIN_EMAIL/
+                                                  LOGIN_PASSWORD, never prompted) and then create/update API keys
+                                                  for every provider; --site/--provider limit the sign-in step,
+                                                  --provider also limits the key collection step
 
 API key providers: ${[...API_KEY_PROVIDERS].join(', ')}
 Web chat site ids: ${WEB_CHAT_IDS.join(', ')}
@@ -113,6 +118,41 @@ function profileOption(args: string[], deps: AccountsCliDeps) {
     throw new Error(`Unknown account: ${id}. See: bun run account profiles`);
   }
   return id;
+}
+
+function formatAutoLogin(result: AutoLoginResult) {
+  return `${result.site.padEnd(12)} ${result.status.padEnd(10)} ${result.detail}`;
+}
+
+function autoLoginSummary(results: AutoLoginResult[]) {
+  const count = (status: AutoLoginStatus) => results.filter(entry => entry.status === status).length;
+  return `signed-in: ${count('signed-in')}, logged-in: ${count('logged-in')}, skipped: ${count('skipped')}, failed: ${count('failed')}`;
+}
+
+function autoLoginGood(results: AutoLoginResult[]) {
+  return results.filter(entry => entry.status === 'signed-in' || entry.status === 'logged-in').length;
+}
+
+function autoLoginFailed(results: AutoLoginResult[]) {
+  return results.filter(entry => entry.status === 'failed').length;
+}
+
+function formatHarvest(result: HarvestResult) {
+  const preview = result.keyPreview ? `  ${result.keyPreview}` : '';
+  return `${result.provider.padEnd(14)} ${result.status.padEnd(10)} ${result.detail}${preview}`;
+}
+
+function harvestSummary(results: HarvestResult[]) {
+  const count = (status: HarvestStatus) => results.filter(entry => entry.status === status).length;
+  return `created: ${count('created')}, updated: ${count('updated')}, unchanged: ${count('unchanged')}, skipped: ${count('skipped')}, failed: ${count('failed')}`;
+}
+
+function harvestGood(results: HarvestResult[]) {
+  return results.filter(entry => entry.status === 'created' || entry.status === 'updated' || entry.status === 'unchanged').length;
+}
+
+function harvestFailed(results: HarvestResult[]) {
+  return results.filter(entry => entry.status === 'failed').length;
 }
 
 export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) {
@@ -225,16 +265,43 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
         return 0;
       }
     }
-    const format = (result: HarvestResult) => {
-      const preview = result.keyPreview ? `  ${result.keyPreview}` : '';
-      return `${result.provider.padEnd(14)} ${result.status.padEnd(10)} ${result.detail}${preview}`;
-    };
     deps.log('Visiting provider dashboards...');
-    const results = await deps.harvest({ profile, providers: provider ? [provider] : undefined, onResult: result => deps.log(format(result)) });
-    const count = (status: HarvestStatus) => results.filter(entry => entry.status === status).length;
-    deps.log(`created: ${count('created')}, updated: ${count('updated')}, unchanged: ${count('unchanged')}, skipped: ${count('skipped')}, failed: ${count('failed')}`);
-    const good = count('created') + count('updated') + count('unchanged');
-    return count('failed') > 0 && good === 0 ? 1 : 0;
+    const results = await deps.harvest({ profile, providers: provider ? [provider] : undefined, onResult: result => deps.log(formatHarvest(result)) });
+    deps.log(harvestSummary(results));
+    return harvestFailed(results) > 0 && harvestGood(results) === 0 ? 1 : 0;
+  }
+
+  if (command === 'auto-collect' && deps.autoLogin && deps.harvest) {
+    const profile = profileOption(args, deps);
+    const siteOption = option(args, '--site');
+    const providerOption = option(args, '--provider');
+    const sites = siteOption ? splitIds(siteOption) : providerOption ? [] : undefined;
+    const providers = providerOption ? splitIds(providerOption) : siteOption ? [] : undefined;
+    for (const id of sites ?? []) {
+      if (!WEB_CHAT_IDS.includes(id)) throw new Error(`Unknown site: ${id}. Web chats: ${WEB_CHAT_IDS.join(', ')}\n\n${ACCOUNTS_USAGE}`);
+    }
+    for (const id of providers ?? []) {
+      requireProvider(id);
+    }
+    const email = (option(args, '--email') ?? deps.env?.LOGIN_EMAIL ?? '').trim();
+    const password = option(args, '--password') ?? deps.env?.LOGIN_PASSWORD ?? '';
+    if (!args.includes('--yes')) {
+      const answer = (await deps.askHidden('This will sign in to your web chats and provider dashboards and create/update API keys for them. Continue? (y/n) ')).trim().toLowerCase();
+      if (!answer.startsWith('y')) {
+        deps.log('Cancelled.');
+        return 0;
+      }
+    }
+    deps.log('Signing in to web chats and provider dashboards...');
+    const loginResults = await deps.autoLogin({ profile, sites, providers, credentials: { email, password }, viaGoogle: args.includes('--google') });
+    for (const result of loginResults) deps.log(formatAutoLogin(result));
+    deps.log(autoLoginSummary(loginResults));
+    deps.log('Visiting provider dashboards...');
+    const results = await deps.harvest({ profile, providers: providers && providers.length ? providers : undefined, onResult: result => deps.log(formatHarvest(result)) });
+    deps.log(harvestSummary(results));
+    const good = autoLoginGood(loginResults) + harvestGood(results);
+    const failed = autoLoginFailed(loginResults) + harvestFailed(results);
+    return failed > 0 && good === 0 ? 1 : 0;
   }
 
   if (command === 'auto-login' && deps.autoLogin) {
@@ -254,11 +321,9 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
     if (!email) throw new Error('Email is required');
     if (!password) throw new Error('Password is required');
     const results = await deps.autoLogin({ profile, sites, providers, credentials: { email, password }, viaGoogle: args.includes('--google') });
-    for (const result of results) deps.log(`${result.site.padEnd(12)} ${result.status.padEnd(10)} ${result.detail}`);
-    const count = (status: AutoLoginStatus) => results.filter(entry => entry.status === status).length;
-    deps.log(`signed-in: ${count('signed-in')}, logged-in: ${count('logged-in')}, skipped: ${count('skipped')}, failed: ${count('failed')}`);
-    const good = count('signed-in') + count('logged-in');
-    return count('failed') > 0 && good === 0 ? 1 : 0;
+    for (const result of results) deps.log(formatAutoLogin(result));
+    deps.log(autoLoginSummary(results));
+    return autoLoginFailed(results) > 0 && autoLoginGood(results) === 0 ? 1 : 0;
   }
 
   if (command === 'add' && args.includes('--api-key')) {

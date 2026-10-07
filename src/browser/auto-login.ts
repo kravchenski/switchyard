@@ -86,6 +86,15 @@ const GOOGLE_PROCEED_SELECTORS = [
   'button:has-text("继续")',
 ];
 const SITE_OAUTH_TEXT = /google|github|discord|apple|microsoft|email|passkey|guest/i;
+const NEEDS_CREDENTIALS = 'sign-in needs an email and password';
+const EMPTY_CREDENTIALS: AutoLoginCredentials = { email: '', password: '' };
+
+function loginFailure(site: string, failure: string): AutoLoginResult {
+  if (failure === NEEDS_CREDENTIALS) {
+    return { site, status: 'skipped', detail: 'needs an email and password; sign the account in or set LOGIN_EMAIL/LOGIN_PASSWORD' };
+  }
+  return { site, status: 'failed', detail: failure };
+}
 
 async function firstVisible(page: Page, selectors: string[], timeoutMs: number): Promise<Locator | null> {
   const deadline = Date.now() + timeoutMs;
@@ -123,6 +132,7 @@ async function firstProceed(page: Page): Promise<Locator | null> {
 }
 
 async function fillDirectForm(page: Page, credentials: AutoLoginCredentials): Promise<string | undefined> {
+  if (!credentials.email || !credentials.password) return NEEDS_CREDENTIALS;
   const email = await firstVisible(page, EMAIL_SELECTORS, STEP_TIMEOUT_MS);
   if (!email) return 'login form not found';
   await email.fill(credentials.email, { timeout: 5_000 });
@@ -156,13 +166,15 @@ async function fillGoogleAuth(target: Page, credentials: AutoLoginCredentials): 
   try {
     const emailInput = await firstVisible(target, GOOGLE_EMAIL_SELECTORS, STEP_TIMEOUT_MS);
     let passwordInput: Locator | null = null;
-    if (emailInput) {
+    if (emailInput && (credentials.email || (await emailInput.inputValue().catch(() => '')) !== '')) {
       email = true;
-      await emailInput.fill(credentials.email, { timeout: 5_000 });
+      if (credentials.email) await emailInput.fill(credentials.email, { timeout: 5_000 });
       const next = await firstVisible(target, ['#identifierNext', 'button:has-text("Next")'], SHORT_TIMEOUT_MS);
       if (next) await next.click().catch(() => {});
       else await emailInput.press('Enter').catch(() => {});
       passwordInput = await firstVisible(target, PASSWORD_SELECTORS, STEP_TIMEOUT_MS);
+    } else if (emailInput) {
+      return NEEDS_CREDENTIALS;
     }
     if (!passwordInput) {
       const account = await firstVisible(target, ['[data-identifier]'], STEP_TIMEOUT_MS);
@@ -173,6 +185,7 @@ async function fillGoogleAuth(target: Page, credentials: AutoLoginCredentials): 
       }
     }
     if (passwordInput) {
+      if (!credentials.password) return NEEDS_CREDENTIALS;
       password = true;
       await passwordInput.fill(credentials.password, { timeout: 5_000 });
       const next = await firstVisible(target, ['#passwordNext', 'button:has-text("Next")'], SHORT_TIMEOUT_MS);
@@ -218,6 +231,7 @@ async function loginWithGoogle(page: Page, credentials: AutoLoginCredentials, tr
     }
     const opened = await Promise.race([popup, navigated.then(() => null)]);
     const note = opened ? await fillGoogleAuth(opened, credentials) : await fillGoogleAuth(page, credentials);
+    if (note === NEEDS_CREDENTIALS) return NEEDS_CREDENTIALS;
     trace.push(`${opened ? 'popup' : 'same page'}${attempt ? ' retry' : ''} ${note}`);
     if (note !== 'email=false password=false chooser=false') break;
     if (!(await firstVisible(page, GOOGLE_SELECTORS, 2_000))) break;
@@ -249,7 +263,9 @@ async function acceptTerms(page: Page): Promise<void> {
 async function login(page: Page, credentials: AutoLoginCredentials, viaGoogle: boolean, trace: string[]): Promise<string | undefined> {
   await acceptTerms(page);
   if (GOOGLE_AUTH_HOST.test(new URL(page.url()).hostname)) {
-    trace.push(await fillGoogleAuth(page, credentials));
+    const note = await fillGoogleAuth(page, credentials);
+    if (note === NEEDS_CREDENTIALS) return NEEDS_CREDENTIALS;
+    trace.push(note);
     return undefined;
   }
   if (viaGoogle) return loginWithGoogle(page, credentials, trace);
@@ -317,14 +333,13 @@ async function attemptSite(
   await page.goto(site.authUrl ?? site.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
   const already = await readSignIn(page, site.signIn, now());
   if (already.signedIn) return { site: site.id, status: 'signed-in', detail: 'already signed in' };
-  if (!options.credentials) return { site: site.id, status: 'skipped', detail: 'no credentials given' };
   const stale = await clearStaleToken(page, site.signIn);
   if (stale) await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {});
   await autoSolveCaptcha(page, site.captcha);
   await dismissConsent(page);
   const trace: string[] = [];
-  const failure = await login(page, options.credentials, Boolean(options.viaGoogle), trace);
-  if (failure) return { site: site.id, status: 'failed', detail: failure };
+  const failure = await login(page, options.credentials ?? EMPTY_CREDENTIALS, Boolean(options.viaGoogle), trace);
+  if (failure) return loginFailure(site.id, failure);
   const waitMs = options.waitForSignInMs ?? DEFAULT_WAIT_MS;
   const result = await waitForSignIn(page, site.signIn, waitMs, now);
   if (!result.signedIn) {
@@ -364,12 +379,11 @@ async function attemptDashboard(
   const now = options.now ?? Date.now;
   await page.goto(target.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
   if (!(await looksLikeLoginPage(page, target.url))) return { site: target.id, status: 'signed-in', detail: 'already signed in' };
-  if (!options.credentials) return { site: target.id, status: 'skipped', detail: 'no credentials given' };
   await autoSolveCaptcha(page);
   await dismissConsent(page);
   const trace: string[] = [];
-  const failure = await login(page, options.credentials, Boolean(options.viaGoogle), trace);
-  if (failure) return { site: target.id, status: 'failed', detail: failure };
+  const failure = await login(page, options.credentials ?? EMPTY_CREDENTIALS, Boolean(options.viaGoogle), trace);
+  if (failure) return loginFailure(target.id, failure);
   const failed = (): AutoLoginResult => ({
     site: target.id,
     status: 'failed',

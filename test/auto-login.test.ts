@@ -42,6 +42,25 @@ const googleEntryPage = `<!doctype html><html><body>
 document.getElementById('google').addEventListener('click', () => window.open('/glogin', 'auth', 'width=480,height=640'));
 </script></body></html>`;
 
+const chooserEntryPage = `<!doctype html><html><body>
+<button id="google">Sign in with Google</button>
+<script>
+document.getElementById('google').addEventListener('click', () => window.open('/sessionlogin', 'auth', 'width=480,height=640'));
+</script></body></html>`;
+
+const chooserLoginPage = `<!doctype html><html><body>
+<div data-identifier="user@example.com" id="account">user@example.com</div>
+<script>
+function makeJwt(payload) {
+  const b64 = value => btoa(JSON.stringify(value));
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
+}
+document.getElementById('account').addEventListener('click', () => {
+  localStorage.setItem('token', makeJwt({ id: 'u1', email: 'user@example.com' }));
+  window.close();
+});
+</script></body></html>`;
+
 const googleLoginPage = `<!doctype html><html><body>
 <input type="email" id="email">
 <button id="identifierNext" type="button">Next</button>
@@ -84,7 +103,8 @@ document.getElementById('consentNext').addEventListener('click', () => {
 });
 </script></body></html>`;
 
-const dashboardPage = `<!doctype html><html><body><div id="app"></div><script>
+function dashboardPage(popup = '/glogin'): string {
+  return `<!doctype html><html><body><div id="app"></div><script>
 function makeJwt(payload) {
   const b64 = value => btoa(JSON.stringify(value));
   return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.sig';
@@ -100,12 +120,13 @@ function render() {
     app.innerHTML = '<h1>provider dashboard</h1><button>Create key</button>';
   } else {
     app.innerHTML = '<button id="google">Continue with Google</button><input type="email" id="email">';
-    document.getElementById('google').addEventListener('click', () => window.open('/glogin', 'auth', 'width=480,height=640'));
+    document.getElementById('google').addEventListener('click', () => window.open('${popup}', 'auth', 'width=480,height=640'));
   }
 }
 render();
 setInterval(render, 200);
 </script></body></html>`;
+}
 
 const disabledLoginPage = `<!doctype html><html><body><div id="app"></div><div id="consent" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999"><div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;padding:16px"><p>We use cookies</p><button id="no-thanks">No thanks</button></div></div><script>
 function makeJwt(payload) {
@@ -219,7 +240,9 @@ beforeAll(() => {
         return new Response(null, { status: 302, headers: { location: `http://${host}:${server!.port}${target}` } });
       }
       const html = path === '/google' ? googleEntryPage
+        : path === '/chooser' ? chooserEntryPage
         : path === '/glogin' ? googleLoginPage
+        : path === '/sessionlogin' ? chooserLoginPage
         : path === '/empty' ? '<!doctype html><html><body><h1>landing</h1></body></html>'
         : path === '/cookie' ? cookieLoginPage
         : path === '/bounce1' ? bouncePage('/bounce2')
@@ -227,7 +250,8 @@ beforeAll(() => {
         : path === '/bounce3' ? bouncePage('done')
         : path === '/provider/landed' ? '<!doctype html><html><body><h1>provider dashboard</h1><button>Create key</button></body></html>'
         : path === '/provider/disabled' ? disabledLoginPage
-        : path.startsWith('/provider/') ? dashboardPage
+        : path === '/provider/session' ? dashboardPage('/sessionlogin')
+        : path.startsWith('/provider/') ? dashboardPage()
         : loginPage;
       return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
     },
@@ -248,9 +272,10 @@ function profile() {
   return dir;
 }
 
-function site(id: 'fake-chat' | 'fake-google-chat' | 'fake-arena-chat' | 'fake-bounce-chat'): ChatSite {
+function site(id: 'fake-chat' | 'fake-google-chat' | 'fake-chooser-chat' | 'fake-arena-chat' | 'fake-bounce-chat'): ChatSite {
   if (id === 'fake-chat') return { id, url: `${origin}/`, inputSelector: '#email', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
   if (id === 'fake-google-chat') return { id, url: `${origin}/google`, inputSelector: '#google', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
+  if (id === 'fake-chooser-chat') return { id, url: `${origin}/chooser`, inputSelector: '#google', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
   if (id === 'fake-bounce-chat') return { id, url: `${origin}/bounce1`, inputSelector: '#google', responseUrl: /chat/, signIn: { storageKey: 'token', claim: 'id' } };
   return { id, url: 'http://127.0.0.1:1/unreachable', inputSelector: '#never', responseUrl: /never/ };
 }
@@ -316,6 +341,40 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       profileDir: profile(),
     });
     expect(results).toEqual([{ site: 'fake-google-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+  }, 120_000);
+
+  test('signs into a site through a Google account chooser without credentials', async () => {
+    const results = await autoSignIn({
+      sites: [site('fake-chooser-chat')],
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-chooser-chat', status: 'logged-in', detail: 'signed in as u1' }]);
+  }, 120_000);
+
+  test('skips a site that needs an email and password when none are given', async () => {
+    const results = await autoSignIn({
+      sites: [site('fake-chat')],
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-chat', status: 'skipped', detail: 'needs an email and password; sign the account in or set LOGIN_EMAIL/LOGIN_PASSWORD' }]);
+  }, 120_000);
+
+  test('signs into a dashboard through a Google account chooser without credentials', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-provider', url: `${origin}/provider/session` }],
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-provider', status: 'logged-in', detail: 'signed in' }]);
+  }, 120_000);
+
+  test('reports an already signed-in dashboard without credentials', async () => {
+    const results = await autoSignIn({
+      sites: [],
+      dashboards: [{ id: 'fake-provider', url: `${origin}/provider/keys?preset` }],
+      profileDir: profile(),
+    });
+    expect(results).toEqual([{ site: 'fake-provider', status: 'signed-in', detail: 'already signed in' }]);
   }, 120_000);
 
   test('clears a stale token that hides the login form', async () => {
