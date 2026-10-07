@@ -92,7 +92,7 @@ Three virtual models, each with its own chain built from measured latency and su
 
 | Model | Chain | Use it for |
 |---|---|---|
-| `auto` | one model per web chat, then API models | chat; a request with images switches to `vision` by itself |
+| `auto` | one model per web chat, then API models | chat; a request with images switches to `vision`, one with tools to `agent` |
 | `vision` | only models that can see images: the web chats and multimodal API models (`*-vision-*`, `*-VL-*`, omni, Gemini, Gemma, Pixtral, …) | screenshots, charts, photos |
 | `agent` | strong API models with native tool calling first, then the `auto` chain with emulated tools | Claude Code, Codex, OpenCode, pi and other coding agents |
 

@@ -56,6 +56,7 @@ export const XKIRO_PROVIDER: ApiProviderDefinition = {
   keyUrl: 'https://xkiro.com/dashboard/keys',
   namespace: true,
   autoByDefault: false,
+  config: { capabilities: { vision: false } },
   modelFilter: (model, entry) => entry?.access_tier === 'free' && (entry.modality ?? 'chat') === 'chat' && isApiChatModel(model),
 };
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { createNvidiaProvider, isNvidiaChatModel } from '../src/providers/catalog.ts';
+import { createApiProvider, createNvidiaProvider, isNvidiaChatModel, XKIRO_PROVIDER } from '../src/providers/catalog.ts';
 import { parseOpenAIEvent } from '../src/providers/openai-compatible.ts';
 import { collectChunks } from '../src/core/streaming/sse.ts';
 
@@ -39,6 +39,7 @@ describe('OpenAI-compatible providers', () => {
     const nvidia = createNvidiaProvider({ env: { NVIDIA_API_KEY: 'n' } });
     expect(nvidia.capabilities('meta/llama-3.2-90b-vision-instruct').vision).toBeTrue();
     expect(nvidia.capabilities('openai/gpt-oss-120b').vision).toBeFalse();
+    expect(createApiProvider(XKIRO_PROVIDER, { env: { XKIRO_API_KEY: 'k' } }).capabilities('xkiro/cohere/aya-vision-32b').vision).toBeFalse();
   });
 
   test('streams chunks from NVIDIA with the api key', async () => {

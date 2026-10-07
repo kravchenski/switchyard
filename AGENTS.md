@@ -17,7 +17,7 @@
 ## OpenCode API
 - **Endpoint**: `http://localhost:3260/v1` (bearer token only when `GATEWAY_API_KEY` is set)
 - **Models**:
-  - `auto` — first available model from `AUTO_MODELS` (Qwen → DeepSeek → GLM → Kimi → NVIDIA); requests with images go to `vision`
+  - `auto` — first available model from `AUTO_MODELS` (Qwen → DeepSeek → GLM → Kimi → NVIDIA); requests with images go to `vision`, requests with tools to `agent`
   - `vision` — only models that accept images (web chats, multimodal API models)
   - `agent` — strong API models with native tool calling first, then the `auto` chain; the default for `bun run setup:agents`
   - `qwen*` — Qwen via the Qwen API proxy (`qwen3.7-plus`, `qwen3.8-max`, `qwen3-coder-plus`, …)
