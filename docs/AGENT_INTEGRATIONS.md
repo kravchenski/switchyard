@@ -54,7 +54,7 @@ The same commands work in Bash, zsh, PowerShell, and Command Prompt.
 After running the installer:
 
 ```text
-pi --provider freeai --model auto
+pi --provider freeai --model agent
 opencode
 hermes chat --provider custom:freeai --model auto
 aider --config ~/.aider.freeqwenapi.yml

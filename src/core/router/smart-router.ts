@@ -7,6 +7,14 @@ import type { AutoMode } from './focus.ts';
 import { modelStrength } from '../models/strength.ts';
 
 export const AUTO_MODEL = 'auto';
+export const VISION_MODEL = 'vision';
+export const AGENT_MODEL = 'agent';
+export const VIRTUAL_MODELS = [AUTO_MODEL, VISION_MODEL, AGENT_MODEL] as const;
+export type VirtualModel = typeof VIRTUAL_MODELS[number];
+
+export function isVirtualModel(model: string): model is VirtualModel {
+  return (VIRTUAL_MODELS as readonly string[]).includes(model);
+}
 
 const PROVIDER_COOLDOWN_MS = 30_000;
 const NOT_MODEL_FAULTS: ProviderErrorKind[] = ['rate_limit', 'quota_exhausted', 'auth', 'unavailable', 'invalid_request'];
@@ -50,36 +58,45 @@ function withTimeout<T>(work: Promise<T>, ms: number | undefined, onTimeout: () 
 export class SmartRouter {
   private readonly cooldownUntil = new Map<string, number>();
   private readonly modelCooldownUntil = new Map<string, number>();
+  private readonly chains = new Map<VirtualModel, string[]>();
 
   constructor(
     private readonly registry: ProviderRegistry,
-    private autoModels: string[] = [],
+    autoModels: string[] = [],
     private readonly now: () => number = Date.now,
     private readonly options: SmartRouterOptions = {},
-  ) {}
-
-  setAutoModels(models: string[]) {
-    if (models.length) this.autoModels = [...models];
+  ) {
+    this.chains.set(AUTO_MODEL, [...autoModels]);
   }
 
-  autoChain(): readonly string[] {
-    return this.autoModels;
+  setAutoModels(models: string[]) {
+    if (models.length) this.chains.set(AUTO_MODEL, [...models]);
+  }
+
+  setChain(model: VirtualModel, models: string[]) {
+    if (model === AUTO_MODEL) this.setAutoModels(models);
+    else this.chains.set(model, [...models]);
+  }
+
+  autoChain(model: VirtualModel = AUTO_MODEL): readonly string[] {
+    return this.chains.get(model) ?? [];
   }
 
   knows(model: string) {
-    return model === AUTO_MODEL || Boolean(this.registry.resolve(model));
+    return isVirtualModel(model) || Boolean(this.registry.resolve(model));
   }
 
   routes(model: string, preferredModel?: string, skipped: SkippedRoute[] = []): Route[] {
-    if (model === AUTO_MODEL) this.options.prepareAuto?.();
-    if (model !== AUTO_MODEL) {
+    if (!isVirtualModel(model)) {
       const provider = this.registry.resolve(model);
       return provider ? [{ provider, model }] : [];
     }
+    this.options.prepareAuto?.();
     const now = this.now();
-    const candidates = preferredModel && this.autoModels.includes(preferredModel)
-      ? [preferredModel, ...this.autoModels.filter(candidate => candidate !== preferredModel)]
-      : this.autoModels;
+    const chain = this.autoChain(model);
+    const candidates = preferredModel && chain.includes(preferredModel)
+      ? [preferredModel, ...chain.filter(candidate => candidate !== preferredModel)]
+      : chain;
     const skip = (candidate: string, reason: string) => {
       skipped.push({ model: candidate, reason });
       return [];
@@ -144,7 +161,8 @@ export class SmartRouter {
   async open(model: string, build: (route: Route) => ChatRequest, preferredModel?: string, details?: Record<string, unknown>, options: { nativeToolsFirst?: boolean } = {}): Promise<RoutedStream> {
     const skipped: SkippedRoute[] = [];
     let routes = this.routes(model, preferredModel, skipped);
-    if (model === AUTO_MODEL && options.nativeToolsFirst) {
+    const virtual = isVirtualModel(model);
+    if (virtual && options.nativeToolsFirst) {
       const native = routes
         .filter(route => route.provider.capabilities(route.model).nativeTools)
         .map((route, order) => ({ route, order, strength: modelStrength(route.model) }))
@@ -152,8 +170,8 @@ export class SmartRouter {
         .map(entry => entry.route);
       routes = [...native, ...routes.filter(route => !native.includes(route))];
     }
-    const autoMode = model === AUTO_MODEL && routes.length > 1 ? this.options.autoMode?.() : undefined;
-    const mode: RoutingDecision['mode'] = model !== AUTO_MODEL ? 'direct'
+    const autoMode = virtual && routes.length > 1 ? this.options.autoMode?.() : undefined;
+    const mode: RoutingDecision['mode'] = !virtual ? 'direct'
       : autoMode === 'race' ? 'race'
       : autoMode === 'decide' && this.options.choose ? 'decide'
       : 'fallback';

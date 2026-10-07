@@ -30,10 +30,11 @@ import { createPollinationsImages } from '../providers/images/pollinations.ts';
 import { createQwenChatImages } from '../providers/images/qwen-chat.ts';
 import { collectChunks, ToolCallAssembler } from '../core/streaming/sse.ts';
 import { ProviderError, toHttpError } from '../core/providers/errors.ts';
-import { buildAutoChain } from '../core/router/auto-chain.ts';
+import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
 import { focusPreference, type AutoFocus } from '../core/router/focus.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
-import { AUTO_MODEL, parseAutoModels, SmartRouter, type Route } from '../core/router/smart-router.ts';
+import { AGENT_MODEL, AUTO_MODEL, isVirtualModel, parseAutoModels, SmartRouter, VIRTUAL_MODELS, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
+import { collectImageUrls } from '../core/providers/prompt.ts';
 import { conversationKey, SessionAffinity } from '../core/router/session-affinity.ts';
 import { listBrowserProfiles, loadGatewaySetting, loadModelStats, loadWebChatModels, saveWebChatModels, loadUnavailableModels, replaceUnavailableModels, loadProviderSetting, loadSignIn, saveGatewaySetting, saveProviderSetting, openDatabase, recordRequest, saveModelStat, saveSignIn, type RequestLog } from '../core/store/database.ts';
 import { WebSignInStatus } from '../core/accounts/sign-in-status.ts';
@@ -308,20 +309,25 @@ function logRequest(entry: RequestLog) {
 let allModels: ModelEntry[] = [];
 
 async function refreshModelLists() {
-    allModels = [{ id: AUTO_MODEL, ownedBy: 'gateway' }, ...await registry.listModels()];
+    allModels = [...VIRTUAL_MODELS.map(id => ({ id, ownedBy: 'gateway' })), ...await registry.listModels()];
     rebuildAutoChain();
 }
 
 let chainFocus: AutoFocus | undefined;
 
 function rebuildAutoChain() {
-    if (config.AUTO_MODELS) return;
     chainFocus = gatewaySettings.autoFocus();
+    const isAvailable = (model: string) => registry.availability.isAvailable(model);
+    const preference = focusPreference(chainFocus);
     const candidates = allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
-        return provider ? [{ id: entry.id, provider: provider.id, fallback: provider.fallback ?? false }] : [];
+        if (!provider) return [];
+        const capabilities = provider.capabilities(entry.id);
+        return [{ id: entry.id, provider: provider.id, fallback: provider.fallback ?? false, vision: capabilities.vision, nativeTools: capabilities.nativeTools }];
     });
-    router.setAutoModels(buildAutoChain(candidates, registry.stats, model => registry.availability.isAvailable(model), focusPreference(chainFocus)));
+    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, preference));
+    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, preference));
+    router.setChain(AGENT_MODEL, buildAgentChain(candidates, registry.stats, router.autoChain(), isAvailable, preference));
 }
 
 function loadModelStatistics() {
@@ -555,7 +561,7 @@ app.post('/v1/gateway/refresh', async (c) => {
     forgetSavedKeys();
     await refreshModelLists();
     return c.json({
-        models: allModels.length - 1,
+        models: allModels.length - VIRTUAL_MODELS.length,
         providers: registry.list().map(provider => ({ id: provider.id, ...provider.health() })),
     });
 });
@@ -563,6 +569,8 @@ app.post('/v1/gateway/refresh', async (c) => {
 app.get('/v1/gateway/status', (c) => c.json({
     ...gatewayStatus(registry, db()),
     autoModels: router.autoChain(),
+    visionModels: router.autoChain(VISION_MODEL),
+    agentModels: router.autoChain(AGENT_MODEL),
     autoFocus: gatewaySettings.autoFocus(),
     autoMode: gatewaySettings.autoMode(),
     modelStats: registry.stats.list(),
@@ -651,9 +659,13 @@ app.post('/api/chat/completions', async (c) => {
         const captureToolCalls = Array.isArray(combinedTools) && combinedTools.length > 0;
 
         const startedAt = Date.now();
-        const sessionKey = model === AUTO_MODEL ? conversationId ?? conversationKey(messages) : undefined;
+        const routeModel = model !== AUTO_MODEL ? model
+            : router.autoChain(VISION_MODEL).length && collectImageUrls(messages).length ? VISION_MODEL
+            : captureToolCalls && router.autoChain(AGENT_MODEL).length ? AGENT_MODEL
+            : model;
+        const sessionKey = isVirtualModel(routeModel) ? conversationId ?? conversationKey(messages) : undefined;
         const sessions = sessionKey ? affinity() : undefined;
-        const pinned = sessionKey ? sessions?.get(sessionKey, AUTO_MODEL) : undefined;
+        const pinned = sessionKey ? sessions?.get(sessionKey, routeModel) : undefined;
         const requestFor = (route: Route, nudge = false): ChatRequest => {
             const native = captureToolCalls && route.provider.capabilities(route.model).nativeTools;
             const base = native ? agentMessages : upstreamMessages;
@@ -664,13 +676,13 @@ app.post('/api/chat/completions', async (c) => {
                 ...(native ? { tools: promptTools as ChatMessage[] } : {}),
             };
         };
-        const first = await router.open(model, route => requestFor(route), pinned?.model, details, { nativeToolsFirst: captureToolCalls })
+        const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details, { nativeToolsFirst: captureToolCalls })
             .catch(error => {
                 logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error) });
                 throw error;
             });
         const { provider, model: routedModel } = first.route;
-        if (sessionKey) sessions?.set(sessionKey, AUTO_MODEL, { provider: provider.id, model: routedModel });
+        if (sessionKey) sessions?.set(sessionKey, routeModel, { provider: provider.id, model: routedModel });
         const finish = (error?: unknown) => logRequest({
             provider: provider.id,
             model: routedModel,
@@ -751,7 +763,7 @@ const QUICK_DECISION_MS = 8_000;
 const CHOOSE_OPTIONS = 16;
 
 function decisionModels(requested?: string) {
-    if (requested && requested !== AUTO_MODEL && registry.resolve(requested)) return [requested];
+    if (requested && !isVirtualModel(requested) && registry.resolve(requested)) return [requested];
     const api = visibleModels().map(entry => entry.id).filter(id => {
         const provider = registry.resolve(id);
         return Boolean(provider?.fallback && provider.health().available);
