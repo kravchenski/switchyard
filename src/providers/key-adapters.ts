@@ -20,6 +20,7 @@ const NAME_FIELDS = [
   'input[name="name"]',
   'input[placeholder*="name" i]',
   'input[placeholder*="Name" i]',
+  'input[placeholder*="e.g." i]',
   'input[name="description"]',
   '#token-name',
   '[role="dialog"] input[type="text"]',
@@ -91,6 +92,6 @@ export const KEY_ADAPTERS: ProviderKeyAdapter[] = [
   { provider: 'cloudflare', keyUrl: keyUrl('cloudflare'), keyPattern: /^[A-Za-z0-9]{40}$/, ...common },
   { provider: 'tokenharbor', keyUrl: keyUrl('tokenharbor'), keyPattern: /^thk_live_[A-Za-z0-9_-]{16,}$/, ...common },
   { provider: 'aihubmix', keyUrl: keyUrl('aihubmix'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
-  { provider: 'ashna', keyUrl: keyUrl('ashna'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
+  { provider: 'ashna', keyUrl: keyUrl('ashna'), keyPattern: /^[A-Za-z0-9_-]{16,40}$/, ...common },
   { provider: 'nararouter', keyUrl: keyUrl('nararouter'), keyPattern: /^sk-nry-[A-Za-z0-9_-]{16,}$/, ...common },
 ];

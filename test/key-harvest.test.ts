@@ -85,6 +85,8 @@ function fakePage(state: FakeState = {}): HarvestPage {
         if (!target || target.value === undefined) throw new Error(`${selector} is not fillable`);
         target.value = value;
       },
+      evaluate: async <R, A>(fn: (el: Element, arg?: A) => R | Promise<R>, arg?: A): Promise<R> =>
+        fn({ click: () => element()?.click?.() } as unknown as Element, arg),
     };
     return self;
   };
@@ -235,8 +237,14 @@ describe('harvest create flow', () => {
       visible: true,
       text: 'Create API key',
       click: () => {
-        state.scanned = [KEY];
-        elements['button:has-text("Confirm")'] = { visible: true, text: 'Confirm', click: () => { confirmed = true; } };
+        elements['button:has-text("Confirm")'] = {
+          visible: true,
+          text: 'Confirm',
+          click: () => {
+            confirmed = true;
+            state.scanned = [KEY];
+          },
+        };
       },
     };
     let confirmed = false;

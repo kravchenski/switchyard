@@ -86,6 +86,8 @@ function fakePage(state: FakeState = {}): HarvestPage {
         if (!target || target.value === undefined) throw new Error(`${selector} is not fillable`);
         target.value = value;
       },
+      evaluate: async (fn: (el: unknown, arg?: unknown) => unknown, arg?: unknown) =>
+        fn({ click: () => element()?.click?.() }, arg),
     };
     return self;
   };

@@ -18,6 +18,7 @@ export interface HarvestLocator {
   textContent(options?: { timeout?: number }): Promise<string | null>;
   isVisible(): Promise<boolean>;
   fill(value: string): Promise<void>;
+  evaluate<R, A>(fn: (el: Element, arg?: A) => R | Promise<R>, arg?: A): Promise<R>;
 }
 
 export interface HarvestPage {
@@ -215,7 +216,7 @@ async function fillEmptyNameFields(page: HarvestPage): Promise<boolean> {
         count++;
       }
       return count;
-    }, ['input[name="name"]', 'input[placeholder*="name" i]'].join(','))
+    }, ['input[name="name"]', 'input[placeholder*="name" i]', 'input[placeholder*="e.g." i]'].join(','))
     .catch(() => 0);
   return typeof filled === 'number' ? filled > 0 : Boolean(filled);
 }
@@ -368,19 +369,33 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
           await clickSafe(page, adapter.keyUrl, create);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          if (/not enabled/i.test(message)) return failed('create button is disabled (paid plan or onboarding required)');
-          if (!/intercepts pointer events/i.test(message)) throw error;
-          await clearBlockingUi(page);
-          await create.locator.click({ timeout: 5_000 }).catch(() => {});
+          if (/not enabled/i.test(message)) {
+            await fillEmptyNameFields(page);
+            try {
+              await clickSafe(page, adapter.keyUrl, create);
+            } catch (retry) {
+              const retryMessage = retry instanceof Error ? retry.message : String(retry);
+              if (/not enabled/i.test(retryMessage)) return failed('create button is disabled (paid plan or onboarding required)');
+              if (!/intercepts pointer events/i.test(retryMessage)) throw retry;
+              await clearBlockingUi(page);
+              await create.locator.evaluate((el: Element) => (el as HTMLElement).click()).catch(() => {});
+            }
+          } else if (!/intercepts pointer events/i.test(message)) throw error;
+          else {
+            await clearBlockingUi(page);
+            await create.locator.evaluate((el: Element) => (el as HTMLElement).click()).catch(() => {});
+          }
         }
         await clearBlockingUi(page);
         const turnstileOk = await waitForTurnstile(page, now, sleep);
         if (!turnstileOk) return failed(`the provider's bot check blocked key creation; create a key manually at ${adapter.keyUrl}`);
-        confirm = await visibleLocator(page, adapter.confirmSelectors);
+        key = await findKey();
+        if (!key) confirm = await visibleLocator(page, adapter.confirmSelectors);
       }
       const uiDeadline = now() + UI_WAIT_MS;
       let filled = false;
       for (;;) {
+        if (key) break;
         if (!filled) {
           const name = await visibleLocator(page, adapter.nameFieldSelectors);
           if (name) {
