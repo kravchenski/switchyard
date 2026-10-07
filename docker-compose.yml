@@ -40,7 +40,7 @@ services:
       context: .
       dockerfile: Dockerfile.light
     image: ${FREEAI_DEEPSEEK_IMAGE:-deepseek-web-proxy:latest}
-    command: ["bun", "run", "deepseek.ts"]
+    command: ["bun", "run", "src/providers/deepseek/server.ts"]
     environment:
       - NODE_ENV=production
       - DEEPSEEK_PORT=3265

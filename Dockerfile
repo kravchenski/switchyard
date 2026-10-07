@@ -22,7 +22,6 @@ COPY --from=base /app/node_modules ./node_modules
 COPY package.json ./
 COPY src/ ./src/
 COPY scripts/ ./scripts/
-COPY deepseek.ts ./
 
 RUN install -d -o bun -g bun /app/session /app/logs /app/data \
  && find / -xdev -perm /6000 -type f -exec chmod a-s {} +
