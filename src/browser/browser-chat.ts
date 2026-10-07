@@ -1,4 +1,4 @@
-import type { Page } from 'playwright-core';
+import type { Locator, Page } from 'playwright-core';
 
 import type { AutoLoginResult, SiteLoginOptions } from './auto-login.ts';
 import { autoSolveCaptcha, type CaptchaHints } from './captcha/index.ts';
@@ -101,6 +101,29 @@ const BINDING = '__freeapiStreamChunk';
 const CHALLENGE_GRACE_MS = 120_000;
 const THREAD_IDLE_MS = 30 * 60_000;
 const MAX_THREADS_PER_SITE = 3;
+const SUBMIT_RETRY_MS = 60_000;
+const SUBMIT_CHECK_MS = 500;
+
+async function submitPrompt(page: Page, input: Locator, responseUrl: RegExp) {
+  let sent = false;
+  const watch = (request: { url(): string }) => {
+    if (responseUrl.test(request.url())) sent = true;
+  };
+  page.on('request', watch);
+  try {
+    await input.press('Enter');
+    const deadline = Date.now() + SUBMIT_RETRY_MS;
+    while (!sent && Date.now() < deadline) {
+      await Bun.sleep(SUBMIT_CHECK_MS);
+      if (sent) return;
+      const left = await input.inputValue({ timeout: 1_000 }).catch(() => '');
+      if (!left.trim()) return;
+      await input.press('Enter', { timeout: 2_000 }).catch(() => {});
+    }
+  } finally {
+    page.off('request', watch);
+  }
+}
 
 interface ChatThread {
   page: Page;
@@ -452,7 +475,7 @@ export class BrowserChatSession {
     await input.fill('');
     await input.click();
     await thread.page.keyboard.insertText(conversation.toPrompt(delta));
-    await input.press('Enter');
+    await submitPrompt(thread.page, input, site.responseUrl);
     return { page: thread.page, queue };
   }
 
@@ -521,7 +544,7 @@ export class BrowserChatSession {
       await input.fill('');
       await input.click();
       await page.keyboard.insertText(prompt);
-      await input.press('Enter');
+      await submitPrompt(page, input, site.responseUrl);
       if (conversation?.messages?.length) {
         this.registerThread(site.id, {
           page,

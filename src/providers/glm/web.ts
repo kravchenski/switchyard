@@ -14,7 +14,16 @@ export const ZAI_CHAT_SITE: ChatSite = {
   modelFields: model => ({ model }),
   images: true,
   attachImages: async (page, files) => {
-    const uploaded = page.waitForResponse(response => /\/api\/v1\/files|z-cdn-media/.test(response.url()) && response.ok(), { timeout: 60_000 }).catch(() => undefined);
+    let done = 0;
+    const uploaded = new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => resolve(false), 60_000);
+      page.on('response', function count(response) {
+        if (!/\/api\/v1\/files|z-cdn-media/.test(response.url()) || !response.ok() || ++done < files.length) return;
+        clearTimeout(timer);
+        page.off('response', count);
+        resolve(true);
+      });
+    });
     await page.locator('input[type=file]').last().setInputFiles(files);
     if (!(await uploaded)) await Bun.sleep(5_000);
   },
