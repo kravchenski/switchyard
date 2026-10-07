@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.5.0](https://github.com/kravchenski/switchyard/compare/v2.4.1...v2.5.0) (2026-10-07)
+
+
+### Features
+
+* **router:** add vision and agent models next to auto ([40c3ffa](https://github.com/kravchenski/switchyard/commit/40c3ffab6433965a175e8ce7156177e4acc200c6))
+* **router:** add vision and agent models next to auto ([f4b0ec1](https://github.com/kravchenski/switchyard/commit/f4b0ec123e5b81f5aa74d932fa0b4ec41cf6932f))
+* **router:** add vision and agent models next to auto ([6c003c5](https://github.com/kravchenski/switchyard/commit/6c003c573b7b601f9a8309a58e61d79dd956fd71))
+
+
+### Bug Fixes
+
+* **deepseek:** recreate an expired chat session instead of returning an empty answer ([647eefe](https://github.com/kravchenski/switchyard/commit/647eefeadbeba426bb4932b0f4c9cab63b9a94b9))
+* **deepseek:** recreate an expired chat session instead of returning an empty answer ([a0a2e1a](https://github.com/kravchenski/switchyard/commit/a0a2e1a34cdd2358868a7b63dbfb8f62d0fe3033))
+* **router:** send auto requests with tools to the agent chain ([08c9fe2](https://github.com/kravchenski/switchyard/commit/08c9fe2e8c850307cec84f1958c8a8cea4f0dcf6))
+
 ## [2.4.1](https://github.com/kravchenski/switchyard/compare/v2.4.0...v2.4.1) (2026-10-03)
 
 
