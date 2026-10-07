@@ -55,6 +55,7 @@ const UI_WAIT_MS = 5_000;
 
 const DISMISS_SELECTORS = [
   'button:has-text("No thanks")',
+  'button:has-text("Save My Preferences")',
   'button:has-text("Reject all")',
   'button:has-text("Only necessary")',
   'button:has-text("Reject")',
@@ -62,7 +63,6 @@ const DISMISS_SELECTORS = [
   'button:has-text("Accept all")',
   'button:has-text("Allow all")',
   'button:has-text("Allow analytics")',
-  'button:has-text("Save My Preferences")',
   'button:has-text("I agree")',
   'button:has-text("Got it")',
   '[aria-label="Close"]',
@@ -197,28 +197,48 @@ async function looksLikeAuthWall(page: HarvestPage): Promise<boolean> {
   return await Promise.race([scan, Bun.sleep(6_000).then(() => false)]);
 }
 
+async function fillEmptyNameFields(page: HarvestPage): Promise<boolean> {
+  const filled = await page
+    .evaluate((selector: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      let count = 0;
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        const input = element as HTMLInputElement;
+        const rect = input.getBoundingClientRect();
+        if (!rect.width || !rect.height || input.value) continue;
+        setter?.call(input, 'free-qwen-api');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        count++;
+      }
+      return count;
+    }, ['input[name="name"]', 'input[placeholder*="name" i]'].join(','))
+    .catch(() => 0);
+  return typeof filled === 'number' ? filled > 0 : Boolean(filled);
+}
+
 async function clearBlockingUi(page: HarvestPage): Promise<void> {
   const selectors = [...DIALOG_PROCEED_SELECTORS, ...DISMISS_SELECTORS];
-  const nameFields = ['input[name="name"]', 'input[placeholder*="name" i]'];
   let checkboxSeen = false;
-  for (let round = 0; round < 6; round++) {
-    let clicked = false;
-    const name = await visibleLocator(page, nameFields);
-    if (name) {
-      const value = await name.locator.inputValue({ timeout: 800 }).catch(() => '');
-      if (!value) {
-        await name.locator.fill('free-qwen-api').catch(() => {});
-        clicked = true;
-      }
-    }
+  for (let round = 0; round < 8; round++) {
+    let clicked = await fillEmptyNameFields(page);
     const dialogCheckbox = page.locator('[role="dialog"] input[type="checkbox"]:not(:checked)').first();
     if (await dialogCheckbox.isVisible().catch(() => false)) {
       await dialogCheckbox.click({ timeout: 1_500 }).catch(() => {});
       checkboxSeen = true;
       clicked = true;
     }
-    const pageContinue = page.locator('button:text-is("Continue"), button:text-is("Accept and continue")').first();
-    if (await pageContinue.isVisible().catch(() => false)) {
+    const skip = await visibleLocator(page, ['button:has-text("Skip this step")', 'button:has-text("Skip")']);
+    if (skip) {
+      await skip.locator.click({ timeout: 1_500 }).catch(() => {});
+      clicked = true;
+    }
+    const pageContinue = await visibleLocator(page, [
+      'button:has-text("Continue")',
+      '[role="button"]:has-text("Continue")',
+      'button:has-text("Accept and continue")',
+    ]);
+    if (pageContinue) {
       if (round > 0 && !checkboxSeen) {
         const pageCheckbox = page.locator('input[type="checkbox"]:not(:checked)').first();
         if (await pageCheckbox.isVisible().catch(() => false)) {
@@ -227,10 +247,22 @@ async function clearBlockingUi(page: HarvestPage): Promise<void> {
           clicked = true;
         }
       }
-      await pageContinue.click({ timeout: 1_500 }).catch(() => {});
+      await pageContinue.locator.click({ timeout: 1_500 }).catch(() => {});
       clicked = true;
     }
+    const workflowUi = await page
+      .evaluate(() => {
+        const visible = (element: Element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        return Array.from(document.querySelectorAll('button, [role="button"]')).some(
+          button => visible(button) && /^(create|confirm|generate|save|submit)\b/i.test((button.textContent || '').trim()),
+        );
+      }, undefined)
+      .catch(() => false);
     for (const selector of selectors) {
+      if (workflowUi && selector.includes('aria-label="Close"')) continue;
       const button = page.locator(selector).first();
       if (await button.isVisible().catch(() => false)) {
         await button.click({ timeout: 1_500 }).catch(() => {});
