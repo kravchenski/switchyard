@@ -152,6 +152,14 @@ impl AccountsCli {
         allow_signed_out(self.run(&["connect", "--profile", id], None))
     }
 
+    pub fn harvest(&self) -> Result<String, String> {
+        self.run(&["harvest", "--yes"], None)
+    }
+
+    pub fn auto_collect(&self, id: &str) -> Result<String, String> {
+        self.run(&["auto-collect", "--profile", id, "--yes"], None)
+    }
+
     pub fn check_profile(&self, id: &str) -> Result<String, String> {
         allow_signed_out(self.run(&["status", "--profile", id], None))
     }
@@ -220,6 +228,8 @@ mod tests {
         assert_eq!(cli.add_profile("  Work   laptop ").unwrap(), "args:profile add Work laptop");
         assert_eq!(cli.connect_profile("acct-1").unwrap(), "args:connect --profile acct-1");
         assert_eq!(cli.check_profile("acct-1").unwrap(), "args:status --profile acct-1");
+        assert_eq!(cli.harvest().unwrap(), "args:harvest --yes");
+        assert_eq!(cli.auto_collect("acct-1").unwrap(), "args:auto-collect --profile acct-1 --yes");
         assert_eq!(cli.remove_profile("acct-1").unwrap(), "args:profile remove acct-1");
         assert_eq!(cli.set_auto_focus("coding").unwrap(), "args:auto --focus coding");
         assert_eq!(cli.set_auto_mode("race").unwrap(), "args:auto --mode race");

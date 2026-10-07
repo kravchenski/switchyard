@@ -287,8 +287,8 @@ impl Shell {
                     let result = command(cli);
                     let result = match (&result, reload_models && online) {
                         (Ok(output), true) => match refresh_models(&base_url, gateway_key.as_deref()) {
-                            Ok(count) => Ok(format!("{}\nModels reloaded: {count} available.", output.trim_end())),
-                            Err(error) => Ok(format!("{}\nSaved, but the models could not be reloaded yet: {error}", output.trim_end())),
+                            Ok(count) => Ok(format!("Models reloaded: {count} available.\n{}", output.trim_end())),
+                            Err(error) => Ok(format!("Saved, but the models could not be reloaded yet: {error}\n{}", output.trim_end())),
                         },
                         _ => result,
                     };
@@ -978,6 +978,7 @@ impl Shell {
             let all = profile.chats.len();
             let connect_id = profile.id.clone();
             let check_id = profile.id.clone();
+            let collect_id = profile.id.clone();
             let remove_id = profile.id.clone();
             card()
                 .w(px(if compact { 320. } else { 390. }))
@@ -1054,6 +1055,14 @@ impl Shell {
                                 cx.notify();
                             }))
                         }))
+                        .child(button(SharedString::from(format!("collect-{}", profile.id)), "Auto-collect keys", Some(IconName::KeyRound), Tone::Outline, !blocked).when(!blocked, |this| {
+                            this.on_click(cx.listener(move |shell, _, _, cx| {
+                                let id = collect_id.clone();
+                                shell.message = Some((true, "Signing in to your chats and dashboards, then collecting API keys. This can take several minutes.".into()));
+                                shell.run_key_command(cx, move |cli| cli.auto_collect(&id));
+                                cx.notify();
+                            }))
+                        }))
                         .children((profile.id != "default").then(|| {
                             button(SharedString::from(format!("remove-profile-{}", profile.id)), "Remove", Some(IconName::Trash), Tone::Danger, !self.busy).when(!self.busy, |this| {
                                 this.on_click(cx.listener(move |shell, _, _, cx| {
@@ -1088,6 +1097,13 @@ impl Shell {
                             cx.notify();
                         }))
                     }))
+                    .child(
+                        button("harvest-keys", if self.busy { "Working…" } else { "Get API keys automatically" }, None, Tone::Outline, !self.browser_blocked())
+                            .when(!self.browser_blocked(), |this| this.on_click(cx.listener(|shell, _, _, cx| {
+                                shell.run_key_command(cx, |cli| cli.harvest());
+                                cx.notify();
+                            }))),
+                    )
                     .child(div().flex_1())
                     .child(
                         button("add-key", if self.busy { "Working…" } else { "Save key" }, Some(IconName::KeyRound), Tone::Primary, can_save_key).when(can_save_key, |this| {

@@ -12,12 +12,15 @@ export const QWEN_CHAT_SITE: ChatSite = {
   url: QWEN_CHAT_URL,
   inputSelector: 'textarea',
   responseUrl: /\/api\/v2\/chat\/completions/,
+  verificationText: /security verification|verify you are human|captcha/i,
   signIn: { storageKey: 'token', claim: 'id' },
+  authUrl: 'https://chat.qwen.ai/auth',
   challengeResponse: /FAIL_SYS_USER_VALIDATE|\/punish\?/,
   ignoredResponse: /^\{"code":0,[^\n]*"sig":"from bx"/,
   captcha: { slider: true },
   modelFields: model => ({ model, 'messages.*.models': [model] }),
   images: true,
+  reuseThread: true,
   attachImages: async (page, files) => {
     const uploaded = page.waitForResponse(response => response.request().method() === 'PUT' && /oss-accelerate/.test(response.url()) && response.ok(), { timeout: 60_000 }).catch(() => undefined);
     await page.locator('div.mode-select-open').first().click({ timeout: 15_000 });

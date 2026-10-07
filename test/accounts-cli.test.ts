@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { runAccountsCommand, type AccountsCliDeps } from '../src/cli/accounts.ts';
 import type { Credential } from '../src/core/accounts/credential-store.ts';
+import type { HarvestResult } from '../src/browser/key-harvest.ts';
 
 function harness() {
   const saved: Credential[] = [];
@@ -73,5 +74,262 @@ describe('accounts CLI', () => {
     expect(opened).toEqual(['https://www.kimi.com/']);
     await expect(runAccountsCommand(['open', 'http://chat.z.ai'], deps)).rejects.toThrow('https');
     await expect(runAccountsCommand(['open', 'kimi.com'], deps)).rejects.toThrow('full https URL');
+  });
+
+  test('asks for consent before harvesting and cancels on no', async () => {
+    const { deps, lines } = harness();
+    const calls: Array<{ profile: string; providers?: string[] }> = [];
+    deps.askHidden = async () => 'n';
+    deps.harvest = async options => {
+      calls.push(options);
+      return [{ provider: 'gemini', status: 'created', detail: 'created', keyPreview: 'AIza…1234' }];
+    };
+    expect(await runAccountsCommand(['harvest'], deps)).toBe(0);
+    expect(calls).toEqual([]);
+    expect(lines).toEqual(['Cancelled.']);
+  });
+
+  test('runs the harvest with --yes, prints the report and the summary last', async () => {
+    const { deps, lines } = harness();
+    const calls: Array<{ profile: string; providers?: string[]; onResult?: (result: HarvestResult) => void }> = [];
+    deps.askHidden = async () => {
+      throw new Error('must not ask when --yes is set');
+    };
+    deps.harvest = async options => {
+      calls.push(options);
+      const results: HarvestResult[] = [
+        { provider: 'gemini', status: 'created', detail: 'created', keyPreview: 'AIza…1234' },
+        { provider: 'groq', status: 'unchanged', detail: 'already saved', keyPreview: 'gsk_…7890' },
+        { provider: 'mistral', status: 'skipped', detail: 'not signed in (bun run account connect)' },
+        { provider: 'zai', status: 'failed', detail: 'refusing to click "Upgrade plan"' },
+      ];
+      for (const result of results) options.onResult?.(result);
+      return results;
+    };
+    expect(await runAccountsCommand(['harvest', '--yes'], deps)).toBe(0);
+    expect(calls).toEqual([{ profile: 'default', providers: undefined, onResult: expect.any(Function) }]);
+    expect(lines[0]).toBe('Visiting provider dashboards...');
+    expect(lines.at(-1)).toBe('created: 1, updated: 0, unchanged: 1, skipped: 1, failed: 1');
+    expect(lines.some(line => line.includes('gemini') && line.includes('created') && line.includes('AIza…1234'))).toBe(true);
+    expect(lines.some(line => line.includes('zai') && line.includes('refusing to click'))).toBe(true);
+  });
+
+  test('passes --provider through and rejects unknown providers and accounts', async () => {
+    const { deps } = harness();
+    const calls: Array<{ profile: string; providers?: string[] }> = [];
+    deps.harvest = async options => {
+      calls.push(options);
+      return [];
+    };
+    deps.profiles = { list: () => [{ id: 'default', label: 'Main' }], add: label => ({ id: 'acct-1', label }), remove: () => true };
+    expect(await runAccountsCommand(['harvest', '--yes', '--provider', 'gemini'], deps)).toBe(0);
+    expect(calls.map(({ profile, providers }) => ({ profile, providers }))).toEqual([{ profile: 'default', providers: ['gemini'] }]);
+    await expect(runAccountsCommand(['harvest', '--yes', '--provider', 'nope'], deps)).rejects.toThrow('Unknown provider: nope');
+    await expect(runAccountsCommand(['harvest', '--yes', '--profile', 'acct-zzz'], deps)).rejects.toThrow('Unknown account: acct-zzz');
+  });
+
+  test('fails the run when everything attempted failed, but not when all skipped', async () => {
+    const { deps } = harness();
+    deps.harvest = async () => [{ provider: 'zai', status: 'failed', detail: 'timeout' }];
+    expect(await runAccountsCommand(['harvest', '--yes'], deps)).toBe(1);
+    deps.harvest = async () => [{ provider: 'zai', status: 'skipped', detail: 'not signed in (bun run account connect)' }];
+    expect(await runAccountsCommand(['harvest', '--yes'], deps)).toBe(0);
+  });
+
+  test('auto-login prompts for credentials, prints the report and the summary last', async () => {
+    const { deps, lines } = harness();
+    const calls: Array<{ profile: string; sites?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }> = [];
+    deps.askHidden = async question => (question.startsWith('Email') ? 'user@example.com ' : 'secret-pw');
+    deps.autoLogin = async options => {
+      calls.push(options);
+      return [
+        { site: 'qwen-chat', status: 'logged-in', detail: 'signed in as user@example.com' },
+        { site: 'glm-chat', status: 'signed-in', detail: 'already signed in' },
+        { site: 'kimi-chat', status: 'failed', detail: 'login form not found' },
+        { site: 'arena-chat', status: 'skipped', detail: 'sign-in is optional' },
+      ];
+    };
+    expect(await runAccountsCommand(['auto-login'], deps)).toBe(0);
+    expect(calls).toEqual([{ profile: 'default', sites: undefined, credentials: { email: 'user@example.com', password: 'secret-pw' }, viaGoogle: false }]);
+    expect(lines.at(-1)).toBe('signed-in: 1, logged-in: 1, skipped: 1, failed: 1');
+    expect(lines.some(line => line.includes('qwen-chat') && line.includes('logged-in') && line.includes('user@example.com'))).toBe(true);
+    expect(lines.some(line => line.includes('kimi-chat') && line.includes('login form not found'))).toBe(true);
+  });
+
+  test('auto-login reads credentials from env and flags and honors --site/--google', async () => {
+    const { deps } = harness();
+    deps.askHidden = async () => {
+      throw new Error('must not prompt when credentials are provided');
+    };
+    const calls: Array<{ profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }> = [];
+    deps.autoLogin = async options => {
+      calls.push(options);
+      return [];
+    };
+    deps.env = { LOGIN_EMAIL: 'env@example.com', LOGIN_PASSWORD: 'env-secret' };
+    expect(await runAccountsCommand(['auto-login', '--site', 'qwen-chat, kimi-chat', '--google'], deps)).toBe(0);
+    expect(calls).toEqual([{ profile: 'default', sites: ['qwen-chat', 'kimi-chat'], providers: [], credentials: { email: 'env@example.com', password: 'env-secret' }, viaGoogle: true }]);
+    expect(await runAccountsCommand(['auto-login', '--email', 'flag@example.com', '--password', 'flag-secret'], deps)).toBe(0);
+    expect(calls[1].credentials).toEqual({ email: 'flag@example.com', password: 'flag-secret' });
+    expect(calls[1].sites).toBeUndefined();
+    expect(calls[1].providers).toBeUndefined();
+  });
+
+  test('auto-login filters provider dashboards with --provider and rejects unknown providers', async () => {
+    const { deps } = harness();
+    deps.askHidden = async () => {
+      throw new Error('must not prompt when credentials are provided');
+    };
+    const calls: Array<{ sites?: string[]; providers?: string[] }> = [];
+    deps.autoLogin = async options => {
+      calls.push(options);
+      return [];
+    };
+    deps.env = { LOGIN_EMAIL: 'env@example.com', LOGIN_PASSWORD: 'env-secret' };
+    expect(await runAccountsCommand(['auto-login', '--provider', 'groq, nvidia'], deps)).toBe(0);
+    expect(calls[0].sites).toEqual([]);
+    expect(calls[0].providers).toEqual(['groq', 'nvidia']);
+    expect(await runAccountsCommand(['auto-login', '--site', 'qwen-chat'], deps)).toBe(0);
+    expect(calls[1].sites).toEqual(['qwen-chat']);
+    expect(calls[1].providers).toEqual([]);
+    await expect(runAccountsCommand(['auto-login', '--provider', 'nope'], deps)).rejects.toThrow('Unknown provider: nope');
+  });
+
+  test('auto-login rejects unknown sites and empty credentials', async () => {
+    const { deps } = harness();
+    deps.autoLogin = async () => [];
+    await expect(runAccountsCommand(['auto-login', '--site', 'nope'], deps)).rejects.toThrow('Unknown site: nope');
+    deps.askHidden = async () => '';
+    await expect(runAccountsCommand(['auto-login'], deps)).rejects.toThrow('Email is required');
+    deps.askHidden = async question => (question.startsWith('Email') ? 'user@example.com' : '');
+    await expect(runAccountsCommand(['auto-login'], deps)).rejects.toThrow('Password is required');
+  });
+
+  test('auto-login fails the run only when a login actually failed', async () => {
+    const { deps } = harness();
+    deps.askHidden = async question => (question.startsWith('Email') ? 'user@example.com' : 'secret');
+    deps.autoLogin = async () => [{ site: 'qwen-chat', status: 'failed', detail: 'timeout' }];
+    expect(await runAccountsCommand(['auto-login'], deps)).toBe(1);
+    deps.autoLogin = async () => [{ site: 'arena-chat', status: 'skipped', detail: 'sign-in is optional' }];
+    expect(await runAccountsCommand(['auto-login'], deps)).toBe(0);
+    deps.autoLogin = async () => [
+      { site: 'qwen-chat', status: 'failed', detail: 'timeout' },
+      { site: 'glm-chat', status: 'logged-in', detail: 'signed in as user@example.com' },
+    ];
+    expect(await runAccountsCommand(['auto-login'], deps)).toBe(0);
+  });
+
+  test('auto-collect signs in with the browser session, never prompts, then collects keys', async () => {
+    const { deps, lines } = harness();
+    deps.askHidden = async () => {
+      throw new Error('must not prompt with --yes');
+    };
+    const order: string[] = [];
+    deps.autoLogin = async options => {
+      order.push('login');
+      expect(options.credentials).toEqual({ email: '', password: '' });
+      return [
+        { site: 'gemini', status: 'signed-in', detail: 'already signed in' },
+        { site: 'groq', status: 'skipped', detail: 'needs an email and password; sign the account in or set LOGIN_EMAIL/LOGIN_PASSWORD' },
+      ];
+    };
+    deps.harvest = async options => {
+      order.push('harvest');
+      const results: HarvestResult[] = [{ provider: 'gemini', status: 'created', detail: 'created', keyPreview: 'AIza…1234' }];
+      for (const result of results) options.onResult?.(result);
+      return results;
+    };
+    expect(await runAccountsCommand(['auto-collect', '--yes'], deps)).toBe(0);
+    expect(order).toEqual(['login', 'harvest']);
+    expect(lines[0]).toBe('Signing in to web chats and provider dashboards...');
+    expect(lines).toContain('signed-in: 1, logged-in: 0, skipped: 1, failed: 0');
+    expect(lines.at(-1)).toBe('created: 1, updated: 0, unchanged: 0, skipped: 0, failed: 0');
+    expect(lines.some(line => line.includes('groq') && line.includes('LOGIN_EMAIL'))).toBe(true);
+  });
+
+  test('auto-collect shares one browser session across both steps and always closes it', async () => {
+    const { deps } = harness();
+    const order: string[] = [];
+    const sessions: unknown[] = [];
+    deps.beginSession = async () => {
+      order.push('begin');
+      return { id: 'session-1' };
+    };
+    deps.endSession = async session => {
+      order.push('end');
+      expect((session as { id: string }).id).toBe('session-1');
+    };
+    deps.autoLogin = async options => {
+      order.push('login');
+      sessions.push(options.session);
+      return [];
+    };
+    deps.harvest = async options => {
+      order.push('harvest');
+      sessions.push(options.session);
+      return [];
+    };
+    expect(await runAccountsCommand(['auto-collect', '--yes'], deps)).toBe(0);
+    expect(order).toEqual(['begin', 'login', 'harvest', 'end']);
+    expect(sessions[0]).toBe(sessions[1]);
+    deps.harvest = async () => {
+      throw new Error('boom');
+    };
+    await expect(runAccountsCommand(['auto-collect', '--yes'], deps)).rejects.toThrow('boom');
+    expect(order.at(-1)).toBe('end');
+  });
+
+  test('auto-collect reads credentials from env and passes --site/--provider to both steps', async () => {
+    const { deps } = harness();
+    deps.askHidden = async () => {
+      throw new Error('must not prompt with --yes');
+    };
+    deps.env = { LOGIN_EMAIL: 'env@example.com', LOGIN_PASSWORD: 'env-secret' };
+    const logins: Array<{ sites?: string[]; providers?: string[]; credentials: { email: string; password: string } }> = [];
+    const harvests: Array<{ providers?: string[] }> = [];
+    deps.autoLogin = async options => {
+      logins.push(options);
+      return [];
+    };
+    deps.harvest = async options => {
+      harvests.push(options);
+      return [];
+    };
+    expect(await runAccountsCommand(['auto-collect', '--yes', '--provider', 'groq, nvidia'], deps)).toBe(0);
+    expect(logins[0].credentials).toEqual({ email: 'env@example.com', password: 'env-secret' });
+    expect(logins[0].sites).toEqual([]);
+    expect(logins[0].providers).toEqual(['groq', 'nvidia']);
+    expect(harvests[0].providers).toEqual(['groq', 'nvidia']);
+    expect(await runAccountsCommand(['auto-collect', '--yes', '--site', 'qwen-chat'], deps)).toBe(0);
+    expect(logins[1].sites).toEqual(['qwen-chat']);
+    expect(logins[1].providers).toEqual([]);
+    expect(harvests[1].providers).toBeUndefined();
+    await expect(runAccountsCommand(['auto-collect', '--yes', '--provider', 'nope'], deps)).rejects.toThrow('Unknown provider: nope');
+    await expect(runAccountsCommand(['auto-collect', '--yes', '--site', 'nope'], deps)).rejects.toThrow('Unknown site: nope');
+  });
+
+  test('auto-collect asks once before touching anything and cancels on no', async () => {
+    const { deps, lines } = harness();
+    deps.askHidden = async () => 'n';
+    deps.autoLogin = async () => {
+      throw new Error('must not sign in after cancel');
+    };
+    deps.harvest = async () => {
+      throw new Error('must not harvest after cancel');
+    };
+    expect(await runAccountsCommand(['auto-collect'], deps)).toBe(0);
+    expect(lines).toEqual(['Cancelled.']);
+  });
+
+  test('auto-collect fails only when both steps produced nothing good', async () => {
+    const { deps } = harness();
+    deps.autoLogin = async () => [{ site: 'qwen-chat', status: 'failed', detail: 'timeout' }];
+    deps.harvest = async () => [{ provider: 'zai', status: 'failed', detail: 'timeout' }];
+    expect(await runAccountsCommand(['auto-collect', '--yes'], deps)).toBe(1);
+    deps.harvest = async () => [{ provider: 'gemini', status: 'unchanged', detail: 'already saved' }];
+    expect(await runAccountsCommand(['auto-collect', '--yes'], deps)).toBe(0);
+    deps.autoLogin = async () => [{ site: 'qwen-chat', status: 'logged-in', detail: 'signed in' }];
+    deps.harvest = async () => [{ provider: 'zai', status: 'failed', detail: 'timeout' }];
+    expect(await runAccountsCommand(['auto-collect', '--yes'], deps)).toBe(0);
   });
 });

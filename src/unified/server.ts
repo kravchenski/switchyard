@@ -162,7 +162,63 @@ function browserSession(profile: string) {
 
 const rotation = new ProfileRotation(accountProfiles, signIns);
 
+const SIGN_IN_RECOVERY_COOLDOWN_MS = 60_000;
+
+function ensureWebChatSignIn(id: string, site: ChatSite) {
+    let running: Promise<void> | undefined;
+    let lastAttempt = 0;
+    return () => {
+        if (running) return running;
+        if (Date.now() - lastAttempt < SIGN_IN_RECOVERY_COOLDOWN_MS) return Promise.resolve();
+        lastAttempt = Date.now();
+        running = (async () => {
+            try {
+                const email = (process.env.LOGIN_EMAIL ?? '').trim();
+                const password = (process.env.LOGIN_PASSWORD ?? '').trim();
+                const credentials = email && password ? { email, password } : undefined;
+                for (const profile of accountProfiles()) {
+                    if (signIns.state(id, profile) === 'signed-in') continue;
+                    let result: { status: string; detail: string };
+                    try {
+                        result = await browserSession(profile).signIn(site, { credentials });
+                    } catch (error) {
+                        result = { status: 'failed', detail: errorText(error) };
+                    }
+                    const signedIn = result.status === 'signed-in' || result.status === 'logged-in';
+                    signIns.record(id, signedIn, signedIn ? undefined : result.detail.slice(0, 300), profile);
+                    if (signedIn) return;
+                }
+            } catch (error) {
+                console.error(`Sign-in recovery for ${id} failed:`, errorText(error));
+            } finally {
+                running = undefined;
+            }
+        })();
+        return running;
+    };
+}
+
+const conversationPins = new Map<string, string>();
+const CONVERSATION_PIN_LIMIT = 512;
+
+function webConversationKey(request: ChatRequest) {
+    if (request.conversationId) return `id:${request.conversationId}`;
+    const key = request.messages ? conversationKey(request.messages) : undefined;
+    return key ? `msg:${key}` : undefined;
+}
+
+function pinConversation(request: ChatRequest, profile: string) {
+    const key = webConversationKey(request);
+    if (!key) return;
+    if (conversationPins.size >= CONVERSATION_PIN_LIMIT && !conversationPins.has(key)) {
+        const oldest = conversationPins.keys().next().value;
+        if (oldest !== undefined) conversationPins.delete(oldest);
+    }
+    conversationPins.set(key, profile);
+}
+
 function registerWebChat(id: string, ownedBy: string, site: ChatSite, parse: BrowserChatProviderConfig['parse']) {
+    const ensureSignIn = ensureWebChatSignIn(id, site);
     registry.register(createBrowserChatProvider({
         id,
         ownedBy,
@@ -170,9 +226,23 @@ function registerWebChat(id: string, ownedBy: string, site: ChatSite, parse: Bro
         site,
         parse,
         sessions: () => rotation.order(id).map(profile => ({ profile, session: browserSession(profile) })),
+        sessionsFor: request => {
+            const key = webConversationKey(request);
+            const pinned = key ? conversationPins.get(key) : undefined;
+            if (!pinned) return rotation.order(id).map(profile => ({ profile, session: browserSession(profile) }));
+            let entries = rotation.order(id).map(profile => ({ profile, session: browserSession(profile) }));
+            if (!entries.some(entry => entry.profile === pinned)) {
+                entries = [{ profile: pinned, session: browserSession(pinned) }, ...entries];
+            }
+            const continuation = Boolean(request.conversationId) || (request.messages?.length ?? 0) > 1;
+            const first = entries.find(entry => entry.profile === pinned)!;
+            return continuation ? [first] : [first, ...entries.filter(entry => entry !== first)];
+        },
         health: () => signIns.health(id, accountProfiles()),
         onResult: (profile, ok) => ok ? rotation.succeeded(id, profile) : rotation.failed(id, profile),
         models: () => webChatModelsFor(site.id),
+        ensureSignIn,
+        pin: pinConversation,
     }));
 }
 
@@ -681,6 +751,7 @@ const imageProviders: ImageProvider[] = [
     createQwenChatImages(
         () => rotation.order('qwen-chat').map(profile => ({ profile, session: browserSession(profile) })),
         () => signIns.health('qwen-chat', accountProfiles()).available,
+        ensureWebChatSignIn('qwen-chat', QWEN_CHAT_SITE),
     ),
     createCloudflareImages(apiKeyProvider('cloudflare')!, () => parseKeyList(process.env.CLOUDFLARE_API_KEY)[0] ?? savedApiKey(credentialStore, 'cloudflare')),
     createPollinationsImages(),

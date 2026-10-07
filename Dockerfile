@@ -9,13 +9,19 @@ FROM oven/bun:1.4.2-slim AS runtime
 
 ENV NODE_ENV=production \
     UNIFIED_PORT=3260 \
-    HOST=0.0.0.0
+    HOST=0.0.0.0 \
+    CHROME_PATH=/usr/bin/chromium
 
 WORKDIR /app
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium ca-certificates fonts-liberation \
+ && rm -rf /var/lib/apt/lists/*
 
 COPY --from=base /app/node_modules ./node_modules
 COPY package.json ./
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 COPY deepseek.ts ./
 
 RUN install -d -o bun -g bun /app/session /app/logs /app/data \

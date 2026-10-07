@@ -22,6 +22,9 @@ import { INIT_MESSAGES, initAccountsSecret } from '../src/cli/accounts-secret.ts
 import { loadAccountsSecret, systemKeyring } from '../src/core/secrets/accounts-secret.ts';
 import { accountStates } from '../src/core/status.ts';
 import { loadDeepSeekAccounts } from '../src/providers/deepseek/accounts.ts';
+import { harvestBrowserFrom, harvestKeys } from '../src/browser/key-harvest.ts';
+import { autoSignIn } from '../src/browser/auto-login.ts';
+import { launchCdpBrowser, type CdpBrowser } from '../src/browser/cdp.ts';
 
 function withDb<T>(run: (db: Database) => T) {
   const db = openDatabase();
@@ -125,6 +128,44 @@ try {
       return verifyProviderKey(definition, apiKey);
     },
     accountLabel: provider => apiKeyProvider(provider)?.account?.label,
+    beginSession: async profile => {
+      const cdp = await launchCdpBrowser({ profileDir: profileDir(profile) });
+      await cdp.browser.contexts()[0]?.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+      return cdp;
+    },
+    endSession: async session => {
+      await (session as CdpBrowser).close().catch(() => {});
+    },
+    harvest: ({ profile, providers, session, onResult }) => harvestKeys({
+      profileDir: profileDir(profile),
+      label: profile,
+      providers,
+      store,
+      onResult,
+      ...(session ? { launch: async () => harvestBrowserFrom(session as CdpBrowser) } : {}),
+    }),
+    env: process.env,
+    autoLogin: async ({ profile, sites, providers, credentials, viaGoogle, session }) => {
+      const chosen = WEB_CHAT_SITES.filter(site => !sites || sites.includes(site.id));
+      const dashboards = API_KEY_PROVIDERS
+        .filter(provider => !providers || providers.includes(provider.id))
+        .map(provider => ({ id: provider.id, url: provider.keyUrl }));
+      const db = openDatabase();
+      try {
+        const status = new WebSignInStatus({ load: (provider, id) => loadSignIn(db, provider, id), save: record => saveSignIn(db, record) });
+        return await autoSignIn({
+          sites: chosen,
+          dashboards,
+          credentials,
+          viaGoogle,
+          profileDir: profileDir(profile),
+          ...(session ? { launch: async () => session as CdpBrowser, closeBrowser: false } : {}),
+          onSignIn: (siteId, result) => status.record(siteId, result.signedIn, result.signedIn ? undefined : result.reason, profile),
+        });
+      } finally {
+        db.close();
+      }
+    },
   });
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

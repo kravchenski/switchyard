@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +18,16 @@ export interface LaunchOptions {
   headless?: boolean;
   profileDir?: string;
   startUrl?: string;
+}
+
+export function containerChromeFlags(
+  env: Record<string, string | undefined> = process.env,
+  exists: (file: string) => boolean = existsSync,
+): string[] {
+  const containerized = env.CHROME_SANDBOX === 'off' || exists('/.dockerenv') || exists('/run/.containerenv');
+  return containerized
+    ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    : [];
 }
 
 function freePort() {
@@ -110,6 +120,7 @@ export async function launchCdpBrowser(options: LaunchOptions = {}): Promise<Cdp
     '--remote-debugging-address=127.0.0.1',
     `--user-data-dir=${profile}`,
     ...(persistent ? ['--password-store=basic'] : []),
+    ...containerChromeFlags(),
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-blink-features=AutomationControlled',

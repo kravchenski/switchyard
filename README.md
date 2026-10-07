@@ -79,11 +79,14 @@ All providers below have free tiers or work through your own signed-in web accou
 | **Z.AI, Ollama Cloud, OpenCode Zen** | free flash GLM, Ollama Cloud models, free Zen models | `<PROVIDER>_API_KEY` |
 | **Cloudflare Workers AI** | `cloudflare/@cf/<model>`, 10,000 free neurons a day | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` |
 | **Kilo Gateway, OVHcloud AI Endpoints** | free models; work even without a key | optional key |
+| **AIHubMix, AshnaAI, NaraRouter** | `aihubmix/<model>-free`, `ashna/<model>`, `nararouter/<model>`; AshnaAI and NaraRouter are off in `auto` until enabled, and AshnaAI's API needs a paid plan | `<PROVIDER>_API_KEY` |
+| **Token Harbor** | free models only, `tokenharbor/<model>:free` | `TOKENHARBOR_API_KEY` |
 | **xKiro** | third-party gateway, free models only, off in `auto` until enabled | `XKIRO_API_KEY` |
 
 - Keys go in `.env` (see `.env.example`) or are saved encrypted with `bun run account add <provider> --api-key` / the desktop app.
 - **Several keys per provider:** `GROQ_API_KEY=k1,k2,k3` or `["k1","k2"]`. Switchyard sticks to the key that works and switches to the next one in the same request when a key is rate-limited, out of quota or rejected.
 - **Several web accounts:** each is its own browser profile; requests rotate between the signed-in ones (`bun run account profile add`, `connect`, `status`).
+- **Collect keys from an account:** `bun run account auto-collect --profile <id>` signs in to the web chats and provider dashboards with that account's Google session and creates its API keys (Auto-collect keys on the desktop Accounts page). Stop the API first, because it uses the same browser profile.
 - Models a key cannot use are detected and hidden; `bun run models:probe` measures which models answer and how fast.
 
 ## Routing
