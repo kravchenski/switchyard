@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ChatChunk, Provider } from '../src/core/providers/provider.ts';
 import { ProviderRegistry } from '../src/core/providers/registry.ts';
 import { ModelStats, rankModels } from '../src/core/models/stats.ts';
-import { buildAutoChain } from '../src/core/router/auto-chain.ts';
+import { buildAgentChain, buildAutoChain } from '../src/core/router/auto-chain.ts';
 import { SmartRouter } from '../src/core/router/smart-router.ts';
 import { collectChunks } from '../src/core/streaming/sse.ts';
 
@@ -114,5 +114,24 @@ describe('SmartRouter auto chain', () => {
     expect(router.autoChain()).toEqual(['b', 'c']);
     router.setAutoModels([]);
     expect(router.autoChain()).toEqual(['b', 'c']);
+  });
+});
+
+describe('buildAgentChain', () => {
+  const api = (id: string, nativeTools = true) => ({ id, provider: 'nvidia', fallback: true, nativeTools });
+
+  test('puts strong native tool models first, drops weak ones and keeps the auto chain as fallback', () => {
+    const chain = buildAgentChain([
+      api('meta/llama-3.1-8b-instruct'),
+      api('acme/helper-model'),
+      api('openai/gpt-oss-120b'),
+      api('nvidia/nemotron-3-nano-30b'),
+      api('text/only-model', false),
+    ], new ModelStats(), ['qwen-chat', 'openai/gpt-oss-120b', 'glm-chat']);
+    expect(chain).toEqual(['openai/gpt-oss-120b', 'acme/helper-model', 'qwen-chat', 'glm-chat']);
+  });
+
+  test('without native tool models it is the auto chain', () => {
+    expect(buildAgentChain([api('x/text', false)], new ModelStats(), ['qwen-chat'])).toEqual(['qwen-chat']);
   });
 });

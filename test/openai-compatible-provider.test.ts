@@ -35,6 +35,12 @@ describe('parseOpenAIEvent', () => {
 });
 
 describe('OpenAI-compatible providers', () => {
+  test('reports vision only for models that look multimodal', () => {
+    const nvidia = createNvidiaProvider({ env: { NVIDIA_API_KEY: 'n' } });
+    expect(nvidia.capabilities('meta/llama-3.2-90b-vision-instruct').vision).toBeTrue();
+    expect(nvidia.capabilities('openai/gpt-oss-120b').vision).toBeFalse();
+  });
+
   test('streams chunks from NVIDIA with the api key', async () => {
     const { calls, fetchFn } = recordingFetch(() =>
       sseResponse([delta({ content: 'Hel' }), delta({ content: 'lo' }), 'data: [DONE]', delta({ content: 'ignored' })])

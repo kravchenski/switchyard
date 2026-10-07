@@ -9,6 +9,7 @@ import type {
 import { classifyStatus, ProviderError, upstreamError } from '../core/providers/errors.ts';
 import { readLines } from '../core/streaming/sse.ts';
 import { KeyPool, parseKeyList, rotatesKey } from '../core/accounts/key-pool.ts';
+import { looksVisionCapable } from '../core/models/vision.ts';
 
 export interface OpenAICompatibleConfig {
   id: string;
@@ -167,7 +168,7 @@ export class OpenAICompatibleProvider implements Provider {
 
   capabilities(model?: string): ModelCapabilities {
     const nativeTools = Boolean(this.config.nativeTools) && !(model && this.withoutTools.has(model));
-    return { reasoning: false, vision: false, ...this.config.capabilities, nativeTools };
+    return { reasoning: false, vision: Boolean(model && looksVisionCapable(model)), ...this.config.capabilities, nativeTools };
   }
 
   health() {

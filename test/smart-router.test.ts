@@ -135,4 +135,22 @@ describe('parseAutoModels', () => {
     expect(parseAutoModels('')).toEqual([]);
     expect(parseAutoModels(undefined)).toEqual([]);
   });
+
+  test('vision and agent route through their own chains', async () => {
+    const { router, open, calls } = setup({ a: 'ok', b: 'ok', c: 'ok' });
+    router.setChain('vision', ['c-model']);
+    router.setChain('agent', ['b-model', 'a-model']);
+    expect(router.knows('vision')).toBeTrue();
+    expect(router.knows('agent')).toBeTrue();
+    expect((await open('vision')).route.model).toBe('c-model');
+    expect((await open('agent')).route.model).toBe('b-model');
+    expect((await open('auto')).route.model).toBe('a-model');
+    expect(calls).toEqual(['c-model', 'b-model', 'a-model']);
+  });
+
+  test('an empty vision chain has no route', async () => {
+    const { router, open } = setup({ a: 'ok' });
+    router.setChain('vision', []);
+    await expect(open('vision')).rejects.toThrow('No available provider for model vision');
+  });
 });
