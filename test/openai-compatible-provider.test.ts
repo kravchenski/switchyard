@@ -35,6 +35,26 @@ describe('parseOpenAIEvent', () => {
 });
 
 describe('OpenAI-compatible providers', () => {
+  test('retries with only the latest images when the model takes one image per request', async () => {
+    const bodies: any[] = [];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      const images = body.messages.flatMap((message: any) => Array.isArray(message.content) ? message.content.filter((part: any) => part.type === 'image_url') : []);
+      return images.length > 1
+        ? new Response('{"error":{"message":"At most 1 image(s) may be provided in one request."}}', { status: 400 })
+        : sseResponse([delta({ content: 'seen' }), 'data: [DONE]']);
+    }) as unknown as typeof fetch;
+    const nvidia = createNvidiaProvider({ env: { NVIDIA_API_KEY: 'n' }, fetch: fetchFn });
+    const image = (url: string) => ({ role: 'user', content: [{ type: 'text', text: 'chart' }, { type: 'image_url', image_url: { url } }] });
+    const messages = [image('data:image/png;base64,AAA'), { role: 'assistant', content: 'long' }, image('data:image/png;base64,BBB')];
+    const { chunks } = await nvidia.stream({ model: 'meta/llama-3.2-90b-vision-instruct', messages });
+    expect((await collectChunks(chunks)).content).toBe('seen');
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1].messages[0].content).toBe('chart\n[image]');
+    expect(bodies[1].messages[2].content[1].image_url.url).toBe('data:image/png;base64,BBB');
+  });
+
   test('reports vision only for models that look multimodal', () => {
     const nvidia = createNvidiaProvider({ env: { NVIDIA_API_KEY: 'n' } });
     expect(nvidia.capabilities('meta/llama-3.2-90b-vision-instruct').vision).toBeTrue();

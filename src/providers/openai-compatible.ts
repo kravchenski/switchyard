@@ -10,6 +10,7 @@ import { classifyStatus, ProviderError, upstreamError } from '../core/providers/
 import { readLines } from '../core/streaming/sse.ts';
 import { KeyPool, parseKeyList, rotatesKey } from '../core/accounts/key-pool.ts';
 import { looksVisionCapable } from '../core/models/vision.ts';
+import { keepLatestImages } from '../core/providers/prompt.ts';
 
 export interface OpenAICompatibleConfig {
   id: string;
@@ -40,6 +41,7 @@ export interface OpenAICompatibleConfig {
 }
 
 const TOOLS_REFUSED = /tool|function.?call/i;
+const TOO_MANY_IMAGES = /at most \d+ images?/i;
 
 function streamError(error: unknown) {
   const details = typeof error === 'object' && error !== null ? error as Record<string, unknown> : { message: String(error) };
@@ -92,6 +94,7 @@ export class OpenAICompatibleProvider implements Provider {
   readonly fallback: boolean;
   private listed?: Set<string>;
   private readonly withoutTools = new Set<string>();
+  private readonly oneImage = new Set<string>();
 
   constructor(private readonly config: OpenAICompatibleConfig, now: () => number = Date.now) {
     this.pool = new KeyPool(now);
@@ -210,10 +213,14 @@ export class OpenAICompatibleProvider implements Provider {
     const response = await (this.config.fetch ?? fetch)(`${target.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers(target.apiKey) },
-      body: JSON.stringify({ ...this.config.extraBody, model, messages: request.messages, stream: true, ...(tools ? { tools, tool_choice: 'auto' } : {}) }),
+      body: JSON.stringify({ ...this.config.extraBody, model, messages: this.oneImage.has(request.model) ? keepLatestImages(request.messages) : request.messages, stream: true, ...(tools ? { tools, tool_choice: 'auto' } : {}) }),
       signal: context.signal,
     });
     if (!response.ok) {
+      if (response.status === 400 && !this.oneImage.has(request.model) && TOO_MANY_IMAGES.test(await response.clone().text())) {
+        this.oneImage.add(request.model);
+        return this.streamWith(apiKey, request, context);
+      }
       if (tools && [400, 404, 422].includes(response.status) && TOOLS_REFUSED.test(await response.clone().text())) {
         this.withoutTools.add(request.model);
       }
