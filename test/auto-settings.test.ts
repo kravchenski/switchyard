@@ -55,10 +55,11 @@ describe('gateway settings', () => {
   });
 });
 
-function racer(id: string, delayMs: number, events: string[], fail = false): Provider {
+function racer(id: string, delayMs: number, events: string[], fail = false, web = false): Provider {
   return {
     id,
     ownedBy: id,
+    fallback: !web,
     supports: model => model === `${id}-model`,
     listModels: async () => [`${id}-model`],
     capabilities: () => ({ nativeTools: false, reasoning: false, vision: false }),
@@ -105,6 +106,16 @@ describe('race mode', () => {
     await expect(router.open('auto', route => ({ model: route.model, messages: [] }))).rejects.toThrow(/All routes failed for model auto: .*a broke.*b broke|All routes failed for model auto: .*b broke.*a broke/);
     const single = new SmartRouter(new ProviderRegistry().register(racer('c', 1, events)), ['c-model'], Date.now, { autoMode: () => 'race' });
     expect((await single.open('c-model', route => ({ model: route.model, messages: [] }))).route.model).toBe('c-model');
+  });
+
+  test('races only API routes and tries web chats one at a time afterwards', async () => {
+    const events: string[] = [];
+    const registry = new ProviderRegistry()
+      .register(racer('webA', 5, events, true, true)).register(racer('webB', 5, events, false, true))
+      .register(racer('apiA', 5, events, true)).register(racer('apiB', 5, events, true));
+    const router = new SmartRouter(registry, ['webA-model', 'webB-model', 'apiA-model', 'apiB-model'], Date.now, { autoMode: () => 'race' });
+    expect((await router.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('webB-model');
+    expect(events.filter(event => event.startsWith('start'))).toEqual(['start apiA', 'start apiB', 'start webA', 'start webB']);
   });
 
   test('falls through to the rest of the chain when every raced route fails', async () => {

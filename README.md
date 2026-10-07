@@ -86,6 +86,7 @@ All providers below have free tiers or work through your own signed-in web accou
 - Keys go in `.env` (see `.env.example`) or are saved encrypted with `bun run account add <provider> --api-key` / the desktop app.
 - **Several keys per provider:** `GROQ_API_KEY=k1,k2,k3` or `["k1","k2"]`. Switchyard sticks to the key that works and switches to the next one in the same request when a key is rate-limited, out of quota or rejected.
 - **Several web accounts:** each is its own browser profile; requests rotate between the signed-in ones (`bun run account profile add`, `connect`, `status`).
+- **Gentle on web accounts:** each web chat account keeps requests in one chat (a request with its own `conversation_id` gets its own chat), sends one message at a time and waits `WEB_CHAT_MIN_INTERVAL_MS` (10 s) between messages. Heavy automated traffic still breaks the sites' terms and can get an account blocked; use API providers for bots.
 - **Collect keys from an account:** `bun run account auto-collect --profile <id>` signs in to the web chats and provider dashboards with that account's Google session and creates its API keys (Auto-collect keys on the desktop Accounts page). Stop the API first, because it uses the same browser profile.
 - Models a key cannot use are detected and hidden; `bun run models:probe` measures which models answer and how fast.
 
@@ -105,7 +106,7 @@ The chains are listed in `GET /v1/gateway/status` (`autoModels`, `visionModels`,
 |---|---|---|
 | `--focus` | `general`, `coding`, `reasoning`, `fast` | prefer models made for the task |
 | `--mode` | `fallback` (default) | try the chain one model at a time |
-| | `race` | send to the first three models at once, keep the fastest answer |
+| | `race` | send to the first three API models at once, keep the fastest answer; web chats are tried one at a time after them |
 | | `decide` | a decision model reads the request and picks the best model; the rest stays as fallback |
 
 Requests that carry tools prefer strong models with native tool calling; plain chat keeps the usual order. Every decision — skipped candidates and why, each attempt, latency, the pick — is visible at `GET /v1/gateway/decisions`.
@@ -171,6 +172,7 @@ A native app (Rust + [GPUI](https://www.gpui.rs)) to start and stop the gateway,
 | `GATEWAY_API_KEY` | — | Require this bearer token on every request except `/health` |
 | `<PROVIDER>_API_KEY` | — | One key or a list per provider (see `.env.example`) |
 | `AUTO_MODELS` | — | Fixed `auto` chain instead of the measured one |
+| `WEB_CHAT_MIN_INTERVAL_MS` | `10000` | Minimum pause between two messages to the same web chat account (DeepSeek, Qwen, GLM, Kimi, Arena) |
 | `ACCOUNTS_SECRET` | OS keyring | Encrypts the saved keys in `session/credentials.enc`; `bun run account init` keeps it in the keyring |
 
 ## Docker

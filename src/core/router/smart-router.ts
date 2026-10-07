@@ -201,10 +201,10 @@ export class SmartRouter {
       routes = routes.slice(1);
     }
     if (mode === 'race') {
-      const width = this.options.raceWidth ?? DEFAULT_RACE_WIDTH;
-      const won = await this.race(routes.slice(0, width), build, attempts, failures);
+      const contenders = routes.filter(route => route.provider.fallback).slice(0, this.options.raceWidth ?? DEFAULT_RACE_WIDTH);
+      const won = await this.race(contenders, build, attempts, failures);
       if (won) return finish(won.route, won);
-      const rest = await this.sequential(routes.slice(width), build, attempts, failures, false);
+      const rest = await this.sequential(routes.filter(route => !contenders.includes(route)), build, attempts, failures, false);
       if (rest) return finish(rest.route, rest);
       return fail(new ProviderError(`All routes failed for model ${model}: ${failures.join('; ')}`, 'unavailable'));
     }

@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import path from 'node:path';
 
 import { solveDeepSeekPow } from './pow.ts';
@@ -70,13 +69,6 @@ function headers(account: DeepSeekAccount, extra: Record<string, string> = {}) {
         referer: `${BASE_URL}/`,
         ...extra
     };
-}
-
-export function conversationKey(messages: Array<Record<string, any>>) {
-    const firstUser = messages.find(message => message?.role === 'user');
-    if (!firstUser) return crypto.randomUUID();
-    const content = typeof firstUser.content === 'string' ? firstUser.content : JSON.stringify(firstUser.content);
-    return crypto.createHash('sha256').update(content).digest('hex').slice(0, 24);
 }
 
 async function createSession(account: DeepSeekAccount) {
@@ -190,7 +182,7 @@ export async function deepSeekCompletion(options: {
     account?: DeepSeekAccount;
 }) {
     const account = options.account ?? getAccount();
-    const key = options.conversationId || conversationKey(options.messages);
+    const key = options.conversationId || SHARED_CHAT;
     for (let attempt = 0; ; attempt++) {
         const completion = await sendCompletion(account, key, options.messages, options.model || 'deepseek-default');
         if (completion.response.headers.get('content-type')?.includes('text/event-stream')) return completion;
@@ -203,6 +195,7 @@ export async function deepSeekCompletion(options: {
     }
 }
 
+const SHARED_CHAT = 'shared';
 const STALE_SESSION = /invalid chat session|chat session .*not (?:found|exist)/i;
 const INVALID_TOKEN = /invalid token|authorization failed|token expired/i;
 

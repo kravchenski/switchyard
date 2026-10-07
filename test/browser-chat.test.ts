@@ -141,12 +141,28 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       expect(await pageCount()).toBe(base + 1);
 
       const diverged = [{ role: 'user', content: 'different thread' }];
-      expect(await collect(await session.send(site(), 'fresh full', undefined, { messages: diverged, toPrompt }))).toContain('echo fresh full');
+      expect(await collect(await session.send(site(), 'fresh full', undefined, { messages: diverged, toPrompt }))).toContain('echo user: different thread');
+      expect(await pageCount()).toBe(base + 1);
+
+      const other = [{ role: 'user', content: 'separate conversation' }];
+      expect(await collect(await session.send(site(), 'separate conversation', undefined, { conversationId: 'other', messages: other, toPrompt }))).toContain('echo separate conversation');
       expect(await pageCount()).toBe(base + 2);
     } finally {
       await session.close();
     }
   }, 120_000);
+
+  test('waits the minimum interval between two messages to the same site', async () => {
+    const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true, minIntervalMs: 1_500 });
+    try {
+      await collect(await session.send(site(), 'first'));
+      const startedAt = Date.now();
+      await collect(await session.send(site(), 'second'));
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
+    } finally {
+      await session.close();
+    }
+  }, 90_000);
 
   test('injects image urls into the request body and clears them on the next turn', async () => {
     const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true });

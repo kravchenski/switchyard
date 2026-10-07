@@ -17,6 +17,8 @@ interface DeepSeekDependencies {
   pool: () => AccountPool;
   markInvalid: (id: string) => void;
   now: () => number;
+  minIntervalMs: number;
+  sleep: (ms: number) => Promise<void>;
 }
 
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
@@ -32,7 +34,21 @@ const defaults: DeepSeekDependencies = {
   pool: () => (sharedPool ??= new AccountPool(openDatabase(), 'deepseek')),
   markInvalid: markDeepSeekAccountInvalid,
   now: Date.now,
+  minIntervalMs: 0,
+  sleep: ms => Bun.sleep(ms),
 };
+
+const lastStarts = new Map<string, Promise<number>>();
+
+function pace(deps: DeepSeekDependencies, accountId: string) {
+  const next = (lastStarts.get(accountId) ?? Promise.resolve(-Infinity)).then(async last => {
+    const wait = last + deps.minIntervalMs - deps.now();
+    if (wait > 0) await deps.sleep(wait);
+    return deps.now();
+  });
+  lastStarts.set(accountId, next.catch(() => -Infinity));
+  return next;
+}
 
 async function* deepSeekChunks(body: ReadableStream<Uint8Array> | null): AsyncGenerator<ChatChunk> {
   const state: Parameters<typeof parseDeepSeekEvent>[1] = { phase: 'content' };
@@ -69,7 +85,11 @@ function recordFailure(deps: DeepSeekDependencies, pool: AccountPool, account: D
 
 async function completeWithPool(deps: DeepSeekDependencies, request: ChatRequest): Promise<Completion> {
   const accounts = deps.accounts();
-  if (!accounts.length) return deps.complete({ ...request, account: deps.fallbackAccount() ?? undefined });
+  if (!accounts.length) {
+    const account = deps.fallbackAccount() ?? undefined;
+    await pace(deps, account?.id ?? 'env');
+    return deps.complete({ ...request, account });
+  }
   const pool = deps.pool();
   pool.sync(accounts.map(account => account.id));
   const remaining = new Set(accounts.map(account => account.id));
@@ -79,6 +99,7 @@ async function completeWithPool(deps: DeepSeekDependencies, request: ChatRequest
     if (!id) break;
     remaining.delete(id);
     const account = accounts.find(candidate => candidate.id === id)!;
+    await pace(deps, id);
     try {
       const completion = await deps.complete({ ...request, account });
       pool.markSuccess(id);
