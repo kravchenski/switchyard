@@ -78,7 +78,7 @@ export const KEY_ADAPTERS: ProviderKeyAdapter[] = [
   { provider: 'cohere', keyUrl: keyUrl('cohere'), keyPattern: /^(?:cohere_[A-Za-z0-9]{20,}|[A-Za-z0-9]{34,})$/, ...common },
   { provider: 'aion', keyUrl: keyUrl('aion'), keyPattern: /^(?:sk-[A-Za-z0-9_-]{20,}|alv2_[A-Za-z0-9_-]{20,})$/, ...common },
   { provider: 'ovhcloud', keyUrl: keyUrl('ovhcloud'), keyPattern: /^[A-Za-z0-9]{32,64}$/, ...common },
-  { provider: 'llm7', keyUrl: keyUrl('llm7'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
+  { provider: 'llm7', keyUrl: keyUrl('llm7'), keyPattern: /^(?:sk-[A-Za-z0-9_-]{20,}|[A-Za-z0-9+/]{60,}={0,2})$/, ...common },
   { provider: 'zai', keyUrl: keyUrl('zai'), keyPattern: /^[A-Za-z0-9]{32,64}$/, ...common },
   {
     provider: 'ollama-cloud',

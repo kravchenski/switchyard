@@ -115,7 +115,9 @@ async function readCandidate(locator: HarvestLocator): Promise<string | null> {
 
 const COPY_SELECTORS = [
   'button:has-text("content_copy")',
+  '[aria-label*="content_copy" i]',
   '[aria-label*="copy key" i]',
+  '[aria-label*="copy" i]',
   'button:has-text("Copy key")',
   'button:has-text("Copy API key")',
   'button:has-text("Copy")',
@@ -179,7 +181,7 @@ async function looksLikeAuthWall(page: HarvestPage): Promise<boolean> {
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
       };
-      const AUTH_BUTTON = /^(continue with\b|sign in\b|log in\b|login\b|sign up\b)/i;
+      const AUTH_BUTTON = /^(continue with\b|sign in\b|log in\b|login\b|sign up\b|登录|登入|注册|登陸|회원가입|ログイン)/i;
       const inputs = Array.from(document.querySelectorAll('input[type="password"], input[type="email"]')).some(visible);
       const onInteractive = (element: Element) => {
         if (element.matches('button, [role="button"], a') && visible(element)) {
@@ -335,6 +337,10 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
         const create = await waitForVisible(page, adapter.createSelectors, now, sleep, UI_WAIT_MS);
         if (!create) {
           if (await looksLikeAuthWall(page)) return skipped('not signed in (bun run account connect)');
+          const paymentRequired = await page
+            .evaluate(() => /add a payment method|payment method required|requires? a payment method|add a billing method/i.test(document.body?.innerText || ''), undefined)
+            .catch(() => false);
+          if (paymentRequired) return failed(`the provider requires a payment method; add billing at ${adapter.keyUrl}`);
           return failed(`no key found; create one manually at ${adapter.keyUrl}`);
         }
         try {
