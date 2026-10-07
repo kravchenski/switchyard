@@ -66,7 +66,7 @@ describe('free API providers', () => {
   test('every provider has a unique id, an env variable and a key page', () => {
     const ids = API_KEY_PROVIDERS.map(provider => provider.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(['nvidia', 'openrouter', 'groq', 'gemini', 'cerebras', 'mistral', 'sambanova', 'github-models', 'huggingface', 'bigmodel', 'cohere', 'aion', 'ovhcloud', 'llm7', 'zai', 'ollama-cloud', 'opencode-zen', 'kilo', 'cloudflare', 'aihubmix', 'ashna', 'nararouter', 'xkiro']);
+    expect(ids).toEqual(['nvidia', 'openrouter', 'groq', 'gemini', 'cerebras', 'mistral', 'sambanova', 'github-models', 'huggingface', 'bigmodel', 'cohere', 'aion', 'ovhcloud', 'llm7', 'zai', 'ollama-cloud', 'opencode-zen', 'kilo', 'cloudflare', 'tokenharbor', 'aihubmix', 'ashna', 'nararouter', 'xkiro']);
     for (const provider of FREE_API_PROVIDERS) {
       expect(provider.apiKeyEnv).toMatch(/^[A-Z0-9_]+_API_KEY$/);
       expect(provider.keyUrl).toStartWith('https://');
@@ -243,6 +243,16 @@ describe('more free providers', () => {
     expect(await provider.listModels()).toEqual(['xkiro/deepseek/deepseek-v4.1-flash:free', 'xkiro/cohere/command-a']);
     expect(defaultAuto('xkiro')).toBeFalse();
     expect(defaultAuto('groq')).toBeTrue();
+  });
+
+  test('Token Harbor keeps only its free models and needs a Universal Key', async () => {
+    const { fetchFn, calls } = upstream(['deepseek-v4-flash:free', 'claude-opus-5.5', 'mimo-v2.5:free', 'text-embedding-3-large:free']);
+    expect(createApiProvider(definition('tokenharbor'), { env: {}, fetch: fetchFn }).health()).toEqual({ available: false, reason: 'TOKENHARBOR_API_KEY is not set; or run: bun run account add tokenharbor --api-key' });
+    const provider = createApiProvider(definition('tokenharbor'), { env: { TOKENHARBOR_API_KEY: 'k' }, fetch: fetchFn });
+    expect(await provider.listModels()).toEqual(['tokenharbor/deepseek-v4-flash:free', 'tokenharbor/mimo-v2.5:free']);
+    await collectChunks((await provider.stream({ model: 'tokenharbor/deepseek-v4-flash:free', messages: [] })).chunks);
+    expect(calls.at(-1)).toMatchObject({ url: 'https://tokenharbor.ai/v1/chat/completions', body: { model: 'deepseek-v4-flash:free' }, auth: 'Bearer k' });
+    expect(defaultAuto('tokenharbor')).toBeTrue();
   });
 
   test('AIHubMix keeps only the free catalog and stays unavailable without a key', async () => {

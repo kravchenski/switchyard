@@ -89,6 +89,7 @@ export const KEY_ADAPTERS: ProviderKeyAdapter[] = [
   { provider: 'opencode-zen', keyUrl: keyUrl('opencode-zen'), keyPattern: /^oc_sk_[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'kilo', keyUrl: keyUrl('kilo'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'cloudflare', keyUrl: keyUrl('cloudflare'), keyPattern: /^[A-Za-z0-9]{40}$/, ...common },
+  { provider: 'tokenharbor', keyUrl: keyUrl('tokenharbor'), keyPattern: /^thk_live_[A-Za-z0-9_-]{16,}$/, ...common },
   { provider: 'aihubmix', keyUrl: keyUrl('aihubmix'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'ashna', keyUrl: keyUrl('ashna'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'nararouter', keyUrl: keyUrl('nararouter'), keyPattern: /^sk-nry-[A-Za-z0-9_-]{16,}$/, ...common },

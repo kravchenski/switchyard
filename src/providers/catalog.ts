@@ -244,6 +244,15 @@ export const FREE_API_PROVIDERS: ApiProviderDefinition[] = [
     },
   },
   {
+    id: 'tokenharbor',
+    label: 'Token Harbor',
+    baseUrl: 'https://tokenharbor.ai/v1',
+    apiKeyEnv: 'TOKENHARBOR_API_KEY',
+    keyUrl: 'https://tokenharbor.ai/dashboard/api-keys',
+    namespace: true,
+    modelFilter: model => model.endsWith(':free') && isApiChatModel(model),
+  },
+  {
     id: 'aihubmix',
     label: 'AIHubMix',
     baseUrl: 'https://api.aihubmix.com/v1',
