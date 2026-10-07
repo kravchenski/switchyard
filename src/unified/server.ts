@@ -589,7 +589,10 @@ app.post('/api/chat/completions', async (c) => {
         const captureToolCalls = Array.isArray(combinedTools) && combinedTools.length > 0;
 
         const startedAt = Date.now();
-        const routeModel = model === AUTO_MODEL && router.autoChain(VISION_MODEL).length && collectImageUrls(messages).length ? VISION_MODEL : model;
+        const routeModel = model !== AUTO_MODEL ? model
+            : router.autoChain(VISION_MODEL).length && collectImageUrls(messages).length ? VISION_MODEL
+            : captureToolCalls && router.autoChain(AGENT_MODEL).length ? AGENT_MODEL
+            : model;
         const sessionKey = isVirtualModel(routeModel) ? conversationId ?? conversationKey(messages) : undefined;
         const sessions = sessionKey ? affinity() : undefined;
         const pinned = sessionKey ? sessions?.get(sessionKey, routeModel) : undefined;
