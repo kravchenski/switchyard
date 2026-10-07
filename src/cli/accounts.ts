@@ -34,8 +34,10 @@ export interface AccountsCliDeps {
   secretSource?: () => Promise<string>;
   providerAuto?: (provider: string, auto?: boolean) => boolean;
   autoSettings?: (change: { focus?: string; mode?: string; agents?: Record<string, string | undefined> }) => { focus: string; mode: string; agents?: Record<string, boolean> };
-  harvest?: (options: { profile: string; providers?: string[]; onResult?: (result: HarvestResult) => void }) => Promise<HarvestResult[]>;
-  autoLogin?: (options: { profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean }) => Promise<AutoLoginResult[]>;
+  harvest?: (options: { profile: string; providers?: string[]; session?: unknown; onResult?: (result: HarvestResult) => void }) => Promise<HarvestResult[]>;
+  autoLogin?: (options: { profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean; session?: unknown }) => Promise<AutoLoginResult[]>;
+  beginSession?: (profile: string) => Promise<unknown>;
+  endSession?: (session: unknown) => Promise<void>;
   env?: Record<string, string | undefined>;
 }
 
@@ -293,15 +295,20 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
       }
     }
     deps.log('Signing in to web chats and provider dashboards...');
-    const loginResults = await deps.autoLogin({ profile, sites, providers, credentials: { email, password }, viaGoogle: args.includes('--google') });
-    for (const result of loginResults) deps.log(formatAutoLogin(result));
-    deps.log(autoLoginSummary(loginResults));
-    deps.log('Visiting provider dashboards...');
-    const results = await deps.harvest({ profile, providers: providers && providers.length ? providers : undefined, onResult: result => deps.log(formatHarvest(result)) });
-    deps.log(harvestSummary(results));
-    const good = autoLoginGood(loginResults) + harvestGood(results);
-    const failed = autoLoginFailed(loginResults) + harvestFailed(results);
-    return failed > 0 && good === 0 ? 1 : 0;
+    const session = deps.beginSession ? await deps.beginSession(profile) : undefined;
+    try {
+      const loginResults = await deps.autoLogin({ profile, sites, providers, credentials: { email, password }, viaGoogle: args.includes('--google'), session });
+      for (const result of loginResults) deps.log(formatAutoLogin(result));
+      deps.log(autoLoginSummary(loginResults));
+      deps.log('Visiting provider dashboards...');
+      const results = await deps.harvest({ profile, providers: providers && providers.length ? providers : undefined, session, onResult: result => deps.log(formatHarvest(result)) });
+      deps.log(harvestSummary(results));
+      const good = autoLoginGood(loginResults) + harvestGood(results);
+      const failed = autoLoginFailed(loginResults) + harvestFailed(results);
+      return failed > 0 && good === 0 ? 1 : 0;
+    } finally {
+      if (session !== undefined && deps.endSession) await deps.endSession(session);
+    }
   }
 
   if (command === 'auto-login' && deps.autoLogin) {

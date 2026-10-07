@@ -31,6 +31,7 @@ export interface AutoLoginOptions {
   profileDir?: string;
   viaGoogle?: boolean;
   launch?: (options: LaunchOptions) => Promise<CdpBrowser>;
+  closeBrowser?: boolean;
   now?: () => number;
   waitForSignInMs?: number;
   onSignIn?: (site: string, result: SignInResult) => void;
@@ -358,12 +359,24 @@ async function dismissConsent(page: Page): Promise<void> {
 }
 
 async function looksLikeLoginPage(page: Page, url: string): Promise<boolean> {
-  const selector = [...EMAIL_SELECTORS, ...PASSWORD_SELECTORS, ...GOOGLE_SELECTORS, ...ENTRY_SELECTORS].join(', ');
+  const selector = [...EMAIL_SELECTORS, ...PASSWORD_SELECTORS, ...GOOGLE_SELECTORS, ...ENTRY_SELECTORS].map(part => `${part}:visible`).join(', ');
   const visible = async () => page.locator(selector).first().isVisible().catch(() => false);
   const state = pageState(page.url(), url);
-  if (state.ok) return visible();
   if (state.detail?.startsWith('not signed in')) return true;
-  const deadline = Date.now() + 3_000;
+  if (!state.ok) {
+    const deadline = Date.now() + 3_000;
+    do {
+      if (await visible()) return true;
+      await Bun.sleep(200);
+    } while (Date.now() < deadline);
+    return false;
+  }
+  if (await visible()) {
+    await Bun.sleep(600);
+    if (await visible()) return true;
+  }
+  await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+  const deadline = Date.now() + 6_000;
   do {
     if (await visible()) return true;
     await Bun.sleep(200);
@@ -383,7 +396,10 @@ async function attemptDashboard(
   await dismissConsent(page);
   const trace: string[] = [];
   const failure = await login(page, options.credentials ?? EMPTY_CREDENTIALS, Boolean(options.viaGoogle), trace);
-  if (failure) return loginFailure(target.id, failure);
+  if (failure) {
+    if (failure === 'login form not found' && !(await looksLikeLoginPage(page, target.url))) return { site: target.id, status: 'signed-in', detail: 'already signed in' };
+    return loginFailure(target.id, failure);
+  }
   const failed = (): AutoLoginResult => ({
     site: target.id,
     status: 'failed',
@@ -437,6 +453,6 @@ export async function autoSignIn(options: AutoLoginOptions): Promise<AutoLoginRe
     }
     return results;
   } finally {
-    await browser.close();
+    if (options.closeBrowser !== false) await browser.close();
   }
 }

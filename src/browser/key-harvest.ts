@@ -1,4 +1,4 @@
-import { launchCdpBrowser } from './cdp.ts';
+import { launchCdpBrowser, type CdpBrowser } from './cdp.ts';
 import { KEY_ADAPTERS, type ProviderKeyAdapter } from '../providers/key-adapters.ts';
 
 export type HarvestStatus = 'created' | 'updated' | 'unchanged' | 'skipped' | 'failed';
@@ -51,7 +51,7 @@ const LOGIN_HOSTS = /(^|\.)accounts\.google\.com$/;
 const LOGIN_PATH = /\/(login|signin|sign_?in|sign-in|auth|oauth|authorize|authenticate|challenge)(\/|$)/i;
 const FORBIDDEN_BUTTON = /\b(pay|buy|upgrade|subscribe|billing)\b/i;
 const CREATE_WAIT_MS = 15_000;
-const UI_WAIT_MS = 5_000;
+const UI_WAIT_MS = 10_000;
 
 const DISMISS_SELECTORS = [
   'button:has-text("No thanks")',
@@ -65,6 +65,7 @@ const DISMISS_SELECTORS = [
   'button:has-text("Allow analytics")',
   'button:has-text("I agree")',
   'button:has-text("Got it")',
+  'button:has-text("Maybe later")',
   '[aria-label="Close"]',
 ];
 const DIALOG_PROCEED_SELECTORS = [
@@ -219,6 +220,26 @@ async function fillEmptyNameFields(page: HarvestPage): Promise<boolean> {
   return typeof filled === 'number' ? filled > 0 : Boolean(filled);
 }
 
+async function waitForTurnstile(page: HarvestPage, now: () => number, sleep: (ms: number) => Promise<unknown>): Promise<boolean> {
+  const holder = '#cf-turnstile';
+  const token = 'input[name="cf-turnstile-response"]';
+  let present = await page.locator(`${holder}, ${token}`).count().catch(() => 0);
+  const mountDeadline = now() + 2_000;
+  while (!present && now() < mountDeadline) {
+    await sleep(150);
+    present = await page.locator(`${holder}, ${token}`).count().catch(() => 0);
+  }
+  if (!present) return true;
+  const deadline = now() + 15_000;
+  while (now() < deadline) {
+    const solved = (await page.locator(token).first().inputValue().catch(() => '')) !== '';
+    if (solved) return true;
+    if ((await page.locator(holder).count().catch(() => 0)) === 0) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
 async function clearBlockingUi(page: HarvestPage): Promise<void> {
   const selectors = [...DIALOG_PROCEED_SELECTORS, ...DISMISS_SELECTORS];
   let checkboxSeen = false;
@@ -353,6 +374,8 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
           await create.locator.click({ timeout: 5_000 }).catch(() => {});
         }
         await clearBlockingUi(page);
+        const turnstileOk = await waitForTurnstile(page, now, sleep);
+        if (!turnstileOk) return failed(`the provider's bot check blocked key creation; create a key manually at ${adapter.keyUrl}`);
         confirm = await visibleLocator(page, adapter.confirmSelectors);
       }
       const uiDeadline = now() + UI_WAIT_MS;
@@ -375,6 +398,10 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
       }
       const keyDeadline = now() + CREATE_WAIT_MS;
       while (!(key = await findKey())) {
+        const blocked = await page
+          .evaluate(() => /bot_verification_failed|couldn't verify this request|error creating/i.test(document.body?.innerText || ''), undefined)
+          .catch(() => false);
+        if (blocked) return failed(`the provider's bot check blocked key creation; create a key manually at ${adapter.keyUrl}`);
         if (now() >= keyDeadline) return failed(`key did not appear after creating; check ${adapter.keyUrl}`);
         await sleep(250);
       }
@@ -396,16 +423,20 @@ export interface HarvestBrowser {
   close(): Promise<void>;
 }
 
-async function defaultLaunch({ profileDir }: { profileDir: string }): Promise<HarvestBrowser> {
-  const cdp = await launchCdpBrowser({ profileDir });
-  await cdp.browser.contexts()[0]?.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+export function harvestBrowserFrom(cdp: CdpBrowser, close: () => Promise<void> = async () => {}): HarvestBrowser {
   return {
     contexts: () =>
       cdp.browser.contexts().map(context => ({
         newPage: async () => (await context.newPage()) as unknown as HarvestPage & { close(): Promise<void> },
       })),
-    close: () => cdp.close(),
+    close,
   };
+}
+
+async function defaultLaunch({ profileDir }: { profileDir: string }): Promise<HarvestBrowser> {
+  const cdp = await launchCdpBrowser({ profileDir });
+  await cdp.browser.contexts()[0]?.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+  return harvestBrowserFrom(cdp, () => cdp.close());
 }
 
 export async function harvestKeys(options: {

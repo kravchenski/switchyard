@@ -247,6 +247,38 @@ describe('accounts CLI', () => {
     expect(lines.some(line => line.includes('groq') && line.includes('LOGIN_EMAIL'))).toBe(true);
   });
 
+  test('auto-collect shares one browser session across both steps and always closes it', async () => {
+    const { deps } = harness();
+    const order: string[] = [];
+    const sessions: unknown[] = [];
+    deps.beginSession = async () => {
+      order.push('begin');
+      return { id: 'session-1' };
+    };
+    deps.endSession = async session => {
+      order.push('end');
+      expect((session as { id: string }).id).toBe('session-1');
+    };
+    deps.autoLogin = async options => {
+      order.push('login');
+      sessions.push(options.session);
+      return [];
+    };
+    deps.harvest = async options => {
+      order.push('harvest');
+      sessions.push(options.session);
+      return [];
+    };
+    expect(await runAccountsCommand(['auto-collect', '--yes'], deps)).toBe(0);
+    expect(order).toEqual(['begin', 'login', 'harvest', 'end']);
+    expect(sessions[0]).toBe(sessions[1]);
+    deps.harvest = async () => {
+      throw new Error('boom');
+    };
+    await expect(runAccountsCommand(['auto-collect', '--yes'], deps)).rejects.toThrow('boom');
+    expect(order.at(-1)).toBe('end');
+  });
+
   test('auto-collect reads credentials from env and passes --site/--provider to both steps', async () => {
     const { deps } = harness();
     deps.askHidden = async () => {

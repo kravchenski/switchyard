@@ -86,7 +86,7 @@ export const KEY_ADAPTERS: ProviderKeyAdapter[] = [
     keyPattern: /^(?:sk-[A-Za-z0-9_-]{20,}|[a-f0-9]{40,}|[a-f0-9]{32}\.[A-Za-z0-9_-]{16,})$/i,
     ...common,
   },
-  { provider: 'opencode-zen', keyUrl: keyUrl('opencode-zen'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
+  { provider: 'opencode-zen', keyUrl: keyUrl('opencode-zen'), keyPattern: /^oc_sk_[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'kilo', keyUrl: keyUrl('kilo'), keyPattern: /^sk-[A-Za-z0-9_-]{20,}$/, ...common },
   { provider: 'cloudflare', keyUrl: keyUrl('cloudflare'), keyPattern: /^[A-Za-z0-9]{40}$/, ...common },
 ];
