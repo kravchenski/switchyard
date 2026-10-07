@@ -47,6 +47,15 @@ export function stripImages(messages: Array<Record<string, any>>, supported: boo
   });
 }
 
+export function keepLatestImages(messages: Array<Record<string, any>>): Array<Record<string, any>> {
+  const list = messages ?? [];
+  let latest = -1;
+  list.forEach((message, index) => {
+    if (Array.isArray(message?.content) && message.content.some(isImagePart)) latest = index;
+  });
+  return list.map((message, index) => (index === latest ? message : stripImages([message], true)[0]!));
+}
+
 export function messagesToPrompt(messages: Array<Record<string, any>>) {
   return messages.map(message => {
     const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? '');

@@ -102,9 +102,32 @@ describe('race mode', () => {
     const events: string[] = [];
     const registry = new ProviderRegistry().register(racer('a', 5, events, true)).register(racer('b', 5, events, true));
     const router = new SmartRouter(registry, ['a-model', 'b-model'], Date.now, { autoMode: () => 'race' });
-    await expect(router.open('auto', route => ({ model: route.model, messages: [] }))).rejects.toThrow(/All raced routes failed for model auto: .*a broke.*b broke|All raced routes failed for model auto: .*b broke.*a broke/);
+    await expect(router.open('auto', route => ({ model: route.model, messages: [] }))).rejects.toThrow(/All routes failed for model auto: .*a broke.*b broke|All routes failed for model auto: .*b broke.*a broke/);
     const single = new SmartRouter(new ProviderRegistry().register(racer('c', 1, events)), ['c-model'], Date.now, { autoMode: () => 'race' });
     expect((await single.open('c-model', route => ({ model: route.model, messages: [] }))).route.model).toBe('c-model');
+  });
+
+  test('falls through to the rest of the chain when every raced route fails', async () => {
+    const events: string[] = [];
+    const registry = new ProviderRegistry()
+      .register(racer('a', 5, events, true)).register(racer('b', 5, events, true)).register(racer('c', 5, events, true))
+      .register(racer('d', 5, events));
+    const router = new SmartRouter(registry, ['a-model', 'b-model', 'c-model', 'd-model'], Date.now, { autoMode: () => 'race' });
+    expect((await router.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('d-model');
+  });
+
+  test('a pinned conversation goes to its own route alone and races the rest only when it fails', async () => {
+    const events: string[] = [];
+    const registry = new ProviderRegistry().register(racer('a', 5, events)).register(racer('b', 5, events)).register(racer('c', 20, events));
+    const router = new SmartRouter(registry, ['a-model', 'b-model', 'c-model'], Date.now, { autoMode: () => 'race' });
+    expect((await router.open('auto', route => ({ model: route.model, messages: [] }), 'c-model')).route.model).toBe('c-model');
+    expect(events.filter(event => event.startsWith('start'))).toEqual(['start c']);
+
+    const failing: string[] = [];
+    const broken = new ProviderRegistry().register(racer('a', 5, failing)).register(racer('b', 30, failing)).register(racer('c', 5, failing, true));
+    const fallback = new SmartRouter(broken, ['a-model', 'b-model', 'c-model'], Date.now, { autoMode: () => 'race' });
+    expect((await fallback.open('auto', route => ({ model: route.model, messages: [] }), 'c-model')).route.model).toBe('a-model');
+    expect(failing.filter(event => event.startsWith('start'))).toEqual(['start c', 'start a', 'start b']);
   });
 });
 
