@@ -1038,7 +1038,7 @@ export async function startUnifiedServer() {
     });
 
     console.log(`
-  FreeQwenApi — OpenCode-compatible API
+  Switchyard — OpenAI- and Anthropic-compatible API
 
   Endpoint: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}
   Models:   ${modelCount} total (fetched from upstream APIs)

@@ -47,6 +47,14 @@ runs:
       shell: bash
       run: bun install --frozen-lockfile
 
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: desktop
+
     - name: Build gateway and accounts binaries
       shell: bash
       env:
@@ -59,14 +67,6 @@ runs:
         bun build --compile --target="$BUN_TARGET" src/unified/server.ts --external 'chromium-bidi/*' --outfile "desktop/target/sidecars/freeapi-gateway-$TRIPLE$ext"
         bun build --compile --target="$BUN_TARGET" scripts/accounts.ts --external 'chromium-bidi/*' --outfile "desktop/target/sidecars/freeapi-accounts-$TRIPLE$ext"
         ls -la desktop/target/sidecars
-
-    - name: Setup Rust
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache Cargo
-      uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: desktop
 
     - name: Install cargo-packager
       uses: taiki-e/install-action@v2
@@ -105,6 +105,6 @@ runs:
         esac
         source=$(find desktop/target/packages -maxdepth 1 -name "$pattern" | head -1)
         if [ -z "$source" ]; then echo "No $FORMAT package produced"; ls -la desktop/target/packages; exit 1; fi
-        asset="free-ai-gateway-$version-$TARGET$suffix"
+        asset="switchyard-$version-$TARGET$suffix"
         cp "$source" "$asset"
         echo "asset=$asset" >> "$GITHUB_OUTPUT"
