@@ -4,6 +4,9 @@ import type { BrowserProfile } from '../browser/profiles.ts';
 import type { HarvestResult, HarvestStatus } from '../browser/key-harvest.ts';
 import type { AutoLoginResult, AutoLoginStatus } from '../browser/auto-login.ts';
 import { notSignedIn } from '../browser/browser-chat.ts';
+import type { SignInResult } from '../browser/sign-in.ts';
+import { supportsTokenSignIn } from '../browser/token-sign-in.ts';
+import { normalizeToken } from '../core/accounts/token.ts';
 import { formatOverview, type ProviderOverview } from './overview.ts';
 import { API_KEY_PROVIDERS as API_KEY_DEFINITIONS } from '../providers/catalog.ts';
 import { WEB_CHAT_SITES } from '../providers/web-chat-sites.ts';
@@ -22,6 +25,7 @@ export interface AccountsCliDeps {
   verifyApiKey?: (provider: string, apiKey: string) => Promise<number>;
   accountLabel?: (provider: string) => string | undefined;
   checkSignIns?: (url: string | undefined, profile?: string) => Promise<ProfileSignIn[]>;
+  signInWithToken?: (siteId: string, token: string, profile: string) => Promise<SignInResult>;
   profiles?: {
     list(): BrowserProfile[];
     add(label: string): BrowserProfile;
@@ -70,6 +74,9 @@ export const ACCOUNTS_USAGE = `Usage: bun run account <command>
   connect [--profile <id>]                        Open Google and every web chat in an account to sign in, then check them
   google [--list] [--profile <id>]                Sign in to Google in a browser account, then list its Google accounts
   open <https-url> [--profile <id>]               Open a site in a browser account to sign in manually
+  token <qwen-chat|glm-chat|kimi-chat> [--profile <id>]
+                                                  Sign a browser account in with the token from your own browser
+                                                  (the token is prompted; stop the API first)
   status [--profile <id>]                         Show which web chats each browser account is signed in to
   harvest [--profile <id>] [--provider <id>] [--yes]
                                                   Visit provider dashboards and create/update API keys from your
@@ -249,6 +256,26 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
     if (!deps.checkSignIns) return 0;
     const results = await deps.checkSignIns(url.href, profile);
     return results.length ? reportSignIns(results, deps.log) : 0;
+  }
+
+  if (command === 'token' && deps.signInWithToken) {
+    const site = WEB_CHAT_SITES.find(entry => entry.id === target && supportsTokenSignIn(entry));
+    if (!site) throw new Error(`Use: bun run account token <${WEB_CHAT_SITES.filter(supportsTokenSignIn).map(entry => entry.id).join('|')}> [--profile <id>]`);
+    const profile = profileOption(args, deps);
+    const host = new URL(site.url).hostname;
+    const key = site.signIn!.storageKey!;
+    deps.log(`Sign in at ${host} in your usual browser, then open DevTools (F12) > Application > Local Storage > https://${host} and copy "${key}".`);
+    deps.log('The token gives full access to the account. Stop the API first: it uses the same browser profile.');
+    const token = normalizeToken(await deps.askHidden(`${key} (hidden): `));
+    if (!token) throw new Error('No token entered');
+    const result = await deps.signInWithToken(site.id, token, profile);
+    if (!result.signedIn) {
+      deps.log(`${host}: not signed in, ${result.reason}`);
+      return 1;
+    }
+    deps.log(`${host}: signed in with the token`);
+    if (deps.checkSignIns) await deps.checkSignIns(site.url, profile);
+    return 0;
   }
 
   if (command === 'status' && deps.checkSignIns) {

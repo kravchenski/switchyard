@@ -9,6 +9,7 @@ export const KIMI_CHAT_SITE: ChatSite = {
   responseUrl: /kimi\.gateway\.chat\.v1\.ChatService\/Chat(?:\?|$)/,
   verificationText: /security verification|verify you are human|captcha/i,
   signIn: { storageKey: 'refresh_token', expiring: true },
+  tokenCheck: '/api/auth/token/refresh',
   captcha: { checkbox: true, slider: true },
   modelFields: model => /-chat$/.test(model)
     ? { 'options.model': model }

@@ -8,6 +8,7 @@ import { listGoogleAccounts, openGoogleSignIn, openProfileWindow } from '../src/
 import { checkSignIns } from '../src/browser/sign-in-check.ts';
 import { notSignedIn } from '../src/browser/browser-chat.ts';
 import { WebSignInStatus } from '../src/core/accounts/sign-in-status.ts';
+import { signInWithToken } from '../src/browser/token-sign-in.ts';
 import type { Database } from 'bun:sqlite';
 import {
   addBrowserProfile, listBrowserProfiles, loadGatewaySetting, loadProviderSetting, loadSignIn, loadSignIns, openDatabase, removeBrowserProfile,
@@ -122,6 +123,7 @@ try {
       });
       return results;
     },
+    signInWithToken: (siteId, token, profile) => signInWithToken({ site: WEB_CHAT_SITES.find(site => site.id === siteId)!, token, profileDir: profileDir(profile) }),
     verifyApiKey: (provider, apiKey) => {
       const definition = apiKeyProvider(provider);
       if (!definition) throw new Error(`API keys are not supported for ${provider}`);
