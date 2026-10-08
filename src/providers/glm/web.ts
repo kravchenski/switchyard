@@ -10,6 +10,7 @@ export const ZAI_CHAT_SITE: ChatSite = {
   responseUrl: /\/api\/v2\/chat\/completions/,
   verificationText: /security verification/i,
   signIn: { storageKey: 'token', claim: 'email', guestPattern: /guest/i },
+  tokenCheck: '/api/v1/auths/',
   captcha: { checkbox: true },
   modelFields: model => ({ model }),
   images: true,

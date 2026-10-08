@@ -40,6 +40,7 @@ export interface ChatSite {
   pageModels?: (page: Page) => Promise<WebChatModel[]>;
   defaultModels?: WebChatModel[];
   reuseThread?: boolean;
+  tokenCheck?: string;
 }
 
 const MIME_EXTENSIONS: Record<string, string> = {

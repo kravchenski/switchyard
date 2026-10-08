@@ -1,16 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { DeepSeekAccount } from '../src/providers/deepseek/accounts.ts';
-import { addDeepSeekAccountFromToken, checkDeepSeekToken, normalizeDeepSeekToken } from '../src/providers/deepseek/auth.ts';
+import { normalizeToken } from '../src/core/accounts/token.ts';
+import { addDeepSeekAccountFromToken, checkDeepSeekToken } from '../src/providers/deepseek/auth.ts';
 
 const answering = (body: unknown, status = 200) => (async () => Response.json(body, { status })) as unknown as typeof fetch;
 
 describe('DeepSeek token sign-in', () => {
   test('accepts the userToken value, the whole localStorage JSON, a quoted value or a bearer header', () => {
-    expect(normalizeDeepSeekToken('  abc.def  ')).toBe('abc.def');
-    expect(normalizeDeepSeekToken('{"value":"abc.def","__version":"0"}')).toBe('abc.def');
-    expect(normalizeDeepSeekToken('"abc.def"')).toBe('abc.def');
-    expect(normalizeDeepSeekToken('Bearer abc.def')).toBe('abc.def');
+    expect(normalizeToken('  abc.def  ')).toBe('abc.def');
+    expect(normalizeToken('{"value":"abc.def","__version":"0"}')).toBe('abc.def');
+    expect(normalizeToken('"abc.def"')).toBe('abc.def');
+    expect(normalizeToken('Bearer abc.def')).toBe('abc.def');
   });
 
   test('checks the token with DeepSeek before saving it', async () => {

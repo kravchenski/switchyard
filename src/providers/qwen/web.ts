@@ -14,6 +14,7 @@ export const QWEN_CHAT_SITE: ChatSite = {
   responseUrl: /\/api\/v2\/chat\/completions/,
   verificationText: /security verification|verify you are human|captcha/i,
   signIn: { storageKey: 'token', claim: 'id' },
+  tokenCheck: '/api/v1/auths/',
   authUrl: 'https://chat.qwen.ai/auth',
   challengeResponse: /FAIL_SYS_USER_VALIDATE|\/punish\?/,
   ignoredResponse: /^\{"code":0,[^\n]*"sig":"from bx"/,

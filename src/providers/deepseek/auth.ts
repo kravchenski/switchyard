@@ -12,6 +12,7 @@ import {
 } from './accounts.ts';
 import { isDeepSeekUrl } from './url.ts';
 import { completionRejection } from './client.ts';
+import { normalizeToken } from '../../core/accounts/token.ts';
 
 const baseUrl = process.env.DEEPSEEK_BASE_URL || 'https://chat.deepseek.com';
 const signInUrl = process.env.DEEPSEEK_SIGN_IN_URL || `${baseUrl}/sign_in`;
@@ -91,17 +92,6 @@ export async function addDeepSeekAccountInteractive(replaceId?: string) {
     }
 }
 
-export function normalizeDeepSeekToken(raw: string) {
-    let value = raw.trim().replace(/^bearer\s+/i, '');
-    if (value.startsWith('{')) {
-        try {
-            const parsed = JSON.parse(value);
-            if (typeof parsed?.value === 'string') value = parsed.value;
-        } catch {}
-    }
-    return value.trim().replace(/^"(.*)"$/, '$1');
-}
-
 export async function checkDeepSeekToken(token: string, fetchFn: typeof fetch = fetch): Promise<string | undefined> {
     const response = await fetchFn(`${baseUrl}/api/v0/users/current`, {
         headers: { authorization: `Bearer ${token}`, origin: baseUrl, referer: `${baseUrl}/` },
@@ -123,7 +113,7 @@ export async function addDeepSeekAccountFromToken(options: {
     console.log('3. Copy the value of "userToken" (the whole JSON or just its "value").');
     console.log('The token gives full access to the account; it is saved only in session/deepseek.');
     console.log('======================================================');
-    const token = normalizeDeepSeekToken(await (options.ask ?? askHidden)('DeepSeek userToken (hidden): '));
+    const token = normalizeToken(await (options.ask ?? askHidden)('DeepSeek userToken (hidden): '));
     if (!token) throw new Error('No token entered');
     const rejected = await (options.check ?? checkDeepSeekToken)(token);
     if (rejected) throw new Error(`DeepSeek did not accept this token: ${rejected}`);

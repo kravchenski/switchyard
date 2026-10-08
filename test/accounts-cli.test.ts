@@ -44,6 +44,29 @@ describe('accounts CLI', () => {
     expect(await runAccountsCommand(['test', 'nvidia-1'], deps)).toBe(1);
   });
 
+  test('signs a web chat in with a pasted token and never prints the token', async () => {
+    const { deps, lines } = harness();
+    const signedIn: Array<[string, string, string]> = [];
+    const checked: Array<string | undefined> = [];
+    deps.askHidden = async () => '{"value":"jwt-token","__version":"0"}';
+    deps.signInWithToken = async (site, token, profile) => {
+      signedIn.push([site, token, profile]);
+      return site === 'glm-chat' ? { signedIn: false, reason: 'the site treats the token as a guest' } : { signedIn: true };
+    };
+    deps.checkSignIns = async url => { checked.push(url); return []; };
+
+    expect(await runAccountsCommand(['token', 'qwen-chat'], deps)).toBe(0);
+    expect(signedIn).toEqual([['qwen-chat', 'jwt-token', 'default']]);
+    expect(lines.at(-1)).toBe('chat.qwen.ai: signed in with the token');
+    expect(checked).toEqual(['https://chat.qwen.ai/']);
+
+    expect(await runAccountsCommand(['token', 'glm-chat'], deps)).toBe(1);
+    expect(lines.at(-1)).toBe('chat.z.ai: not signed in, the site treats the token as a guest');
+    expect(lines.join('\n')).not.toContain('jwt-token');
+
+    await expect(runAccountsCommand(['token', 'arena-chat'], deps)).rejects.toThrow('Use: bun run account token <qwen-chat|glm-chat|kimi-chat>');
+  });
+
   test('rejects unknown providers and commands and points to the API key flag', async () => {
     const { deps } = harness();
     await expect(runAccountsCommand(['add', 'qwen'], deps)).rejects.toThrow('Unknown provider: qwen');
