@@ -53,7 +53,7 @@ describe('Z.ai web chat', () => {
     expect(provider.supports('glm-5.3')).toBeFalse();
     const { chunks } = await provider.stream({ model: 'glm-chat', messages: [{ role: 'system', content: 'Be brief' }, { role: 'user', content: 'Say pong' }] });
     expect((await collectChunks(chunks)).content).toBe('pong');
-    expect(sent).toEqual([['glm-chat', 'system: Be brief\n\nuser: Say pong']]);
+    expect(sent).toEqual([['glm-chat', 'Be brief\n\nSay pong']]);
   });
 
   test('rejects a model the site does not offer once its model list is known', async () => {

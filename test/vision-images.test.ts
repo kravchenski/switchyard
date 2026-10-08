@@ -120,16 +120,16 @@ describe('browser chat provider vision wiring', () => {
     expect(provider.capabilities('fake-chat').vision).toBeTrue();
     await provider.stream({ model: 'fake-chat', messages: imageMessage() });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.prompt).toBe('user: look at this chart\n[image]');
+    expect(calls[0]!.prompt).toBe('look at this chart');
     expect(calls[0]!.context.extractImages(imageMessage())).toEqual([DATA_URL]);
-    expect(calls[0]!.context.toPrompt(imageMessage())).toBe('user: look at this chart\n[image]');
+    expect(calls[0]!.context.toPrompt(imageMessage())).toBe('look at this chart');
   });
 
   test('drops images with a marker when the site has no image support', async () => {
     const { calls, provider } = harness(textSite);
     expect(provider.capabilities('fake-chat').vision).toBeFalse();
     await provider.stream({ model: 'fake-chat', messages: imageMessage() });
-    expect(calls[0]!.prompt).toBe('user: look at this chart\n[image omitted: this model cannot process images]');
+    expect(calls[0]!.prompt).toBe('look at this chart\n[image omitted: this model cannot process images]');
     expect(calls[0]!.context.extractImages(imageMessage())).toEqual([]);
   });
 });
