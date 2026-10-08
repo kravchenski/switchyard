@@ -6,6 +6,7 @@ import { ProviderError } from '../core/providers/errors.ts';
 import { launchCdpBrowser, type CdpBrowser, type LaunchOptions } from './cdp.ts';
 import { googleProfileDir } from './google-profile.ts';
 import { readSignIn, type SignInResult, type SignInRule } from './sign-in.ts';
+import { humanType } from './typing.ts';
 import type { ChatMessage } from '../core/providers/provider.ts';
 
 export interface SendContext {
@@ -103,7 +104,8 @@ const CHALLENGE_GRACE_MS = 120_000;
 const THREAD_IDLE_MS = 30 * 60_000;
 const MAX_THREADS_PER_SITE = 3;
 const SUBMIT_RETRY_MS = 60_000;
-const SUBMIT_CHECK_MS = 500;
+const SUBMIT_RETRY_MIN_MS = 1_500;
+const SUBMIT_RETRY_JITTER_MS = 1_500;
 
 async function submitPrompt(page: Page, input: Locator, responseUrl: RegExp) {
   let sent = false;
@@ -115,7 +117,7 @@ async function submitPrompt(page: Page, input: Locator, responseUrl: RegExp) {
     await input.press('Enter');
     const deadline = Date.now() + SUBMIT_RETRY_MS;
     while (!sent && Date.now() < deadline) {
-      await Bun.sleep(SUBMIT_CHECK_MS);
+      await Bun.sleep(SUBMIT_RETRY_MIN_MS + Math.random() * SUBMIT_RETRY_JITTER_MS);
       if (sent) return;
       const left = await input.inputValue({ timeout: 1_000 }).catch(() => '');
       if (!left.trim()) return;
@@ -483,7 +485,7 @@ export class BrowserChatSession {
     await input.waitFor({ timeout: 30_000 });
     await input.fill('');
     await input.click();
-    await thread.page.keyboard.insertText(conversation.toPrompt(delta));
+    await humanType(thread.page, conversation.toPrompt(delta));
     await submitPrompt(thread.page, input, site.responseUrl);
     return { page: thread.page, queue };
   }
@@ -552,7 +554,7 @@ export class BrowserChatSession {
       if (attached.length && site.attachImages) await site.attachImages(page, attached);
       await input.fill('');
       await input.click();
-      await page.keyboard.insertText(prompt);
+      await humanType(page, prompt);
       await submitPrompt(page, input, site.responseUrl);
       if (conversation?.messages?.length) {
         this.registerThread(site.id, {
