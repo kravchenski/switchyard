@@ -148,7 +148,7 @@ app.get('/', (c) => {
 <body>
   <div class="app">
     <div class="top-bar">
-      <div class="cmd">FreeQwenApi · OpenCode API</div>
+      <div class="cmd">Switchyard · OpenAI-compatible API</div>
       <div class="status-line">
         <span class="check">✓</span><span class="sep"> Initialized · </span>
         <span class="num">5</span><span class="sep"> chunks · </span>

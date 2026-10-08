@@ -105,6 +105,6 @@ runs:
         esac
         source=$(find desktop/target/packages -maxdepth 1 -name "$pattern" | head -1)
         if [ -z "$source" ]; then echo "No $FORMAT package produced"; ls -la desktop/target/packages; exit 1; fi
-        asset="free-ai-gateway-$version-$TARGET$suffix"
+        asset="switchyard-$version-$TARGET$suffix"
         cp "$source" "$asset"
         echo "asset=$asset" >> "$GITHUB_OUTPUT"

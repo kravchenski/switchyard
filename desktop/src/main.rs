@@ -1290,7 +1290,7 @@ fn main() {
         cx.on_window_closed(|cx, _| cx.quit()).detach();
         cx.spawn(async move |cx| {
             let options = WindowOptions {
-                titlebar: Some(TitlebarOptions { title: Some("Free AI Gateway".into()), ..Default::default() }),
+                titlebar: Some(TitlebarOptions { title: Some("Switchyard".into()), ..Default::default() }),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             };

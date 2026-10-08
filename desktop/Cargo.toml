@@ -11,10 +11,10 @@ serde_json = "1.0.151"
 ureq = { version = "3.4", features = ["json"] }
 
 [package.metadata.packager]
-product-name = "Free AI Gateway"
+product-name = "Switchyard"
 identifier = "com.kravchenski.free-ai-gateway"
 description = "Local OpenAI-compatible gateway for web AI chats and free model APIs"
-homepage = "https://github.com/kravchenski/FreeQwenApi"
+homepage = "https://github.com/kravchenski/switchyard"
 authors = ["kravchenski"]
 publisher = "kravchenski"
 category = "DeveloperTool"
@@ -26,6 +26,7 @@ external-binaries = ["target/sidecars/freeapi-gateway", "target/sidecars/freeapi
 icons = ["assets/icons/icon-32.png", "assets/icons/icon-128.png", "assets/icons/icon-256.png", "assets/icons/icon-512.png"]
 
 [package.metadata.packager.deb]
+package-name = "free-ai-gateway"
 depends = [
   "libxkbcommon0",
   "libxkbcommon-x11-0",
