@@ -472,6 +472,54 @@ function streamChunk(
     })}\n\n`;
 }
 
+const TOOL_BLOCK_PATTERNS = [
+    /\{\s*"(?:tool_calls|tool_call|function_call|name|tool|function)"\s*:/,
+    /<[\uff5c|]+\s*DSML/,
+    /<function=/i,
+    /<(?:bash|terminal|read|ls|find|grep)>/i,
+    /\[\u8c03\u7528/,
+    /^[ \t]*Tool call:/m,
+    /```(?:bash|sh|shell|zsh)/i
+];
+
+const TOOL_BLOCK_PREFIXES = [
+    '{"tool_calls"', '{"tool_call"', '{"function_call"', '{"name"', '{"tool"', '{"function"',
+    '<|DSML', '<||DSML', '<\uff5cDSML', '<\uff5c\uff5cDSML',
+    '<function=', '<bash>', '<terminal>', '<read>', '<ls>', '<find>', '<grep>',
+    '[\u8c03\u7528', 'Tool call:', '```bash', '```sh', '```shell', '```zsh'
+];
+
+function toolBlockHoldLength(text: string) {
+    const trimmed = text.replace(/\s+$/, '');
+    const trailing = text.length - trimmed.length;
+    let hold = 0;
+    for (const prefix of TOOL_BLOCK_PREFIXES) {
+        const max = Math.min(prefix.length, trimmed.length);
+        for (let length = max; length > hold - trailing; length--) {
+            if (trimmed.endsWith(prefix.slice(0, length))) {
+                hold = length + trailing;
+                break;
+            }
+        }
+    }
+    return hold;
+}
+
+function toolBlockIndex(text: string) {
+    let earliest = -1;
+    for (const pattern of TOOL_BLOCK_PATTERNS) {
+        const match = pattern.exec(text);
+        if (match?.index !== undefined && (earliest < 0 || match.index < earliest)) earliest = match.index;
+    }
+    return earliest;
+}
+
+function safeStreamLength(text: string) {
+    const boundary = text.length - toolBlockHoldLength(text);
+    const block = toolBlockIndex(text);
+    return block >= 0 ? Math.min(boundary, block) : boundary;
+}
+
 function handleProviderStream(
     id: string,
     created: number,
@@ -506,6 +554,8 @@ function handleProviderStream(
 
         let content = '';
         let reasoning = '';
+        let sentContent = 0;
+        let sentReasoning = 0;
         const assembler = new ToolCallAssembler();
         for await (const chunk of first.chunks) {
             if (chunk.type === 'tool_call') {
@@ -514,13 +564,26 @@ function handleProviderStream(
             }
             if (chunk.type === 'content') content += chunk.text;
             else reasoning += chunk.text;
-            if (captureToolCalls) continue;
-            send(chunk.type === 'content' ? { content: chunk.text } : { reasoning_content: chunk.text });
+            if (!captureToolCalls) {
+                send(chunk.type === 'content' ? { content: chunk.text } : { reasoning_content: chunk.text });
+                continue;
+            }
+            const safe = safeStreamLength(content);
+            if (safe > sentContent) {
+                send({ content: content.slice(sentContent, safe) });
+                sentContent = safe;
+            }
+            if (reasoning.length > sentReasoning) {
+                send({ reasoning_content: reasoning.slice(sentReasoning) });
+                sentReasoning = reasoning.length;
+            }
         }
         let nativeCalls = assembler.result();
 
-        if (captureToolCalls && !nativeCalls.length && (needsNudge(content) || announcesAction(content, combinedTools)) && !isCodebaseActionRequest(messages)) {
+        if (captureToolCalls && !nativeCalls.length && sentContent === 0 && (needsNudge(content) || announcesAction(content, combinedTools)) && !isCodebaseActionRequest(messages)) {
             ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks((await retry()).chunks));
+            sentContent = 0;
+            sentReasoning = 0;
         }
 
         const { toolCalls, conversationalText } = processToolCalls(content, captureToolCalls, combinedTools, messages, nativeCalls);
@@ -532,8 +595,11 @@ function handleProviderStream(
             }
             send({}, 'tool_calls');
         } else {
-            if (captureToolCalls && reasoning) send({ reasoning_content: reasoning });
-            if (captureToolCalls && content) send({ content });
+            if (captureToolCalls && reasoning.slice(sentReasoning)) send({ reasoning_content: reasoning.slice(sentReasoning) });
+            if (captureToolCalls && content) {
+                const tail = conversationalText || content.slice(sentContent);
+                if (tail) send({ content: tail });
+            }
             send({}, 'stop');
         }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
