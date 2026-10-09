@@ -50,6 +50,7 @@ beforeAll(async () => {
   key = process.env.GATEWAY_API_KEY ||= 'test-key';
   process.env.DATA_DIR ||= mkdtempSync(join(tmpdir(), 'gateway-test-'));
   server = await import('../src/unified/server.ts');
+  server.gatewaySettings.setAgentOption('rtk', 'off');
   server.registry.register(fakeProvider);
   server.registry.register(lateProvider);
 });

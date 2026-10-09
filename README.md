@@ -119,7 +119,7 @@ For requests that carry tools (switch each with `bun run account auto --<option>
 |---|---|---|
 | `--compact` | on | Trims tool output the agent sends back: colours, progress bars, repeated and near-identical lines go; long output keeps its start, end and every error or warning. |
 | `--tools` | on | With more than 15 tools, keeps only the ones the task needs (core and already used tools always stay). |
-| `--rtk` | off | Runs the agent's shell commands through the installed [rtk](https://github.com/rtk-ai/rtk) (`git status` → `rtk git status`) while the model keeps seeing its own commands. |
+| `--rtk` | on | Runs the agent's shell commands through the installed [rtk](https://github.com/rtk-ai/rtk) (`git status` → `rtk git status`) while the model keeps seeing its own commands. |
 
 **How it was measured.** The same agent (pi, nemotron-3-super) fixed the same bug — a discount rate broken by one commit in a 22-commit history, with a test suite that prints 16 KB of debug logs. Summing the context sent to the model over the whole task: **~69k tokens with the options off, ~7k with them on**; both runs fixed the bug. It is one task on one model, so treat it as an illustration, not a guarantee.
 

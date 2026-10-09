@@ -257,7 +257,7 @@ const providerSettings = new ProviderSettings({
     save: setting => saveProviderSetting(db(), setting),
 }, Date.now, defaultAuto);
 
-const gatewaySettings = new GatewaySettings({
+export const gatewaySettings = new GatewaySettings({
     load: key => loadGatewaySetting(db(), key),
     save: (key, value) => saveGatewaySetting(db(), key, value),
 });
