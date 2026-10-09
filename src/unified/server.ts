@@ -677,7 +677,7 @@ app.post('/api/chat/completions', async (c) => {
                 ...(native ? { tools: promptTools as ChatMessage[] } : {}),
             };
         };
-        const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details, { nativeToolsFirst: captureToolCalls })
+        const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details)
             .catch(error => {
                 logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error) });
                 throw error;
