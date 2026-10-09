@@ -6,6 +6,7 @@ import { PersistentStringMap } from '../../utils/persistentMap.ts';
 import { ProviderError, upstreamError } from '../../core/providers/errors.ts';
 import { collectImageUrls, messagesToPrompt, toWebPrompt } from '../../core/providers/prompt.ts';
 import { browserHeaders } from '../../platform/browserUa.ts';
+import { bridgeFetch, deepSeekFetchOverride, type BridgeInit } from './bridge.ts';
 import { toAttachFiles, type AttachFile } from '../../browser/browser-chat.ts';
 
 export { messagesToPrompt };
@@ -16,10 +17,47 @@ const SESSION_MAP_FILE = process.env.DEEPSEEK_SESSION_MAP_FILE || path.join(proc
 const HARDCODED_DEEPSEEK_MODELS = ['deepseek-default', 'deepseek-reasoner', 'deepseek-expert', 'deepseek-search'];
 let cachedDeepSeekModels: string[] | null = null;
 
+type ApiInit = {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string | FormData;
+    signal?: AbortSignal;
+    stream?: boolean;
+};
+
+const nativeFetch = globalThis.fetch;
+
+async function apiFetch(account: DeepSeekAccount | null, url: string, init: ApiInit = {}): Promise<Response> {
+    const override = deepSeekFetchOverride();
+    if (override) return override(url, init as RequestInit);
+    if (globalThis.fetch !== nativeFetch) return fetch(url, init as RequestInit);
+    const bridgeInit: BridgeInit = { method: init.method, headers: init.headers };
+    if (typeof init.body === 'string') bridgeInit.body = init.body;
+    else if (init.body instanceof FormData) {
+        bridgeInit.parts = [];
+        const entries = init.body.entries() as Iterable<[string, string | File]>;
+        for (const [name, value] of entries) {
+            if (typeof value === 'string') bridgeInit.parts.push({ name, text: value });
+            else bridgeInit.parts.push({ name, filename: value.name, type: value.type, base64: Buffer.from(await value.arrayBuffer()).toString('base64') });
+        }
+    }
+    try {
+        return await bridgeFetch(account, BASE_URL, url, bridgeInit, init.stream);
+    } catch (error) {
+        if (process.env.DEEPSEEK_DIRECT_FETCH === '1') throw error;
+        return fetch(url, {
+            method: init.method,
+            headers: init.headers,
+            body: init.body,
+            signal: init.signal,
+        });
+    }
+}
+
 export async function fetchDeepSeekModels(): Promise<string[]> {
     if (cachedDeepSeekModels) return cachedDeepSeekModels;
     try {
-        const response = await fetch(`${BASE_URL}/api/v0/models`, {
+        const response = await apiFetch(null, `${BASE_URL}/api/v0/models`, {
             headers: browserHeaders(),
             signal: AbortSignal.timeout(5000),
         });
@@ -75,7 +113,7 @@ function headers(account: DeepSeekAccount, extra: Record<string, string> = {}) {
 }
 
 async function createSession(account: DeepSeekAccount) {
-    const response = await fetch(`${BASE_URL}/api/v0/chat_session/create`, {
+    const response = await apiFetch(account, `${BASE_URL}/api/v0/chat_session/create`, {
         method: 'POST',
         headers: headers(account),
         body: '{}'
@@ -103,7 +141,7 @@ async function getSession(account: DeepSeekAccount, key: string) {
 }
 
 async function getPow(account: DeepSeekAccount, sessionId: string, targetPath = '/api/v0/chat/completion') {
-    const response = await fetch(`${BASE_URL}/api/v0/chat/create_pow_challenge`, {
+    const response = await apiFetch(account, `${BASE_URL}/api/v0/chat/create_pow_challenge`, {
         method: 'POST',
         headers: headers(account, { referer: `${BASE_URL}/a/chat/s/${sessionId}` }),
         body: JSON.stringify({ target_path: targetPath })
@@ -140,7 +178,7 @@ async function uploadImage(account: DeepSeekAccount, sessionId: string, file: At
     const { 'content-type': _json, ...rest } = headers(account, { referer: `${BASE_URL}/a/chat/s/${sessionId}`, 'x-ds-pow-response': pow });
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }), file.name);
-    const response = await fetch(`${BASE_URL}${FILE_UPLOAD_PATH}`, { method: 'POST', headers: rest, body: form });
+    const response = await apiFetch(account, `${BASE_URL}${FILE_UPLOAD_PATH}`, { method: 'POST', headers: rest, body: form });
     if (response.status === 401 && account.id !== 'env') markDeepSeekAccountInvalid(account.id);
     if (!response.ok) throw await upstreamError('DeepSeek image upload', response);
     const body = await response.json();
@@ -153,7 +191,7 @@ async function waitForFiles(account: DeepSeekAccount, ids: string[]) {
     const deadline = Date.now() + FILE_READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
         const query = ids.map(id => `file_ids=${encodeURIComponent(id)}`).join('&');
-        const response = await fetch(`${BASE_URL}/api/v0/file/fetch_files?${query}`, { headers: headers(account) });
+        const response = await apiFetch(account, `${BASE_URL}/api/v0/file/fetch_files?${query}`, { headers: headers(account) });
         if (!response.ok) throw await upstreamError('DeepSeek file status', response);
         const statuses = fileStatuses(await response.json());
         const failed = ids.find(id => /FAIL|ERROR/.test(statuses.get(id) ?? ''));
@@ -214,8 +252,9 @@ async function sendCompletion(account: DeepSeekAccount, key: string, messages: A
     const sessionId = await getSession(account, key);
     const fileIds = await attachImages(account, sessionId, messages);
     const pow = await getPow(account, sessionId);
-    const response = await fetch(`${BASE_URL}/api/v0/chat/completion`, {
+    const response = await apiFetch(account, `${BASE_URL}/api/v0/chat/completion`, {
         method: 'POST',
+        stream: true,
         headers: headers(account, {
             referer: `${BASE_URL}/a/chat/s/${sessionId}`,
             'x-ds-pow-response': pow,
