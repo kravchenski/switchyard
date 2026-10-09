@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.7.0](https://github.com/kravchenski/switchyard/compare/v2.6.0...v2.7.0) (2026-10-09)
+
+
+### Features
+
+* **accounts:** sign Qwen, GLM and Kimi in with a token from your own browser ([868f5aa](https://github.com/kravchenski/switchyard/commit/868f5aae8c515cd006872e2d746ab58431c553c9))
+* **accounts:** sign Qwen, GLM and Kimi in with a token from your own browser ([95dba87](https://github.com/kravchenski/switchyard/commit/95dba87b9335209b6f23e0ac284fe50869a97693))
+* **browser:** mask automation signals in web chat sessions ([cf998dc](https://github.com/kravchenski/switchyard/commit/cf998dc18f8ba05b910d8a27e10483dcb6a22570))
+* **deepseek:** route api traffic through the browser bridge ([1810463](https://github.com/kravchenski/switchyard/commit/18104632db90995e0ce8f55964bd8e7f3071a24a))
+* **deepseek:** route API traffic through the browser bridge ([b01024f](https://github.com/kravchenski/switchyard/commit/b01024f2eed06b2d8a13152ca653b663b45f626d))
+* **gateway:** drop role prefixes and image markers from web prompts ([99f4cff](https://github.com/kravchenski/switchyard/commit/99f4cffabdf475fa25c8be7970f626b90ab94fa5))
+* **web-chat:** plain user prompts and masked automation signals ([db714ec](https://github.com/kravchenski/switchyard/commit/db714ec55e284ee4b2b7d09bbad6034c8510290f))
+
+
+### Bug Fixes
+
+* **ci:** build the desktop sidecars after the Rust cache is restored ([4e9d35c](https://github.com/kravchenski/switchyard/commit/4e9d35c877fb4e2ce96e15c52fb101beb97665c0))
+* **platform:** detect the browser version without blocking the event loop ([c0c1ddd](https://github.com/kravchenski/switchyard/commit/c0c1ddd1162ef243b4a0cf07262e3cbc6bc16bfb))
+
+
+### Chores
+
+* **desktop:** name the installers and the app Switchyard ([f7b23ae](https://github.com/kravchenski/switchyard/commit/f7b23aebcc2338ecff2c7c4657a30e4e9c945fc8))
+* **desktop:** name the installers and the app Switchyard ([7df8966](https://github.com/kravchenski/switchyard/commit/7df896623a909c39019ff6bc4cfc69ea967a4627))
+
 ## [2.6.0](https://github.com/kravchenski/switchyard/compare/v2.5.0...v2.6.0) (2026-10-07)
 
 
