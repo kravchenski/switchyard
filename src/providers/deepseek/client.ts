@@ -4,7 +4,8 @@ import { solveDeepSeekPow } from './pow.ts';
 import { getAvailableDeepSeekAccount, markDeepSeekAccountInvalid, type DeepSeekAccount } from './accounts.ts';
 import { PersistentStringMap } from '../../utils/persistentMap.ts';
 import { ProviderError, upstreamError } from '../../core/providers/errors.ts';
-import { collectImageUrls, messagesToPrompt, stripImages } from '../../core/providers/prompt.ts';
+import { collectImageUrls, messagesToPrompt, toWebPrompt } from '../../core/providers/prompt.ts';
+import { browserHeaders } from '../../platform/browserUa.ts';
 import { toAttachFiles, type AttachFile } from '../../browser/browser-chat.ts';
 
 export { messagesToPrompt };
@@ -19,6 +20,7 @@ export async function fetchDeepSeekModels(): Promise<string[]> {
     if (cachedDeepSeekModels) return cachedDeepSeekModels;
     try {
         const response = await fetch(`${BASE_URL}/api/v0/models`, {
+            headers: browserHeaders(),
             signal: AbortSignal.timeout(5000),
         });
         if (response.ok) {
@@ -67,6 +69,7 @@ function headers(account: DeepSeekAccount, extra: Record<string, string> = {}) {
         ...(account.cookies.length ? { cookie: cookieHeader(account) } : {}),
         origin: BASE_URL,
         referer: `${BASE_URL}/`,
+        ...browserHeaders(),
         ...extra
     };
 }
@@ -221,7 +224,7 @@ async function sendCompletion(account: DeepSeekAccount, key: string, messages: A
         body: JSON.stringify({
             chat_session_id: sessionId,
             parent_message_id: null,
-            prompt: messagesToPrompt(stripImages(messages, fileIds.length > 0)),
+            prompt: toWebPrompt(messages, fileIds.length > 0),
             ref_file_ids: fileIds,
             thinking_enabled: model.includes('reasoner') || model.includes('r1'),
             search_enabled: model.includes('search'),

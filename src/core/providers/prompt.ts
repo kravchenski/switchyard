@@ -66,3 +66,33 @@ export function messagesToPrompt(messages: Array<Record<string, any>>) {
     return `${message.role || 'user'}: ${content}`;
   }).join('\n\n');
 }
+
+export function toWebPrompt(messages: Array<Record<string, any>>, imagesSupported: boolean): string {
+  const lines: string[] = [];
+  for (const message of messages ?? []) {
+    const content = message?.content;
+    let text: string;
+    if (message?.role === 'tool') {
+      const body = typeof content === 'string' ? content : JSON.stringify(content ?? '');
+      text = `Tool result (${message.name || message.tool_call_id || 'tool'}): ${body}`;
+    } else if (message?.role === 'assistant' && message?.tool_calls) {
+      const body = typeof content === 'string' ? content : JSON.stringify(content ?? '');
+      text = `Assistant tool calls: ${JSON.stringify(message.tool_calls)}\n${body}`;
+    } else if (typeof content === 'string') {
+      text = content;
+    } else if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const part of content) {
+        if (isImagePart(part)) {
+          if (!imagesSupported) parts.push('[image omitted: this model cannot process images]');
+        } else if (typeof part?.text === 'string') parts.push(part.text);
+        else parts.push(typeof part === 'string' ? part : JSON.stringify(part ?? ''));
+      }
+      text = parts.join('\n');
+    } else {
+      text = JSON.stringify(content ?? '');
+    }
+    if (text) lines.push(text);
+  }
+  return lines.join('\n\n');
+}
