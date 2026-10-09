@@ -19,19 +19,31 @@ function fingerprint(version: string): BrowserFingerprint {
     };
 }
 
-let cached: BrowserFingerprint | null | undefined;
+let cached: BrowserFingerprint = fingerprint(FALLBACK_VERSION);
+let started = false;
 
-export function browserFingerprint(): BrowserFingerprint {
-    if (cached !== undefined) return cached ?? fingerprint(FALLBACK_VERSION);
+function detectOnce() {
+    if (started) return;
+    started = true;
     try {
         const executable = findBrowserExecutable();
-        const output = executable ? Bun.spawnSync([executable, '--version'], { stdout: 'pipe', stderr: 'pipe' }) : null;
-        const version = output ? /(\d+\.\d+\.\d+\.\d+)/.exec(new TextDecoder().decode(output.stdout))?.[1] : undefined;
-        cached = version ? fingerprint(version) : null;
-    } catch {
-        cached = null;
-    }
-    return cached ?? fingerprint(FALLBACK_VERSION);
+        if (!executable) return;
+        const proc = Bun.spawn([executable, '--version'], { stdout: 'pipe', stderr: 'pipe' });
+        const timer = setTimeout(() => proc.kill(), 1_000);
+        new Response(proc.stdout)
+            .text()
+            .then(text => {
+                clearTimeout(timer);
+                const version = /(\d+\.\d+\.\d+\.\d+)/.exec(text)?.[1];
+                if (version) cached = fingerprint(version);
+            })
+            .catch(() => clearTimeout(timer));
+    } catch {}
+}
+
+export function browserFingerprint(): BrowserFingerprint {
+    detectOnce();
+    return cached;
 }
 
 export function browserHeaders(): Record<string, string> {
