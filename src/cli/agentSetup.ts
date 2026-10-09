@@ -4,6 +4,8 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
+import { looksVisionCapable } from '../core/models/vision.ts';
+
 export const AGENT_IDS = [
     'pi',
     'opencode',
@@ -50,6 +52,7 @@ const FALLBACK_MODELS = [
     'glm-chat',
     'kimi-chat',
     'arena-chat',
+    'qwen-chat',
     'deepseek-ai/deepseek-v4.1-flash',
     'moonshotai/kimi-k3',
     'z-ai/glm-5.3',
@@ -174,7 +177,7 @@ export async function installAgentIntegrations(
     if (options.agents.includes('claude')) {
         results.push(await writeGeneratedFile(
             paths.claude,
-            `${JSON.stringify(claudeSettings(options), null, 2)}\n`,
+            `${JSON.stringify(claudeSettings(options, modelIds), null, 2)}\n`,
             options,
             'claude'
         ));
@@ -242,7 +245,7 @@ Options:
                         Common aliases such as claude-code, pi-agent, roo-code,
                         open-webui, cursor, and codex-cli are accepted
   --base-url <url>      OpenAI Chat Completions endpoint
-  --bridge-url <url>    LiteLLM endpoint for Codex and Claude Code
+  --bridge-url <url>    Optional LiteLLM endpoint (Claude Code and Codex connect directly)
   --api-key <key>       Local proxy or LiteLLM key
   --home <path>         Override the target home directory
   --dry-run             Show planned writes without changing files
@@ -282,12 +285,17 @@ function preferredModel(modelIds: string[]) {
     return modelIds.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : modelIds[0] || DEFAULT_MODEL;
 }
 
+function acceptsImages(id: string) {
+    if (id === 'auto' || id === 'vision' || id.endsWith('-chat')) return true;
+    return looksVisionCapable(id);
+}
+
 function freeModel(id: string) {
     return {
         id,
         name: `Free ${displayName(id)}`,
         reasoning: id === 'deepseek-reasoner',
-        input: ['text'],
+        input: acceptsImages(id) ? ['text', 'image'] : ['text'],
         contextWindow: CODEX_CONTEXT_WINDOW,
         maxTokens: CODEX_TOOL_OUTPUT_TOKEN_LIMIT,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
@@ -515,11 +523,16 @@ function removeManagedBlock(existing: string) {
     return merged.trim() ? `${merged.trim()}\n` : '';
 }
 
-function claudeSettings(options: AgentSetupOptions) {
+function gatewayOrigin(baseUrl: string) {
+    return trimTrailingSlash(baseUrl.replace(/\/(?:api|v1)$/, ''));
+}
+
+function claudeSettings(options: AgentSetupOptions, modelIds: string[]) {
     return {
         env: {
-            ANTHROPIC_BASE_URL: options.bridgeUrl,
+            ANTHROPIC_BASE_URL: gatewayOrigin(options.baseUrl),
             ANTHROPIC_AUTH_TOKEN: options.apiKey,
+            ANTHROPIC_MODEL: preferredModel(modelIds),
             CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
         }
     };
@@ -575,10 +588,12 @@ function codexProfileName(model: string) {
 }
 
 function integrationReadme(options: AgentSetupOptions, paths: ReturnType<typeof integrationPaths>, model: string) {
+    const claudeBase = gatewayOrigin(options.baseUrl);
     return `# FreeQwenApi Agent Integrations
 
 Direct OpenAI Chat Completions endpoint: \`${options.baseUrl}\`
-LiteLLM bridge endpoint: \`${options.bridgeUrl}\`
+Anthropic Messages endpoint: \`${claudeBase}/v1/messages\`
+Optional LiteLLM bridge: \`${options.bridgeUrl}\`
 
 ## Direct integrations
 
@@ -588,6 +603,7 @@ LiteLLM bridge endpoint: \`${options.bridgeUrl}\`
 - Hermes: \`hermes chat --provider custom:freeai --model ${model}\`
 - Aider: \`aider --config "${paths.aider}"\`
 - Cline: follow \`${paths.cline}\`
+- Claude Code: \`claude --settings "${paths.claude}" --model ${model}\`
 
 ## Responses integrations
 
@@ -604,11 +620,11 @@ Codex profiles are generated for every model as \`freeai-<model>\`, for example
 
 On PowerShell, set \`$env:FREEAI_API_KEY="${options.apiKey}"\` before starting Codex.
 
-Claude Code can still use the optional LiteLLM bridge:
+Claude Code connects directly to the gateway's Anthropic Messages endpoint via
+\`${paths.claude}\` (no bridge required). To use the optional LiteLLM bridge instead:
 
 \`\`\`text
 uvx --from "litellm[proxy]" litellm --config "${paths.litellm}" --host 127.0.0.1 --port 4000
-claude --settings "${paths.claude}" --model ${model}
 \`\`\`
 
 ## GUI clients
