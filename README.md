@@ -88,11 +88,32 @@ Installers for Linux (`.deb`), macOS (`.dmg`) and Windows (`.exe`) are attached 
 <summary><b>Screenshots</b></summary>
 <br>
 
-| Requests and health | Web chat order and agent options |
-|---|---|
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/app-requests-dark.png"><img src="docs/images/app-requests.png" alt="Requests page with request count, success rate, median first answer and providers online"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/app-settings-dark.png"><img src="docs/images/app-settings.png" alt="Settings page with the theme, the web chat order and coding agent options"></picture> |
-| **Models a key can use** | **API keys and custom providers** |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/app-nvidia-dark.png"><img src="docs/images/app-nvidia.png" alt="NVIDIA provider page with its models, first-answer time and status"></picture> | <img src="docs/images/app-keys.png" alt="API keys page with the provider picker and the custom provider form"> |
+<table>
+  <tr>
+    <th>Requests and health</th>
+    <th>Web chat order and agent options</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-requests.png" alt="Requests page with request count, success rate, median first answer and providers online"></td>
+    <td><img src="docs/images/app-settings.png" alt="Settings page with the theme, the web chat order and coding agent options"></td>
+  </tr>
+  <tr>
+    <th>Models a key can use</th>
+    <th>API keys and custom providers</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-nvidia.png" alt="NVIDIA provider page with its models, first-answer time and status"></td>
+    <td><img src="docs/images/app-keys.png" alt="API keys page with the provider picker and the custom provider form"></td>
+  </tr>
+  <tr>
+    <th>Dark theme</th>
+    <th>Dark theme</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-requests-dark.png" alt="Requests page in the dark theme"></td>
+    <td><img src="docs/images/app-settings-dark.png" alt="Settings page in the dark theme"></td>
+  </tr>
+</table>
 
 </details>
 
