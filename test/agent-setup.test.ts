@@ -39,7 +39,7 @@ describe('agent integration setup', () => {
         const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
         const paths = integrationPaths(home);
         const options = parseAgentSetupArgs(['--all', '--home', home]);
-        const models = ['qwen3-coder-plus', 'qwen3.7-max', 'deepseek-default', 'deepseek-reasoner', 'vision', 'qwen-chat'];
+        const models = ['qwen3-coder-plus', 'qwen3.7-max', 'deepseek-default', 'deepseek-reasoner', 'qwen-chat'];
 
         try {
             await mkdir(join(home, '.pi', 'agent'), { recursive: true });
@@ -64,7 +64,6 @@ describe('agent integration setup', () => {
                 (model: Record<string, any>) => model.id === id
             ).input;
             expect(piModelInput('deepseek-default')).toEqual(['text']);
-            expect(piModelInput('vision')).toEqual(['text', 'image']);
             expect(piModelInput('qwen-chat')).toEqual(['text', 'image']);
 
             const openCode = JSON.parse(await readFile(paths.opencode, 'utf8'));
@@ -116,8 +115,8 @@ describe('agent integration setup', () => {
     test('falls back to the built-in model list when the gateway is not running', async () => {
         const models = await loadAvailableModelIds('http://127.0.0.1:1/api');
         expect(models[0]).toBe('auto');
-        expect(models).toContain('agent');
-        expect(models).toContain('vision');
+        expect(models).not.toContain('agent');
+        expect(models).not.toContain('vision');
         expect(models).toContain('glm-chat');
         expect(models).toContain('kimi-chat');
         expect(models).toContain('deepseek-default');

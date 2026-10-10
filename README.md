@@ -27,7 +27,7 @@ One OpenAI- and Anthropic-compatible endpoint in front of your signed-in web cha
 ```mermaid
 flowchart LR
   A["Claude Code · Codex · OpenCode · pi<br/>Continue · Cline · any OpenAI client"] -->|"/v1/chat/completions<br/>/v1/messages · /v1/responses"| S(("switchyard<br/>localhost:3260"))
-  S --> R{"auto · vision · agent"}
+  S --> R{"model=auto"}
   R -->|"1st: your web chats, in your order"| W["Qwen · DeepSeek · GLM · Kimi · Arena"]
   R -->|"then: free API models"| P["NVIDIA · OpenRouter · Groq · Gemini · Cerebras<br/>Mistral · Cloudflare · … · your own"]
 ```
@@ -62,10 +62,10 @@ curl http://localhost:3260/v1/chat/completions \
 
 | Agent | Setup |
 |---|---|
-| **Claude Code** | `ANTHROPIC_BASE_URL=http://localhost:3260 ANTHROPIC_AUTH_TOKEN=<GATEWAY_API_KEY or any text> ANTHROPIC_MODEL=agent claude` |
+| **Claude Code** | `ANTHROPIC_BASE_URL=http://localhost:3260 ANTHROPIC_AUTH_TOKEN=<GATEWAY_API_KEY or any text> ANTHROPIC_MODEL=auto claude` |
 | **OpenCode, pi, Continue, Hermes, Aider, Cline** | `bun run setup:agents` writes their configs ([details](docs/AGENT_INTEGRATIONS.md)) |
 | **Codex** | OpenAI Responses API at `http://localhost:3260/v1/responses` |
-| **Anything OpenAI-compatible** | base URL `http://localhost:3260/v1`, model `auto`, `vision`, `agent` or any id from `/v1/models` |
+| **Anything OpenAI-compatible** | base URL `http://localhost:3260/v1`, model `auto` or any id from `/v1/models` |
 
 A bearer token is only required when `GATEWAY_API_KEY` is set.
 
@@ -168,13 +168,16 @@ Everything below has a free tier or works through your own signed-in web account
 
 ## Routing
 
-Three virtual models, each with its own chain:
+Ask for `auto` and Switchyard builds the chain from what the request carries:
 
-| Model | Chain | Use it for |
-|---|---|---|
-| `auto` | one model per web chat in your order, then the best measured API models | chat; a request with images switches to `vision`, one with tools to `agent` |
-| `vision` | only models that can see images: the web chats and multimodal API models | screenshots, charts, photos |
-| `agent` | the `auto` chain first, then strong API models with native tool calling | Claude Code, Codex, OpenCode, pi and other coding agents |
+| The request has | Chain |
+|---|---|
+| text | one model per web chat in your order, then the best measured API models |
+| images | Qwen Chat first, then the other web chats in your order, then API models that can see images |
+| tools | the web chats in your order, then strong API models with native tool calling |
+| images and tools | the image chain; tools are passed natively wherever the model supports them |
+
+`agent` and `vision` still work as names for `auto`, so existing agent configs keep running.
 
 ```mermaid
 sequenceDiagram
@@ -229,7 +232,7 @@ The headers `x-gateway-compacted`, `x-gateway-tools` and `x-gateway-rtk` show wh
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions, streaming and tools |
 | `POST` | `/v1/messages` | Anthropic Messages |
 | `POST` | `/v1/responses` | OpenAI Responses |
-| `GET` | `/v1/models` | All available models, `auto`, `vision` and `agent` first |
+| `GET` | `/v1/models` | All available models, `auto` first |
 | `POST` | `/v1/images/generations` · `GET /v1/images/models` | Image generation |
 
 <details>
