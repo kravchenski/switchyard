@@ -257,10 +257,30 @@ export function recoverSimpleToolCalls(text: string) {
 
 export function recoverBrokenBashToolCall(text: string) {
     const normalized = repairToolCallJsonKeys(text);
-    const match = normalized.match(/"name"\s*:\s*"(bash|terminal)"[\s\S]*?"command"\s*:\s*"([\s\S]*)"\s*\}\s*\}\s*\]\s*\}?$/);
-    if (!match) return null;
-    const command = match[2].replace(/"\s*"\s*$/, '"');
-    return { name: match[1], arguments: { command } };
+    const opener = /"name"\s*:\s*"(bash|terminal)"[\s\S]*?"command"\s*:\s*"/.exec(normalized);
+    if (!opener) return null;
+    const start = opener.index + opener[0].length;
+    let end = -1;
+    for (let index = normalized.length - 1; index >= start; index--) {
+        const char = normalized[index];
+        if (char === '"') {
+            end = index;
+            break;
+        }
+        if (!/[\s}\]]/.test(char)) break;
+    }
+    if (end < 0) return null;
+    let command = normalized.slice(start, end).replace(/\\?"\s*\}+\s*$/, '').trimEnd();
+    if (unbalancedQuotes(command) && command.endsWith('"')) command = command.slice(0, -1);
+    command = command.replace(/\\(.)/g, (sequence: string, char: string) => {
+        if (char === 'n') return '\n';
+        if (char === 't') return '\t';
+        if (char === 'r') return '\r';
+        if (char === '"' || char === '\\') return char;
+        return sequence;
+    });
+    if (!command.trim()) return null;
+    return { name: opener[1], arguments: { command } };
 }
 
 function unbalancedQuotes(text: string) {
