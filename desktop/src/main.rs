@@ -25,6 +25,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const OVERVIEW_EVERY_POLLS: u32 = 10;
 const COMPACT_WIDTH: f32 = 1100.;
 const COPIED_FOR: Duration = Duration::from_secs(2);
+const APP_ID: &str = "freeapi-desktop";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Health {
@@ -1586,6 +1587,7 @@ fn main() {
             let options = WindowOptions {
                 titlebar: Some(TitlebarOptions { title: Some("Switchyard".into()), ..Default::default() }),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                app_id: Some(APP_ID.into()),
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
