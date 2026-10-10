@@ -71,7 +71,7 @@ A bearer token is only required when `GATEWAY_API_KEY` is set.
 
 ## Desktop app
 
-A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click a request to see how it was routed: which models were skipped and why, each attempt with its error and time, and who answered. Click the address in the sidebar to copy the base URL.
+A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click a request to see how it was routed: which models were skipped and why, each attempt with its error and time, and who answered. When a web chat loses its sign-in, a banner says so and takes you to its sign-in. Click the address in the sidebar to copy the base URL.
 
 <p align="center">
   <picture>

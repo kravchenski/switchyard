@@ -17,7 +17,7 @@ use gpui_kit::*;
 use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount};
 use settings::{AutoSettings, DesktopSettings, ThemeChoice};
 use gateway::{check_health, open_in_browser, stop_external, Gateway, GatewayConfig};
-use overview::{activity, detail, display_name, kind_label, Activity, ProviderOverview};
+use overview::{activity, detail, display_name, kind_label, needs_sign_in, Activity, ProviderOverview};
 use status::{check_models, fetch_decision, fetch_status, now_ms, read_api_key, refresh_models, relative_time, summarize_requests, Decision, GatewayStatus, ProviderStatus, RequestLog};
 use ui::*;
 
@@ -85,6 +85,7 @@ struct Shell {
     selected_provider: Option<String>,
     expanded_chat: Option<String>,
     open_request: Option<(i64, String)>,
+    dismissed_alerts: Vec<String>,
     request_decision: Option<Result<Decision, String>>,
     theme: ThemeChoice,
     applied_dark: Option<bool>,
@@ -163,6 +164,7 @@ impl Shell {
             selected_provider: None,
             expanded_chat: None,
             open_request: None,
+            dismissed_alerts: Vec::new(),
             request_decision: None,
             theme: settings::load(&config_root).theme,
             applied_dark: None,
@@ -543,6 +545,7 @@ impl Render for Shell {
                             .flex()
                             .flex_col()
                             .gap_5()
+                            .children(self.render_sign_in_alerts(cx))
                             .children(self.render_message())
                             .child(match self.page {
                                 Page::Accounts => self.render_accounts(cx, false),
@@ -709,6 +712,48 @@ impl Shell {
                     .child(muted(self.page.subtitle())),
             )
             .child(self.render_gateway_toggle(cx))
+    }
+
+    fn signed_out_chats(&self) -> Vec<&ProviderOverview> {
+        self.overview
+            .iter()
+            .filter(|row| !self.dismissed_alerts.contains(&row.id) && needs_sign_in(row, self.live(&row.id)))
+            .collect()
+    }
+
+    fn render_sign_in_alerts(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let chats = self.signed_out_chats();
+        if chats.is_empty() {
+            return None;
+        }
+        let rows = chats.into_iter().map(|row| {
+            let open_id = row.id.clone();
+            let dismiss_id = row.id.clone();
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(provider_mark(&row.id, 26.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(format!("{} is signed out", self.name_of(&row.id))))
+                        .child(muted(format!("model=auto skips it until you sign in again. {}", row.detail)).text_xs()),
+                )
+                .child(button(SharedString::from(format!("alert-open-{}", row.id)), "Sign in", Some(IconName::LogIn), Tone::Primary, true).on_click(cx.listener(move |shell, _, _, cx| {
+                    shell.selected_provider = Some(open_id.clone());
+                    shell.page = Page::Provider;
+                    cx.notify();
+                })))
+                .child(button(SharedString::from(format!("alert-dismiss-{}", row.id)), "Dismiss", None, Tone::Outline, true).on_click(cx.listener(move |shell, _, _, cx| {
+                    shell.dismissed_alerts.push(dismiss_id.clone());
+                    cx.notify();
+                })))
+        });
+        Some(card().p_4().flex().flex_col().gap_3().bg(col(WARNING_SOFT)).children(rows))
     }
 
     fn render_message(&self) -> Option<Div> {
