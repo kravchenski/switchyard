@@ -5,8 +5,10 @@
 1. Open Open WebUI and sign in as an administrator.
 2. Go to **Settings** → **Connections**.
 3. Add an OpenAI-compatible connection:
-   - **Base URL**: `http://host.docker.internal:3260/v1` (Open WebUI in Docker) or `http://localhost:3260/v1` (local)
+   - **Base URL**: `http://localhost:3260/v1` (local) or `http://host.docker.internal:3260/v1` (Open WebUI in Docker)
    - **API Key**: the value of `GATEWAY_API_KEY`, or any text if it is not set
+
+Without `GATEWAY_API_KEY` the gateway listens on `127.0.0.1` and answers only requests to `localhost`. For Open WebUI in Docker, start the gateway with `HOST=0.0.0.0` and a `GATEWAY_API_KEY`, and use that key in Open WebUI.
 
 ## 2. Models
 
@@ -40,4 +42,5 @@ services:
 
 - **Connection refused**: make sure the gateway is running and the port is 3260.
 - **401 / API key required**: use the `GATEWAY_API_KEY` value as the API key.
+- **403 / Set GATEWAY_API_KEY**: the request came from another host or web page; set `GATEWAY_API_KEY` on the gateway and in Open WebUI.
 - **Model not found**: refresh the model list in Open WebUI and check `GET http://localhost:3260/v1/models`.
