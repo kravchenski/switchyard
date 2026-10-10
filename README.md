@@ -195,7 +195,7 @@ sequenceDiagram
   Note over S,N: API models wait as fallback.<br/>Every attempt lands in /v1/gateway/decisions
 ```
 
-Set the order of the web chats on the desktop Settings page or with `bun run account auto --order qwen-chat,deepseek,glm-chat,kimi-chat,arena-chat`; chats you leave out keep their default place after the ones you list. A provider can be taken out of `auto` on its page in the app or with `bun run account provider <id> --auto off`.
+Set the order of the web chats on the desktop Settings page or with `bun run account auto --order qwen-chat,deepseek,glm-chat,kimi-chat,arena-chat`; chats you leave out keep their default place after the ones you list. Each web chat uses its fastest measured model unless you pick one: click the chat in Settings, or run `bun run account auto --model qwen-chat=qwen-chat/qwen3.8-max` (`=fastest` goes back). If the picked model is unavailable, the chat falls back to its fastest one. A provider can be taken out of `auto` on its page in the app or with `bun run account provider <id> --auto off`.
 
 The chains are listed in `GET /v1/gateway/status` (`autoModels`, `visionModels`, `agentModels`), and every decision (skipped candidates and why, each attempt, latency, the pick) is at `GET /v1/gateway/decisions`.
 

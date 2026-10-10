@@ -19,6 +19,7 @@
 - **Models**:
   - `auto` — the web chats in the configured order (default Qwen → DeepSeek → GLM → Kimi → Arena), then API models; requests with images use only image-capable models with Qwen Chat first, requests with tools add strong API models with native tool calling; the default for `bun run setup:agents`
   - `agent`, `vision` — accepted as names for `auto` and routed the same way
+  - each web chat in `auto` uses its fastest model unless one is picked with `bun run account auto --model <chat>=<model>` or on the desktop Settings page
   - `qwen*` — Qwen via the Qwen API proxy (`qwen3.7-plus`, `qwen3.8-max`, `qwen3-coder-plus`, …)
   - `deepseek-*` — DeepSeek web (default, reasoner, expert, search)
   - `glm-chat` — GLM through the signed-in chat.z.ai web chat (browser)

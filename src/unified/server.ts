@@ -269,7 +269,7 @@ export const router = new SmartRouter(registry, parseAutoModels(config.AUTO_MODE
     firstChunkTimeoutMs: config.AUTO_FIRST_CHUNK_TIMEOUT_MS,
     autoEnabled: provider => providerSettings.autoEnabled(provider),
     prepareAuto: () => {
-        if (gatewaySettings.webOrder().join(',') !== chainOrder) rebuildAutoChain();
+        if (chainSettings() !== chainOrder) rebuildAutoChain();
     },
 });
 
@@ -339,9 +339,14 @@ const VISION_FIRST = 'qwen-chat';
 
 let chainOrder: string | undefined;
 
+function chainSettings() {
+    return JSON.stringify([gatewaySettings.webOrder(), gatewaySettings.webModels()]);
+}
+
 function rebuildAutoChain() {
     const webOrder = gatewaySettings.webOrder();
-    chainOrder = webOrder.join(',');
+    const webModels = gatewaySettings.webModels();
+    chainOrder = chainSettings();
     const isAvailable = (model: string) => registry.availability.isAvailable(model);
     const candidates = allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
@@ -349,8 +354,8 @@ function rebuildAutoChain() {
         const capabilities = provider.capabilities(entry.id);
         return [{ id: entry.id, provider: provider.id, fallback: provider.fallback ?? false, vision: capabilities.vision, nativeTools: capabilities.nativeTools }];
     });
-    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, webOrder));
-    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, [VISION_FIRST, ...webOrder]));
+    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, webOrder, webModels));
+    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, [VISION_FIRST, ...webOrder], webModels));
     router.setChain(AGENT_MODEL, buildAgentChain(candidates, registry.stats, router.autoChain(), isAvailable));
 }
 
@@ -681,6 +686,7 @@ app.get('/v1/gateway/status', (c) => c.json({
     visionModels: router.autoChain(VISION_MODEL),
     agentModels: router.autoChain(AGENT_MODEL),
     webOrder: gatewaySettings.webOrder(),
+    webModels: gatewaySettings.webModels(),
     modelStats: registry.stats.list(),
     models: allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);

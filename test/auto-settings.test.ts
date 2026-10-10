@@ -100,3 +100,48 @@ describe('accounts CLI auto command', () => {
     expect(lines).toEqual(['web order: deepseek,qwen-chat']);
   });
 });
+
+describe('web chat models', () => {
+  const web = (provider: string, ...ids: string[]) => ids.map(id => ({ id, provider, fallback: false }));
+  const candidates = [...web('qwen-chat', 'qwen-chat', 'qwen-chat/qwen3.8-max'), ...web('deepseek', 'deepseek-default', 'deepseek-reasoner')];
+
+  test('uses the chosen model of a web chat and falls back to the fastest one when it is gone', () => {
+    const order = ['qwen-chat', 'deepseek'];
+    expect(buildAutoChain(candidates, new ModelStats(), () => true, order, { 'qwen-chat': 'qwen-chat/qwen3.8-max', deepseek: 'deepseek-reasoner' }))
+      .toEqual(['qwen-chat/qwen3.8-max', 'deepseek-reasoner']);
+    expect(buildAutoChain(candidates, new ModelStats(), model => model !== 'qwen-chat/qwen3.8-max', order, { 'qwen-chat': 'qwen-chat/qwen3.8-max' }))
+      .toEqual(['qwen-chat', 'deepseek-default']);
+  });
+
+  test('stores a model per web chat, resets it with fastest and rejects unknown chats', () => {
+    const db = openDatabase(':memory:');
+    const settings = new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: (key, value) => saveGatewaySetting(db, key, value) });
+    expect(settings.webModels()).toEqual({});
+    settings.setWebModel('qwen-chat', 'qwen-chat/qwen3.8-max');
+    settings.setWebModel('deepseek', 'deepseek-reasoner');
+    expect(new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: () => {} }).webModels()).toEqual({ 'qwen-chat': 'qwen-chat/qwen3.8-max', deepseek: 'deepseek-reasoner' });
+    settings.setWebModel('deepseek', 'fastest');
+    expect(settings.webModels()).toEqual({ 'qwen-chat': 'qwen-chat/qwen3.8-max' });
+    expect(() => settings.setWebModel('nvidia', 'x')).toThrow('Unknown web chat: nvidia');
+    expect(() => settings.setWebModel('qwen-chat', ' ')).toThrow('Give a model id');
+    expect(new GatewaySettings({ load: () => '["broken"]', save: () => {} }).webModels()).toEqual({});
+  });
+
+  test('the accounts CLI sets a web chat model', async () => {
+    const lines: string[] = [];
+    const seen: unknown[] = [];
+    const deps: AccountsCliDeps = {
+      store: { list: () => [], addApiKey: () => { throw new Error('unused'); }, remove: () => false },
+      askHidden: async () => '',
+      log: line => lines.push(line),
+      autoSettings: change => {
+        seen.push(change.model);
+        return { order: ['qwen-chat'], models: change.model ? { [change.model.chat]: change.model.model } : {} };
+      },
+    };
+    await runAccountsCommand(['auto', '--model', 'qwen-chat=qwen-chat/qwen3.8-max'], deps);
+    expect(seen).toEqual([{ chat: 'qwen-chat', model: 'qwen-chat/qwen3.8-max' }]);
+    expect(lines).toEqual(['web order: qwen-chat', 'web model qwen-chat: qwen-chat/qwen3.8-max']);
+    await expect(runAccountsCommand(['auto', '--model', 'qwen-chat'], deps)).rejects.toThrow('Use --model <chat>=<model>');
+  });
+});

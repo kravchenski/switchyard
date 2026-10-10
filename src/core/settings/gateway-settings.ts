@@ -4,6 +4,7 @@ export interface SettingsStore {
 }
 
 const CACHE_MS = 30_000;
+const MAX_MODEL_ID = 160;
 
 export const AGENT_OPTIONS = { compact: true, tools: true, rtk: true } as const;
 export type AgentOption = keyof typeof AGENT_OPTIONS;
@@ -55,6 +56,27 @@ export class GatewaySettings {
     if (unknown.length) throw new Error(`Unknown web chat: ${unknown.join(', ')}. Use ${WEB_CHAT_ORDER.join(', ')}`);
     if (!ids.length) throw new Error('Give at least one web chat');
     this.write('auto.web-order', [...new Set(ids)].join(','));
+  }
+
+  webModels(): Record<string, string> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(this.read('auto.web-models') ?? '{}');
+    } catch {
+      return {};
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const known: readonly string[] = WEB_CHAT_ORDER;
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => known.includes(entry[0]) && typeof entry[1] === 'string' && entry[1].length > 0));
+  }
+
+  setWebModel(chat: string, model: string) {
+    const known: readonly string[] = WEB_CHAT_ORDER;
+    if (!known.includes(chat)) throw new Error(`Unknown web chat: ${chat}. Use ${WEB_CHAT_ORDER.join(', ')}`);
+    const value = model.trim();
+    if (!value || value.length > MAX_MODEL_ID) throw new Error('Give a model id, or fastest');
+    const { [chat]: _previous, ...rest } = this.webModels();
+    this.write('auto.web-models', JSON.stringify(value === 'fastest' ? rest : { ...rest, [chat]: value }));
   }
 
   agentOption(name: AgentOption) {

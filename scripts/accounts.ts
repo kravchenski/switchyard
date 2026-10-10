@@ -82,9 +82,11 @@ try {
     autoSettings: change => withDb(db => {
       const settings = new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: (key, value) => saveGatewaySetting(db, key, value) });
       if (change.order !== undefined) settings.setWebOrder(change.order);
+      if (change.model) settings.setWebModel(change.model.chat, change.model.model);
       for (const [name, value] of Object.entries(change.agents ?? {})) if (value !== undefined) settings.setAgentOption(name, value);
       return {
         order: settings.webOrder(),
+        models: settings.webModels(),
         agents: Object.fromEntries(Object.keys(AGENT_OPTIONS).map(name => [name, settings.agentOption(name as AgentOption)])),
       };
     }),
