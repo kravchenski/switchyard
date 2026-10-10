@@ -71,17 +71,26 @@ jobs:
             target: linux-x64
             triple: x86_64-unknown-linux-gnu
             bun-target: bun-linux-x64
-            format: deb
+            formats: deb,appimage,pacman
+            arch-package: 'true'
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            triple: aarch64-unknown-linux-gnu
+            bun-target: bun-linux-arm64
+            formats: deb,appimage,pacman
+            arch-package: 'false'
           - os: macos-latest
             target: macos-arm64
             triple: aarch64-apple-darwin
             bun-target: bun-darwin-arm64
-            format: dmg
+            formats: dmg
+            arch-package: 'false'
           - os: windows-latest
             target: windows-x64
             triple: x86_64-pc-windows-msvc
             bun-target: bun-windows-x64
-            format: nsis
+            formats: nsis
+            arch-package: 'false'
 
     steps:
       - name: Checkout
@@ -94,12 +103,13 @@ jobs:
           target: ${{ matrix.target }}
           triple: ${{ matrix.triple }}
           bun-target: ${{ matrix.bun-target }}
-          format: ${{ matrix.format }}
+          formats: ${{ matrix.formats }}
+          arch-package: ${{ matrix.arch-package }}
 
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
           name: switchyard-${{ matrix.target }}
-          path: ${{ steps.package.outputs.asset }}
+          path: ${{ steps.package.outputs.dir }}/*
           retention-days: 7
           if-no-files-found: error
