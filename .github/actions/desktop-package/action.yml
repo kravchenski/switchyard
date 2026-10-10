@@ -65,12 +65,31 @@ runs:
         TRIPLE: ${{ inputs.triple }}
         BUN_TARGET: ${{ inputs.bun-target }}
       run: |
-        ext=""
-        if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; fi
-        mkdir -p desktop/target/sidecars
-        bun build --compile --target="$BUN_TARGET" src/unified/server.ts --external 'chromium-bidi/*' --outfile "desktop/target/sidecars/freeapi-gateway-$TRIPLE$ext"
-        bun build --compile --target="$BUN_TARGET" scripts/accounts.ts --external 'chromium-bidi/*' --outfile "desktop/target/sidecars/freeapi-accounts-$TRIPLE$ext"
+        bun run scripts/compile-sidecars.ts --target "$BUN_TARGET" --triple "$TRIPLE" --outdir desktop/target/sidecars
         ls -la desktop/target/sidecars
+
+    - name: Check the sidecars run without node_modules
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        TRIPLE: ${{ inputs.triple }}
+      run: |
+        mv node_modules "$RUNNER_TEMP/node_modules"
+        trap 'mv "$RUNNER_TEMP/node_modules" node_modules' EXIT
+        work="$RUNNER_TEMP/sidecar-check"
+        mkdir -p "$work"
+        SESSION_DIR="$work/session" DATA_DIR="$work" "desktop/target/sidecars/freeapi-accounts-$TRIPLE" --json > /dev/null
+        UNIFIED_PORT=3290 SESSION_DIR="$work/session" DATA_DIR="$work" MODEL_REFRESH_MINUTES=0 \
+          "desktop/target/sidecars/freeapi-gateway-$TRIPLE" > "$work/gateway.log" 2>&1 &
+        pid=$!
+        for attempt in $(seq 1 90); do
+          if curl -sf http://127.0.0.1:3290/health > /dev/null; then kill "$pid"; exit 0; fi
+          if ! kill -0 "$pid" 2>/dev/null; then cat "$work/gateway.log"; exit 1; fi
+          sleep 1
+        done
+        cat "$work/gateway.log"
+        kill "$pid"
+        exit 1
 
     - name: Install cargo-packager
       uses: taiki-e/install-action@v2
