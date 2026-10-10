@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.13.1](https://github.com/kravchenski/switchyard/compare/v2.13.0...v2.13.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **aur:** keep the in-repo PKGBUILD on the latest release so paru can install it ([c914f4f](https://github.com/kravchenski/switchyard/commit/c914f4fe8883880c662100b20fd2c1c242d11192))
+* **aur:** point the PKGBUILD at the 2.13.0 release ([e5a782f](https://github.com/kravchenski/switchyard/commit/e5a782f207cd4135cae6bf57445765e6615a9e88))
+* **desktop:** embed playwright's package.json so the compiled gateway starts on other machines ([ebb6847](https://github.com/kravchenski/switchyard/commit/ebb6847a4ddc924ffc3c999f3297557835cef724))
+* **desktop:** embed playwright's package.json so the compiled gateway starts outside CI ([33d7303](https://github.com/kravchenski/switchyard/commit/33d73032b6ae68c7328550a44b63c1e329bc178c))
+
+
+### Documentation
+
+* **aur:** install with paru from this repository ([4cf758f](https://github.com/kravchenski/switchyard/commit/4cf758fa603cba5bb3e40c08889870dbfde898c0))
+
+
+### CI
+
+* **desktop:** compile sidecars with the shared script and run them without node_modules ([245c54f](https://github.com/kravchenski/switchyard/commit/245c54f6b80f390d735eb020027eec6d31c44411))
+* **release:** commit the filled PKGBUILD to main after every release ([022b78c](https://github.com/kravchenski/switchyard/commit/022b78c77a05e46b39f77e9abaea4a052b5ddfc0))
+
 ## [2.13.0](https://github.com/kravchenski/switchyard/compare/v2.12.0...v2.13.0) (2026-10-10)
 
 
