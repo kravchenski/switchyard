@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.12.0](https://github.com/kravchenski/switchyard/compare/v2.11.0...v2.12.0) (2026-10-10)
+
+
+### Features
+
+* **setup:** make OpenCode ask before commands and URL fetches unless --allow-commands is passed ([21b0319](https://github.com/kravchenski/switchyard/commit/21b0319f0d07a2cd8ef4caa6756fd261912c7abd))
+
+
+### Bug Fixes
+
+* **agents:** stop inventing shell calls and compare the DeepSeek key in constant time ([c6bdc17](https://github.com/kravchenski/switchyard/commit/c6bdc17ccb5b19b357471fc0f3e03ba0befbd55b))
+* **deepseek:** answer only local pages when no API key is set ([99d9f16](https://github.com/kravchenski/switchyard/commit/99d9f168236afa136f8a1065e2f78b5dae36c053))
+* **gateway:** listen on localhost and refuse foreign hosts and origins without an API key ([122ecc2](https://github.com/kravchenski/switchyard/commit/122ecc231710bc6d482b7e3ebc2f610cd9065b97))
+* **vision:** check the image host address at connect time to stop DNS rebinding ([ebc9a1c](https://github.com/kravchenski/switchyard/commit/ebc9a1c0f59d7f1a9fc78d38c8e43896e0010d0a))
+* **vision:** refuse image downloads from private addresses and cap their size ([3d95323](https://github.com/kravchenski/switchyard/commit/3d9532309a1f09ef8865a2ca4a75168957d50f8a))
+* **vision:** treat NAT64 and 6to4 addresses as private and drop redirect bodies ([78c053e](https://github.com/kravchenski/switchyard/commit/78c053ea4d48696482149b69fda275d52e09522a))
+* **web:** escape model output and repair the page script ([3326418](https://github.com/kravchenski/switchyard/commit/332641831cc8f8315a710758419a845d940cc339))
+* **web:** refuse API calls from other sites and send the gateway key ([0c0c7e5](https://github.com/kravchenski/switchyard/commit/0c0c7e5e8eb5e146e415878d1671cc360f8ef94c))
+
+
+### Documentation
+
+* explain command approval for agents that use web chats ([136e8be](https://github.com/kravchenski/switchyard/commit/136e8be71d5ed17f5bdc489b4f31ec658ef6073c))
+* **openwebui:** explain the key needed to reach the gateway from Docker ([3573222](https://github.com/kravchenski/switchyard/commit/357322207192f717cfdd45bbf444343ac3c55038))
+
 ## [2.11.0](https://github.com/kravchenski/switchyard/compare/v2.10.0...v2.11.0) (2026-10-10)
 
 
