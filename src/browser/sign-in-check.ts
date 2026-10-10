@@ -5,7 +5,7 @@ import { googleProfileDir } from './google-profile.ts';
 import { readSignIn, type SignInResult } from './sign-in.ts';
 
 export interface SiteSignIn {
-  site: ChatSite;
+  site: Pick<ChatSite, 'id' | 'url'>;
   result: SignInResult;
 }
 

@@ -23,7 +23,9 @@ import { buildOverview } from '../src/cli/overview.ts';
 import { INIT_MESSAGES, initAccountsSecret } from '../src/cli/accounts-secret.ts';
 import { loadAccountsSecret, systemKeyring } from '../src/core/secrets/accounts-secret.ts';
 import { accountStates } from '../src/core/status.ts';
-import { loadDeepSeekAccounts } from '../src/providers/deepseek/accounts.ts';
+import { loadDeepSeekAccounts, removeDeepSeekAccount } from '../src/providers/deepseek/accounts.ts';
+import { checkDeepSeekProfile, DEEPSEEK_SIGN_IN_SITE, profileAccountId } from '../src/providers/deepseek/profile.ts';
+import { isDeepSeekUrl } from '../src/providers/deepseek/url.ts';
 import { harvestBrowserFrom, harvestKeys } from '../src/browser/key-harvest.ts';
 import { autoSignIn } from '../src/browser/auto-login.ts';
 import { launchCdpBrowser, type CdpBrowser } from '../src/browser/cdp.ts';
@@ -64,14 +66,18 @@ try {
     openGoogleSignIn: profile => openGoogleSignIn(profileDir(profile)),
     listGoogleAccounts: profile => listGoogleAccounts(profileDir(profile)),
     openWindow: (urls, profile) => openProfileWindow(urls, profileDir(profile)),
-    chatUrls: WEB_CHAT_SITES.map(site => site.url),
+    chatUrls: [...WEB_CHAT_SITES.map(site => site.url), DEEPSEEK_SIGN_IN_SITE.url],
     profiles: {
       list: () => withDb(db => listProfiles(profileStore(db))),
       add: label => withDb(db => createProfile(profileStore(db), label)),
-      remove: id => withDb(db => deleteProfile(profileStore(db), id)),
+      remove: id => {
+        const removed = withDb(db => deleteProfile(profileStore(db), id));
+        if (removed && loadDeepSeekAccounts().some(account => account.id === profileAccountId(id))) removeDeepSeekAccount(profileAccountId(id));
+        return removed;
+      },
       summary: () => withDb(db => listProfiles(profileStore(db)).map(profile => ({
         ...profile,
-        chats: WEB_CHAT_SITES.filter(site => site.signIn).map(site => {
+        chats: [...WEB_CHAT_SITES.filter(site => site.signIn), DEEPSEEK_SIGN_IN_SITE].map(site => {
           const record = loadSignIn(db, site.id, profile.id);
           return { id: site.id, signedIn: record?.signedIn ?? null, checkedAt: record?.checkedAt ?? null, reason: record?.reason ?? null };
         }),
@@ -138,11 +144,17 @@ try {
     },
     checkSignIns: async (url, profile) => {
       const sites = url ? [siteForUrl(url)].filter(site => site !== undefined) : WEB_CHAT_SITES;
-      if (!sites.length) return [];
+      const deepseek = !url || isDeepSeekUrl(url);
+      if (!sites.length && !deepseek) return [];
       const accounts = withDb(db => listProfiles(profileStore(db))).filter(entry => !profile || entry.id === profile);
       const results: ProfileSignIn[] = [];
       for (const account of accounts) {
-        for (const entry of await checkSignIns(sites, undefined, profileDir(account.id))) results.push({ ...entry, profile: account });
+        if (sites.length) {
+          for (const entry of await checkSignIns(sites, undefined, profileDir(account.id))) results.push({ ...entry, profile: account });
+        }
+        if (deepseek) {
+          results.push({ site: DEEPSEEK_SIGN_IN_SITE, result: await checkDeepSeekProfile(account.id, profileDir(account.id)), profile: account });
+        }
       }
       withDb(db => {
         const status = new WebSignInStatus({ load: (provider, id) => loadSignIn(db, provider, id), save: record => saveSignIn(db, record) });
