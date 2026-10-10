@@ -1,16 +1,16 @@
 {
-    "name": "free-qwen-deepseek-api",
+    "name": "switchyard",
     "version": "2.9.0",
-    "description": "Unified OpenAI-compatible gateway for Qwen, DeepSeek Web and NVIDIA models",
+    "description": "Local OpenAI-compatible gateway for web AI chats and free model APIs",
     "author": "kravchenski",
     "license": "MIT",
-    "homepage": "https://github.com/kravchenski/FreeQwenApi#readme",
+    "homepage": "https://github.com/kravchenski/switchyard#readme",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/kravchenski/FreeQwenApi.git"
+        "url": "git+https://github.com/kravchenski/switchyard.git"
     },
     "bugs": {
-        "url": "https://github.com/kravchenski/FreeQwenApi/issues"
+        "url": "https://github.com/kravchenski/switchyard/issues"
     },
     "main": "src/unified/server.ts",
     "type": "module",
