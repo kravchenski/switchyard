@@ -482,11 +482,15 @@ impl Shell {
             .child(
                 div()
                     .id("copy-url")
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
                     .text_xs()
                     .cursor_pointer()
                     .text_color(col(if self.copied { color } else { MUTED }))
                     .hover(|style| style.text_color(col(TEXT)))
                     .child(if self.copied { "Copied to clipboard".to_string() } else { address })
+                    .child(div().text_size(px(12.)).child(if self.copied { IconName::Check } else { IconName::Copy }))
                     .on_click(cx.listener(|shell, _, _, cx| {
                         shell.copy_url(cx);
                         cx.notify();
