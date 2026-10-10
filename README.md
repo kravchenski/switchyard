@@ -1,9 +1,12 @@
 <div align="center">
 
-# Switchyard
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
+  <img src="docs/images/logo-light.png" alt="switchyard" width="420">
+</picture>
 
-**A local LLM gateway for coding agents.**
-One OpenAI- and Anthropic-compatible endpoint in front of 25+ model providers — with smart routing, a decision model that picks the right model for each request, native tool calling and token-saving for agents like Claude Code, Codex, OpenCode and pi.
+**A local LLM gateway for coding agents.**<br>
+One OpenAI- and Anthropic-compatible endpoint in front of your signed-in web chats and 25+ free model APIs, with fallback routing, native tool calling and token savings for Claude Code, Codex, OpenCode and pi.
 
 [![CI](https://github.com/kravchenski/switchyard/actions/workflows/ci.yml/badge.svg)](https://github.com/kravchenski/switchyard/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/kravchenski/switchyard)](https://github.com/kravchenski/switchyard/releases)
@@ -11,28 +14,30 @@ One OpenAI- and Anthropic-compatible endpoint in front of 25+ model providers �
 [![OpenAI compatible](https://img.shields.io/badge/API-OpenAI%20%7C%20Anthropic-412991)](#api)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[Quick start](#quick-start) · [Agents](#use-it-with-your-agent) · [Providers](#providers) · [Routing](#routing) · [Images](#images) · [API](#api) · [Desktop app](#desktop-app)
+[Quick start](#quick-start) · [Agents](#use-it-with-your-agent) · [Desktop app](#desktop-app) · [Providers](#providers) · [Routing](#routing) · [API](#api)
 
-<img src="docs/images/demo.gif" alt="model=auto races three models, DeepSeek answers first, and the decision log shows why" width="900">
+<img src="docs/images/demo.gif" alt="Listing models, asking model=auto for a haiku, and reading the routing decision: Qwen Chat answered first" width="900">
+
+*One request to `model=auto`: the router tries the web chats in your order and logs every attempt.* [Watch as MP4](docs/images/demo.mp4)
 
 </div>
 
+## How it works
+
 ```mermaid
 flowchart LR
-  A["Claude Code · Codex · OpenCode · pi · Continue · Cline · any OpenAI client"] -->|"/v1/chat/completions · /v1/messages · /v1/responses"| S(("Switchyard<br/>localhost:3260"))
-  S --> R{"router<br/>fallback chain"}
-  R --> W["Web chats<br/>DeepSeek · Qwen · GLM · Kimi · Arena"]
-  R --> P["API providers<br/>NVIDIA · OpenRouter · Groq · Gemini · Cerebras · Mistral · Ollama · Kilo · Cloudflare · …"]
+  A["Claude Code · Codex · OpenCode · pi<br/>Continue · Cline · any OpenAI client"] -->|"/v1/chat/completions<br/>/v1/messages · /v1/responses"| S(("switchyard<br/>localhost:3260"))
+  S --> R{"auto · vision · agent"}
+  R -->|"1st: your web chats, in your order"| W["Qwen · DeepSeek · GLM · Kimi · Arena"]
+  R -->|"then: free API models"| P["NVIDIA · OpenRouter · Groq · Gemini · Cerebras<br/>Mistral · Cloudflare · … · your own"]
 ```
 
-## Why
-
-- **One endpoint, many models.** Point any agent at `http://localhost:3260` and use `model=auto` — Switchyard picks a working model, and falls back to the next one when a provider is down, rate-limited or out of quota.
-- **Built for coding agents.** Tool calls are passed natively to providers that support them and emulated (with repair of broken JSON and vendor markup) for the rest, so agents keep working across models.
-- **Fewer tokens.** Tool output is compacted, unneeded tools are dropped per task, and shell commands can run through [rtk](https://github.com/rtk-ai/rtk). On a benchmark bug-fix task the agent's input went from ~69k to ~7k tokens with the same result ([how it was measured](#coding-agent-optimizations)).
-- **Routing that thinks.** `auto` can race several models, or ask a decision model which model fits the request — a big model for a refactor, a fast one for small talk.
-- **Images both ways.** Send screenshots and charts to vision-capable models, or generate images through an OpenAI-compatible Images API.
-- **Desktop app.** Manage keys, browser accounts, routing and see every request — Linux, macOS and Windows installers.
+- **One endpoint, many models.** Point any agent at `http://localhost:3260` and ask for `model=auto`. Switchyard picks a working model and moves to the next one when a provider is down, rate-limited or out of quota.
+- **Built for coding agents.** Tool calls go natively to providers that support them and are emulated for the rest, with repair of broken JSON and vendor markup, so agents keep working whichever model answers.
+- **Fewer tokens.** Tool output is compacted, unneeded tools are dropped per task, and shell commands can run through [rtk](https://github.com/rtk-ai/rtk). On one bug-fix task the agent's input went from about 69k to about 7k tokens with the same result ([how it was measured](#coding-agent-optimizations)).
+- **Your providers too.** Add any OpenAI-compatible API, such as Ollama, LM Studio, vLLM or a company proxy, next to the built-in ones.
+- **Images both ways.** Send screenshots to vision models, or generate images through an OpenAI-compatible Images API.
+- **Desktop app.** Start the gateway, add keys and accounts, set the routing order and watch every request. Installers for Linux, macOS and Windows.
 
 ## Quick start
 
@@ -43,7 +48,7 @@ bun install
 bun run start          # http://localhost:3260
 ```
 
-Add a few free keys (see [Providers](#providers)) or sign in to a web chat, then:
+Add a free key or sign in to a web chat ([Providers](#providers)), then:
 
 ```bash
 curl http://localhost:3260/v1/chat/completions \
@@ -51,7 +56,7 @@ curl http://localhost:3260/v1/chat/completions \
   -d '{"model": "auto", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-`bun run account` shows every provider, whether it is connected and the command that connects it.
+`bun run account` lists every provider, whether it is connected and the command that connects it. Prefer a window? Grab the [desktop app](#desktop-app).
 
 ## Use it with your agent
 
@@ -64,9 +69,70 @@ curl http://localhost:3260/v1/chat/completions \
 
 A bearer token is only required when `GATEWAY_API_KEY` is set.
 
+## Desktop app
+
+A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click the address in the sidebar to copy the base URL.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/tour-dark.gif">
+    <img src="docs/images/tour-light.gif" alt="Desktop app tour: requests, a web chat provider, NVIDIA models, settings, API keys and copying the gateway URL" width="900">
+  </picture>
+  <br>
+  <em>Full quality: <a href="docs/images/tour-light.mp4">light</a> · <a href="docs/images/tour-dark.mp4">dark</a></em>
+</p>
+
+Installers for Linux (`.deb`), macOS (`.dmg`) and Windows (`.exe`) are attached to every [release](https://github.com/kravchenski/switchyard/releases). They bundle the gateway, so Bun is not needed; Chrome or Chromium is needed for the web chats. The installers are not code-signed yet.
+
+<details>
+<summary><b>Screenshots</b></summary>
+<br>
+
+<table>
+  <tr>
+    <th>Requests and health</th>
+    <th>Web chat order and agent options</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-requests.png" alt="Requests page with request count, success rate, median first answer and providers online"></td>
+    <td><img src="docs/images/app-settings.png" alt="Settings page with the theme, the web chat order and coding agent options"></td>
+  </tr>
+  <tr>
+    <th>Models a key can use</th>
+    <th>API keys and custom providers</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-nvidia.png" alt="NVIDIA provider page with its models, first-answer time and status"></td>
+    <td><img src="docs/images/app-keys.png" alt="API keys page with the provider picker and the custom provider form"></td>
+  </tr>
+  <tr>
+    <th>Dark theme</th>
+    <th>Dark theme</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-requests-dark.png" alt="Requests page in the dark theme"></td>
+    <td><img src="docs/images/app-settings-dark.png" alt="Settings page in the dark theme"></td>
+  </tr>
+</table>
+
+</details>
+
 ## Providers
 
-All providers below have free tiers or work through your own signed-in web accounts.
+Everything below has a free tier or works through your own signed-in web account.
+
+| Provider | Connect with |
+|---|---|
+| **Qwen, DeepSeek, GLM, Kimi, Arena** (web chats) | your browser account: `bun run account open <url>`, `bun run account token <site>`, or `bun run auth:deepseek` |
+| **NVIDIA** | `NVIDIA_API_KEY` |
+| **OpenRouter, Groq, Gemini, Cerebras, Mistral, SambaNova** | `<PROVIDER>_API_KEY` |
+| **Cloudflare Workers AI** | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` |
+| **15 more** | see the full list below |
+| **Your own** | `bun run account custom add <id> --url <base-url>` |
+
+<details>
+<summary><b>Full provider list</b></summary>
+<br>
 
 | Provider | Models | How to connect |
 |---|---|---|
@@ -82,32 +148,57 @@ All providers below have free tiers or work through your own signed-in web accou
 | **AIHubMix, AshnaAI, NaraRouter** | `aihubmix/<model>-free`, `ashna/<model>`, `nararouter/<model>`; AshnaAI and NaraRouter are off in `auto` until enabled, and AshnaAI's API needs a paid plan | `<PROVIDER>_API_KEY` |
 | **Token Harbor** | free models only, `tokenharbor/<model>:free` | `TOKENHARBOR_API_KEY` |
 | **xKiro** | third-party gateway, free models only, off in `auto` until enabled | `XKIRO_API_KEY` |
+| **Custom** | `<id>/<model>` for any OpenAI-compatible API | `bun run account custom add <id> --url <base-url> [--name <name>]` |
 
-- Keys go in `.env` (see `.env.example`) or are saved encrypted with `bun run account add <provider> --api-key` / the desktop app.
+</details>
+
+<details>
+<summary><b>Keys, accounts and custom providers</b></summary>
+<br>
+
+- Keys go in `.env` (see `.env.example`) or are saved encrypted with `bun run account add <provider> --api-key` or the desktop app.
 - **Several keys per provider:** `GROQ_API_KEY=k1,k2,k3` or `["k1","k2"]`. Switchyard sticks to the key that works and switches to the next one in the same request when a key is rate-limited, out of quota or rejected.
-- **Several web accounts:** each is its own browser profile; requests rotate between the signed-in ones (`bun run account profile add`, `connect`, `status`).
-- **Gentle on web accounts:** each web chat account keeps requests in one chat (a request with its own `conversation_id` gets its own chat), sends one message at a time and waits `WEB_CHAT_MIN_INTERVAL_MS` (10 s) between messages. Heavy automated traffic still breaks the sites' terms and can get an account blocked; use API providers for bots.
+- **Several web accounts:** each is its own browser profile, and requests rotate between the signed-in ones (`bun run account profile add`, `connect`, `status`).
+- **Gentle on web accounts:** each account keeps requests in one chat (a request with its own `conversation_id` gets its own chat), sends one message at a time and waits `WEB_CHAT_MIN_INTERVAL_MS` (10 s) between messages. Heavy automated traffic still breaks the sites' terms and can get an account blocked; use API providers for bots.
 - **Collect keys from an account:** `bun run account auto-collect --profile <id>` signs in to the web chats and provider dashboards with that account's Google session and creates its API keys (Auto-collect keys on the desktop Accounts page). Stop the API first, because it uses the same browser profile.
-- **Custom providers:** add any OpenAI-compatible API (Ollama, LM Studio, vLLM, a company proxy) with `bun run account custom add <id> --url <base-url> [--name <name>]` or the Custom provider card on the desktop API keys page, then save its key with `bun run account add <id> --api-key` if it needs one. Its models are named `<id>/<model>` and join `auto` as a fallback. Use `https://`, or `http://` only for localhost.
+- **Custom providers:** `bun run account custom add <id> --url <base-url> [--name <name>]`, or the Custom provider card on the desktop API keys page. Save a key with `bun run account add <id> --api-key` if it needs one. Models are named `<id>/<model>` and join `auto` as a fallback. Use `https://`, or `http://` only for localhost.
 - Models a key cannot use are detected and hidden; `bun run models:probe` measures which models answer and how fast.
+
+</details>
 
 ## Routing
 
-Three virtual models, each with its own chain built from measured latency and success:
+Three virtual models, each with its own chain:
 
 | Model | Chain | Use it for |
 |---|---|---|
-| `auto` | one model per web chat, then API models | chat; a request with images switches to `vision`, one with tools to `agent` |
-| `vision` | only models that can see images: the web chats and multimodal API models (`*-vision-*`, `*-VL-*`, omni, Gemini, Gemma, Pixtral, …) | screenshots, charts, photos |
-| `agent` | strong API models with native tool calling first, then the `auto` chain with emulated tools | Claude Code, Codex, OpenCode, pi and other coding agents |
+| `auto` | one model per web chat in your order, then the best measured API models | chat; a request with images switches to `vision`, one with tools to `agent` |
+| `vision` | only models that can see images: the web chats and multimodal API models | screenshots, charts, photos |
+| `agent` | the `auto` chain first, then strong API models with native tool calling | Claude Code, Codex, OpenCode, pi and other coding agents |
 
-The chains are listed in `GET /v1/gateway/status` (`autoModels`, `visionModels`, `agentModels`). Each request tries its chain one model at a time and moves on only when a model fails. Set the order of the web chats with `bun run account auto --order qwen-chat,deepseek,glm-chat,kimi-chat,arena-chat` or on the desktop Settings page; chats you leave out keep their default place after the ones you list.
+```mermaid
+sequenceDiagram
+  participant C as Your agent
+  participant S as switchyard
+  participant Q as Qwen Chat
+  participant D as DeepSeek
+  participant N as NVIDIA API
+  C->>S: model=auto
+  S->>Q: 1st in your order
+  Q--xS: rate limited
+  S->>D: next web chat
+  D-->>S: first token
+  S-->>C: streamed answer
+  Note over S,N: API models wait as fallback.<br/>Every attempt lands in /v1/gateway/decisions
+```
 
-Requests that carry tools prefer strong models with native tool calling; plain chat keeps the usual order. Every decision — skipped candidates and why, each attempt, latency, the pick — is visible at `GET /v1/gateway/decisions`.
+Set the order of the web chats on the desktop Settings page or with `bun run account auto --order qwen-chat,deepseek,glm-chat,kimi-chat,arena-chat`; chats you leave out keep their default place after the ones you list. A provider can be taken out of `auto` on its page in the app or with `bun run account provider <id> --auto off`.
+
+The chains are listed in `GET /v1/gateway/status` (`autoModels`, `visionModels`, `agentModels`), and every decision (skipped candidates and why, each attempt, latency, the pick) is at `GET /v1/gateway/decisions`.
 
 ## Coding agent optimizations
 
-For requests that carry tools (switch each with `bun run account auto --<option> on|off`):
+For requests that carry tools. Switch each one on the desktop Settings page or with `bun run account auto --<option> on|off`:
 
 | Option | Default | What it does |
 |---|---|---|
@@ -115,13 +206,19 @@ For requests that carry tools (switch each with `bun run account auto --<option>
 | `--tools` | on | With more than 15 tools, keeps only the ones the task needs (core and already used tools always stay). |
 | `--rtk` | on | Runs the agent's shell commands through the installed [rtk](https://github.com/rtk-ai/rtk) (`git status` → `rtk git status`) while the model keeps seeing its own commands. |
 
-**How it was measured.** The same agent (pi, nemotron-3-super) fixed the same bug — a discount rate broken by one commit in a 22-commit history, with a test suite that prints 16 KB of debug logs. Summing the context sent to the model over the whole task: **~69k tokens with the options off, ~7k with them on**; both runs fixed the bug. It is one task on one model, so treat it as an illustration, not a guarantee.
+<details>
+<summary><b>How the 69k → 7k tokens was measured</b></summary>
+<br>
+
+The same agent (pi, nemotron-3-super) fixed the same bug: a discount rate broken by one commit in a 22-commit history, with a test suite that prints 16 KB of debug logs. Summing the context sent to the model over the whole task gave **about 69k tokens with the options off and about 7k with them on**; both runs fixed the bug. It is one task on one model, so treat it as an illustration, not a guarantee.
 
 The headers `x-gateway-compacted`, `x-gateway-tools` and `x-gateway-rtk` show what was saved on each request.
 
+</details>
+
 ## Images
 
-**Vision.** Put images in a message (OpenAI `image_url` parts, data URLs or links) and send it to a model that can see: the web chats (`qwen-chat`, `glm-chat`, `kimi-chat`, `arena-chat`) attach them through each site's own upload, DeepSeek through its file upload, and vision-capable API models get them directly.
+**Vision.** Put images in a message (OpenAI `image_url` parts, data URLs or links) and send it to a model that can see. The web chats attach them through each site's own upload, DeepSeek through its file upload, and vision-capable API models get them directly.
 
 **Generation.** `POST /v1/images/generations` (OpenAI Images API) with `qwen-chat/image` (your Qwen Chat, up to 2688×1536), `cloudflare/@cf/<model>` (FLUX, SDXL) or `pollinations/<model>` (no key, watermarked). Without a `model` the first available one is used.
 
@@ -134,30 +231,28 @@ The headers `x-gateway-compacted`, `x-gateway-tools` and `x-gateway-rtk` show wh
 | `POST` | `/v1/responses` | OpenAI Responses |
 | `GET` | `/v1/models` | All available models, `auto`, `vision` and `agent` first |
 | `POST` | `/v1/images/generations` · `GET /v1/images/models` | Image generation |
+
+<details>
+<summary><b>Gateway and operations endpoints</b></summary>
+<br>
+
+| Method | Endpoint | Description |
+|---|---|---|
 | `POST` | `/v1/decisions` (also `/v1/systemone`) | Decision API in TypeSafe's System One shape: `choice` / `noul` / `boolean` questions answered with probabilities |
 | `GET` | `/v1/gateway/decisions` | Recent routing decisions |
-| `GET` | `/v1/gateway/status` | Providers, accounts, models, recent requests |
+| `GET` | `/v1/gateway/status` | Providers, accounts, models, chains, web chat order, recent requests |
+| `POST` | `/v1/gateway/refresh` | Reload saved keys, custom providers and model lists |
 | `POST` | `/v1/gateway/providers/:id/check` | Check which models a provider key can use |
 | `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/health` | Liveness |
 
 DeepSeek also runs as a standalone OpenAI-compatible service: `bun run start:deepseek` serves `/api/v1/models` and `/api/v1/chat/completions` on port 3265 and describes them in an OpenAPI 3.1 spec at `/api/openapi.json`.
 
-## Desktop app
+</details>
 
-A native app (Rust + [GPUI](https://www.gpui.rs)) to start and stop the gateway, add API keys and browser accounts, switch providers in or out of `auto`, set the web chat order and agent options, and watch requests and model health. Installers for Linux (`.deb`), macOS (`.dmg`) and Windows (`.exe`) are attached to every [release](https://github.com/kravchenski/switchyard/releases); they bundle the gateway, so Bun is not needed. Chrome or Chromium is needed for the web chats. The installers are not code-signed yet.
-
-<p align="center">
-  <img src="docs/images/app-tour.gif" alt="Desktop app tour: provider models, routing settings and API keys" width="900">
-</p>
-
-| Provider models and health | Routing and agent options |
-|---|---|
-| ![NVIDIA provider page with the models the key can use and their first-answer time](docs/images/app-nvidia.png) | ![Settings page with the web chat order and coding agent options](docs/images/app-settings.png) |
-| **Web chat accounts** | **API keys for 20+ providers** |
-| ![DeepSeek provider page with two signed-in accounts](docs/images/app-deepseek.png) | ![API keys page with the provider picker](docs/images/app-keys.png) |
-
-## Configuration
+<details>
+<summary><b>Configuration</b></summary>
+<br>
 
 | Variable | Default | Description |
 |---|---|---|
@@ -166,10 +261,14 @@ A native app (Rust + [GPUI](https://www.gpui.rs)) to start and stop the gateway,
 | `GATEWAY_API_KEY` | — | Require this bearer token on every request except `/health` |
 | `<PROVIDER>_API_KEY` | — | One key or a list per provider (see `.env.example`) |
 | `AUTO_MODELS` | — | Fixed `auto` chain instead of the measured one |
-| `WEB_CHAT_MIN_INTERVAL_MS` | `10000` | Minimum pause between two messages to the same web chat account (DeepSeek, Qwen, GLM, Kimi, Arena) |
+| `WEB_CHAT_MIN_INTERVAL_MS` | `10000` | Minimum pause between two messages to the same web chat account |
 | `ACCOUNTS_SECRET` | OS keyring | Encrypts the saved keys in `session/credentials.enc`; `bun run account init` keeps it in the keyring |
 
-## Docker
+</details>
+
+<details>
+<summary><b>Docker</b></summary>
+<br>
 
 ```bash
 docker compose up -d
@@ -177,19 +276,23 @@ docker compose up -d
 
 Runs the gateway on `127.0.0.1:3260` with `.env` and the `session/`, `data/` and `logs/` folders mounted. Connect accounts on the host first.
 
-## Development
+</details>
+
+<details>
+<summary><b>Development</b></summary>
+<br>
 
 ```bash
 bun run dev       # watch mode
 bun run ci        # build check, strict typecheck, tests
-cd desktop && cargo run
+bun run desktop   # desktop app (cargo run)
 ```
 
 ```
 src/
   unified/server.ts   gateway: routes, agent pipeline, images, decisions
   core/               router, decision engine, model stats, key pools, agent optimizations
-  providers/          catalog of API providers, web chats, DeepSeek, image providers
+  providers/          API provider catalog, custom providers, web chats, DeepSeek, images
   browser/            Playwright-driven browser sessions for the web chats
   cli/                accounts CLI and agent setup
 desktop/              Rust + GPUI desktop app
@@ -197,9 +300,11 @@ desktop/              Rust + GPUI desktop app
 
 Versions follow [Conventional Commits](https://www.conventionalcommits.org) via release-please; every release publishes a Docker image and the desktop installers.
 
+</details>
+
 ## Responsible use
 
-Web chat providers are used through **your own** signed-in accounts and their normal web flows; Switchyard does not bypass captchas or anti-bot checks, and verifications are left to you in the browser window. Follow each service's terms, and keep in mind that requests sent through third-party providers leave your machine.
+Web chat providers are used through **your own** signed-in accounts and their normal web flows. Switchyard does not bypass captchas or anti-bot checks; verifications are left to you in the browser window. Follow each service's terms, and keep in mind that requests sent through third-party providers leave your machine.
 
 ## License
 
