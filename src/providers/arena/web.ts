@@ -3,7 +3,7 @@ import { ProviderError } from '../../core/providers/errors.ts';
 import type { ChatChunk } from '../../core/providers/provider.ts';
 import { bytesToLines } from '../browser-chat-provider.ts';
 
-export const ARENA_CHAT_URL = 'https://arena.ai/text/direct';
+const ARENA_CHAT_URL = 'https://arena.ai/text/direct';
 
 export const ARENA_CHAT_SITE: ChatSite = {
   id: 'arena-chat',

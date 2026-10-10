@@ -1,6 +1,6 @@
 import type { WebSignInStatus } from './sign-in-status.ts';
 
-export const PROFILE_FAILURE_COOLDOWN_MS = 5 * 60_000;
+const PROFILE_FAILURE_COOLDOWN_MS = 5 * 60_000;
 
 export class ProfileRotation {
   private readonly next = new Map<string, number>();

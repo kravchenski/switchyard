@@ -8,7 +8,8 @@ import type { SignInResult } from '../browser/sign-in.ts';
 import { supportsTokenSignIn } from '../browser/token-sign-in.ts';
 import { normalizeToken } from '../core/accounts/token.ts';
 import { formatOverview, type ProviderOverview } from './overview.ts';
-import { API_KEY_PROVIDERS as API_KEY_DEFINITIONS } from '../providers/catalog.ts';
+import { API_KEY_PROVIDERS as API_KEY_DEFINITIONS, apiKeyProvider } from '../providers/catalog.ts';
+import type { CustomProvider } from '../providers/custom.ts';
 import { WEB_CHAT_SITES } from '../providers/web-chat-sites.ts';
 
 export interface AccountsCliDeps {
@@ -37,7 +38,12 @@ export interface AccountsCliDeps {
   initSecret?: () => Promise<string>;
   secretSource?: () => Promise<string>;
   providerAuto?: (provider: string, auto?: boolean) => boolean;
-  autoSettings?: (change: { focus?: string; mode?: string; agents?: Record<string, string | undefined> }) => { focus: string; mode: string; agents?: Record<string, boolean> };
+  customProviders?: {
+    list(): CustomProvider[];
+    add(input: { id: string; label?: string; baseUrl: string }): CustomProvider;
+    remove(id: string): boolean;
+  };
+  autoSettings?: (change: { order?: string; agents?: Record<string, string | undefined> }) => { order: string[]; agents?: Record<string, boolean> };
   harvest?: (options: { profile: string; providers?: string[]; session?: unknown; onResult?: (result: HarvestResult) => void }) => Promise<HarvestResult[]>;
   autoLogin?: (options: { profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean; session?: unknown }) => Promise<AutoLoginResult[]>;
   beginSession?: (profile: string) => Promise<unknown>;
@@ -53,17 +59,22 @@ export type ProfileSignIn = SiteSignIn & { profile?: BrowserProfile };
 const DEFAULT_ACCOUNT = 'default';
 const GOOGLE_SIGN_IN_URL = 'https://accounts.google.com/';
 
-export const ACCOUNTS_USAGE = `Usage: bun run account <command>
+const ACCOUNTS_USAGE = `Usage: bun run account <command>
 
   (no command) [--json]                           Show every provider and whether it is connected
   init                                            Create ACCOUNTS_SECRET in the system keyring (moves it out of .env)
   secret                                          Show where ACCOUNTS_SECRET is loaded from
   provider <id> [--auto on|off]                   Show or change whether model=auto may use a provider
-  auto [--focus <f>] [--mode <m>] [--compact on|off] [--tools on|off] [--rtk on|off]
-                                                  Show or change model=auto (focus general|coding|reasoning|fast, mode fallback|race|decide)
+  auto [--order <id,...>] [--compact on|off] [--tools on|off] [--rtk on|off]
+                                                  Show or change model=auto (order of the web chats, e.g. qwen-chat,deepseek,glm-chat)
                                                   and coding agent requests (--compact trims tool output,
                                                   --tools keeps only the tools a request needs,
                                                   --rtk runs the agent's shell commands through rtk)
+  custom                                          List custom OpenAI-compatible providers
+  custom add <id> --url <base-url> [--name <name>]
+                                                  Add a custom OpenAI-compatible provider (https, or http on localhost);
+                                                  then save its key with: add <id> --api-key
+  custom remove <id>                              Delete a custom provider and its saved keys
   add <provider> --api-key [--label <name>]       Save an API key (the key is always prompted)
   list [provider]                                 List saved API keys
   remove <id>                                     Delete a saved API key
@@ -107,7 +118,7 @@ function splitIds(value: string) {
 }
 
 function requireProvider(provider: string | undefined) {
-  if (!provider || !API_KEY_PROVIDERS.has(provider)) throw new Error(`Unknown provider: ${provider ?? '(none)'}\n\n${ACCOUNTS_USAGE}`);
+  if (!provider || !apiKeyProvider(provider)) throw new Error(`Unknown provider: ${provider ?? '(none)'}\n\n${ACCOUNTS_USAGE}`);
   return provider;
 }
 
@@ -186,10 +197,30 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
     return 0;
   }
 
+  if (command === 'custom' && deps.customProviders) {
+    const action = args[1];
+    if (action === 'add') {
+      const url = option(args, '--url');
+      if (!args[2] || !url) throw new Error('Usage: bun run account custom add <id> --url <base-url> [--name <name>]');
+      const added = deps.customProviders.add({ id: args[2], baseUrl: url, label: option(args, '--name') });
+      deps.log(`Added custom provider ${added.id} (${added.baseUrl})`);
+      return 0;
+    }
+    if (action === 'remove') {
+      if (!args[2]) throw new Error('Usage: bun run account custom remove <id>');
+      if (!deps.customProviders.remove(args[2])) throw new Error(`Unknown custom provider: ${args[2]}`);
+      deps.log(`Removed custom provider ${args[2]}`);
+      return 0;
+    }
+    const providers = deps.customProviders.list();
+    if (!providers.length) deps.log('No custom providers');
+    for (const provider of providers) deps.log(`${provider.id}\t${provider.label}\t${provider.baseUrl}`);
+    return 0;
+  }
+
   if (command === 'auto' && deps.autoSettings) {
-    const current = deps.autoSettings({ focus: option(args, '--focus'), mode: option(args, '--mode'), agents: { compact: option(args, '--compact'), tools: option(args, '--tools'), rtk: option(args, '--rtk') } });
-    deps.log(`auto focus: ${current.focus}`);
-    deps.log(`auto mode: ${current.mode}`);
+    const current = deps.autoSettings({ order: option(args, '--order'), agents: { compact: option(args, '--compact'), tools: option(args, '--tools'), rtk: option(args, '--rtk') } });
+    deps.log(`web order: ${current.order.join(',')}`);
     for (const [name, on] of Object.entries(current.agents ?? {})) deps.log(`agents ${name}: ${on ? 'on' : 'off'}`);
     return 0;
   }

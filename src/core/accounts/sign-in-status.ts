@@ -15,7 +15,7 @@ export interface SignInStore {
   save(record: SignInRecord): void;
 }
 
-export const SIGNED_OUT_RECHECK_MS = 10 * 60_000;
+const SIGNED_OUT_RECHECK_MS = 10 * 60_000;
 const CACHE_MS = 30_000;
 
 export type SignInState = 'signed-in' | 'unknown' | 'signed-out';

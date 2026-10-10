@@ -3,7 +3,7 @@ import { ProviderError, upstreamError } from '../../core/providers/errors.ts';
 import { accountEndpoint, type ApiProviderDefinition } from '../catalog.ts';
 
 const PREFIX = 'cloudflare/';
-export const CLOUDFLARE_IMAGE_MODELS = [
+const CLOUDFLARE_IMAGE_MODELS = [
   '@cf/black-forest-labs/flux-1-schnell',
   '@cf/stabilityai/stable-diffusion-xl-base-1.0',
   '@cf/bytedance/stable-diffusion-xl-lightning',

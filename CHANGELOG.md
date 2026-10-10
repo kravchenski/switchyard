@@ -1,5 +1,74 @@
 # Changelog
 
+## [2.9.0](https://github.com/kravchenski/switchyard/compare/v2.8.0...v2.9.0) (2026-10-10)
+
+
+### Features
+
+* **desktop:** refresh the app design ([d45d2c5](https://github.com/kravchenski/switchyard/commit/d45d2c5e8caa6016040e792ddc7b2bc3e57cd6e8))
+* **providers:** add custom OpenAI-compatible providers from the CLI and the desktop app ([8c123a4](https://github.com/kravchenski/switchyard/commit/8c123a4de6ac0b2bbc998571a321e453a744cf4e))
+* **router:** replace auto focus and modes with a web chat order ([6f31224](https://github.com/kravchenski/switchyard/commit/6f3122402278806ced21bbfe4e80979ce0ba381f))
+
+
+### Bug Fixes
+
+* **desktop:** save the app icons as 8-bit PNGs for the installers ([1172bbf](https://github.com/kravchenski/switchyard/commit/1172bbf128969d0ba09c07142bca0d47f949e26b))
+* **tools:** recover bash calls with unescaped quotes and wrapper junk ([b7260bf](https://github.com/kravchenski/switchyard/commit/b7260bf69b94d943d6993c77bf53cfebbc189583))
+
+
+### Performance
+
+* **desktop:** build dependencies optimized and rename the bundle id to switchyard ([d659a44](https://github.com/kravchenski/switchyard/commit/d659a4480517d997ef575df6306e3b869cfc73ef))
+
+
+### Chores
+
+* remove dead code and unexport file-local helpers ([0ec749e](https://github.com/kravchenski/switchyard/commit/0ec749e5de76f7da490eb0f6f1654dc17cc08629))
+
+## [2.8.0](https://github.com/kravchenski/switchyard/compare/v2.7.0...v2.8.0) (2026-10-10)
+
+
+### Features
+
+* **agents:** enable rtk shell rewriting by default ([e824968](https://github.com/kravchenski/switchyard/commit/e824968872724832612f029309d5e717b5700359))
+* **gateway:** stream tool-enabled responses live with hold-back ([f4c435d](https://github.com/kravchenski/switchyard/commit/f4c435d1a15def1088730cbc805685b3c0de928d))
+* **gateway:** web-first routing, live streaming and rtk by default ([1f2d043](https://github.com/kravchenski/switchyard/commit/1f2d04352f0e59383aaff10043dc84e1ec0459f4))
+* **router:** try web chats first and keep API models as fallback ([4b52afb](https://github.com/kravchenski/switchyard/commit/4b52afbb849293b216b473df849a8b4820085bb8))
+* **setup:** point claude at gateway and mark vision models for pi ([9c0d526](https://github.com/kravchenski/switchyard/commit/9c0d5264fa8518de128f564da68e73853909eb5c))
+* **setup:** point claude at gateway and mark vision models for pi ([9f1ba5f](https://github.com/kravchenski/switchyard/commit/9f1ba5fed791e0eb73de31bb8254a33038defe35))
+
+
+### Bug Fixes
+
+* **agents:** run piped shell commands through rtk ([43caa30](https://github.com/kravchenski/switchyard/commit/43caa30963e75fbc2e87965ac60d30bef0640565))
+* **gateway:** parse transcript-style tool calls from web chats ([3f97a5f](https://github.com/kravchenski/switchyard/commit/3f97a5fe0f419c055d999a0070a513ab84729d72))
+* **prompt:** keep web chats concise and block install commands ([f34e22b](https://github.com/kravchenski/switchyard/commit/f34e22b4808e9fd2eb40505a0bc4481c8f8ba080))
+
+## [2.7.0](https://github.com/kravchenski/switchyard/compare/v2.6.0...v2.7.0) (2026-10-09)
+
+
+### Features
+
+* **accounts:** sign Qwen, GLM and Kimi in with a token from your own browser ([868f5aa](https://github.com/kravchenski/switchyard/commit/868f5aae8c515cd006872e2d746ab58431c553c9))
+* **accounts:** sign Qwen, GLM and Kimi in with a token from your own browser ([95dba87](https://github.com/kravchenski/switchyard/commit/95dba87b9335209b6f23e0ac284fe50869a97693))
+* **browser:** mask automation signals in web chat sessions ([cf998dc](https://github.com/kravchenski/switchyard/commit/cf998dc18f8ba05b910d8a27e10483dcb6a22570))
+* **deepseek:** route api traffic through the browser bridge ([1810463](https://github.com/kravchenski/switchyard/commit/18104632db90995e0ce8f55964bd8e7f3071a24a))
+* **deepseek:** route API traffic through the browser bridge ([b01024f](https://github.com/kravchenski/switchyard/commit/b01024f2eed06b2d8a13152ca653b663b45f626d))
+* **gateway:** drop role prefixes and image markers from web prompts ([99f4cff](https://github.com/kravchenski/switchyard/commit/99f4cffabdf475fa25c8be7970f626b90ab94fa5))
+* **web-chat:** plain user prompts and masked automation signals ([db714ec](https://github.com/kravchenski/switchyard/commit/db714ec55e284ee4b2b7d09bbad6034c8510290f))
+
+
+### Bug Fixes
+
+* **ci:** build the desktop sidecars after the Rust cache is restored ([4e9d35c](https://github.com/kravchenski/switchyard/commit/4e9d35c877fb4e2ce96e15c52fb101beb97665c0))
+* **platform:** detect the browser version without blocking the event loop ([c0c1ddd](https://github.com/kravchenski/switchyard/commit/c0c1ddd1162ef243b4a0cf07262e3cbc6bc16bfb))
+
+
+### Chores
+
+* **desktop:** name the installers and the app Switchyard ([f7b23ae](https://github.com/kravchenski/switchyard/commit/f7b23aebcc2338ecff2c7c4657a30e4e9c945fc8))
+* **desktop:** name the installers and the app Switchyard ([7df8966](https://github.com/kravchenski/switchyard/commit/7df896623a909c39019ff6bc4cfc69ea967a4627))
+
 ## [2.6.0](https://github.com/kravchenski/switchyard/compare/v2.5.0...v2.6.0) (2026-10-07)
 
 

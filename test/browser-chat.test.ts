@@ -10,7 +10,7 @@ import { findBrowserExecutable } from '../src/platform/browserExecutable.ts';
 const chatPage = `<!doctype html><textarea id="box"></textarea><div id="out"></div>
 <script>
 document.getElementById('box').addEventListener('keydown', async event => {
-  if (event.key !== 'Enter') return;
+  if (event.key !== 'Enter' || event.shiftKey) return;
   event.preventDefault();
   const response = await fetch('/api/stream', { method: 'POST', body: event.target.value });
   const reader = response.body.getReader();
@@ -30,7 +30,7 @@ const framedPage = chatPage.replace("body: event.target.value", "body: (() => { 
 
 const slowSendPage = chatPage
   .replace('<script>', '<script>\nlet ready = false;\nsetTimeout(() => { ready = true; }, 1500);')
-  .replace("if (event.key !== 'Enter') return;", "if (event.key !== 'Enter' || !ready) return;");
+  .replace("if (event.key !== 'Enter' || event.shiftKey) return;", "if (event.key !== 'Enter' || event.shiftKey || !ready) return;");
 
 const verifyPage = '<!doctype html><textarea></textarea><p>Please complete security verification</p>';
 

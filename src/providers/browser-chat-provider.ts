@@ -1,7 +1,7 @@
 import { webChatModelSlug, type BrowserChatSession, type ChatSite, type WebChatModel } from '../browser/browser-chat.ts';
 import { ProviderError } from '../core/providers/errors.ts';
 import type { ChatChunk, ChatRequest, Provider, ProviderHealth, ProviderStream } from '../core/providers/provider.ts';
-import { collectImageUrls, messagesToPrompt, stripImages } from '../core/providers/prompt.ts';
+import { collectImageUrls, toWebPrompt } from '../core/providers/prompt.ts';
 import { primeChunks } from '../core/streaming/sse.ts';
 
 export interface ProfileSession {
@@ -62,7 +62,7 @@ export function createBrowserChatProvider(config: BrowserChatProviderConfig): Pr
       }
       if (!candidates.length) throw new ProviderError(`${config.id}: no account is signed in`, 'unavailable');
       const supported = config.site.images === true;
-      const prompt = messagesToPrompt(stripImages(request.messages, supported));
+      const prompt = toWebPrompt(request.messages, supported);
       const extractImages = (messages: Record<string, any>[]) => supported ? collectImageUrls(messages) : [];
       const failures: string[] = [];
       const recovered = { signIn: false, verification: false };
@@ -73,7 +73,7 @@ export function createBrowserChatProvider(config: BrowserChatProviderConfig): Pr
             const chunks = await primeChunks(config.parse(await candidate.session.send(config.site, prompt, model, {
               conversationId: request.conversationId,
               messages: request.messages,
-              toPrompt: messages => messagesToPrompt(stripImages(messages, supported)),
+              toPrompt: messages => toWebPrompt(messages, supported),
               extractImages,
             })));
             config.onResult?.(candidate.profile, true);

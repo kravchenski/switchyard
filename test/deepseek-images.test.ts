@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { completionRejection, deepSeekCompletion, fileStatuses, uploadedFileId } from '../src/providers/deepseek/client.ts';
+import { setDeepSeekFetch } from '../src/providers/deepseek/bridge.ts';
 import { createDeepSeekProvider } from '../src/providers/deepseek/provider.ts';
 
 describe('DeepSeek images', () => {
@@ -26,13 +27,12 @@ describe('DeepSeek images', () => {
   });
 
   test('reports an expired account token as an auth error', async () => {
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = (async () => Response.json({ code: 40003, msg: 'Authorization Failed (invalid token)', data: null })) as unknown as typeof fetch;
+    setDeepSeekFetch(async () => Response.json({ code: 40003, msg: 'Authorization Failed (invalid token)', data: null }));
     try {
       await expect(deepSeekCompletion({ messages: [{ role: 'user', content: 'hi' }], conversationId: `expired-${Date.now()}`, account: { id: 'env', token: 'expired', cookies: [] } }))
         .rejects.toMatchObject({ kind: 'auth', message: expect.stringContaining('bun run auth:deepseek') });
     } finally {
-      globalThis.fetch = realFetch;
+      setDeepSeekFetch(null);
     }
   });
 });

@@ -122,6 +122,20 @@ impl AccountsCli {
         self.run(&["add", provider, "--api-key"], Some(&format!("{key}\n")))
     }
 
+    pub fn add_custom(&self, id: &str, url: &str, name: &str) -> Result<String, String> {
+        if id.is_empty() {
+            return Err("Enter a name for the provider".into());
+        }
+        if url.trim().is_empty() {
+            return Err("Enter the base URL of the API".into());
+        }
+        self.run(&["custom", "add", id, "--url", url.trim(), "--name", name.trim()], None)
+    }
+
+    pub fn remove_custom(&self, id: &str) -> Result<String, String> {
+        self.run(&["custom", "remove", id], None)
+    }
+
     pub fn secret_missing(&self) -> Result<bool, String> {
         self.run(&["secret"], None).map(|output| parse_secret_missing(&output))
     }
@@ -172,12 +186,8 @@ impl AccountsCli {
         self.run(&["auto"], None).and_then(|output| crate::settings::parse_auto(&output).ok_or_else(|| "Unexpected auto settings output".to_string()))
     }
 
-    pub fn set_auto_focus(&self, focus: &str) -> Result<String, String> {
-        self.run(&["auto", "--focus", focus], None)
-    }
-
-    pub fn set_auto_mode(&self, mode: &str) -> Result<String, String> {
-        self.run(&["auto", "--mode", mode], None)
+    pub fn set_web_order(&self, order: &[String]) -> Result<String, String> {
+        self.run(&["auto", "--order", &order.join(",")], None)
     }
 
     pub fn set_agent_option(&self, name: &str, on: bool) -> Result<String, String> {
@@ -194,6 +204,18 @@ impl AccountsCli {
     }
 }
 
+pub fn provider_id(name: &str) -> String {
+    let mut id = String::new();
+    for character in name.trim().to_lowercase().chars() {
+        if character.is_ascii_alphanumeric() {
+            id.push(character);
+        } else if !id.ends_with('-') && !id.is_empty() {
+            id.push('-');
+        }
+    }
+    id.trim_end_matches('-').chars().take(32).collect::<String>().trim_end_matches('-').to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +228,14 @@ mod tests {
             provider: "qwen".into(),
             email: "a@example.com".into(),
         }]);
+    }
+
+    #[test]
+    fn turns_a_provider_name_into_an_id() {
+        assert_eq!(provider_id("  Home Ollama (GPU) "), "home-ollama-gpu");
+        assert_eq!(provider_id("LM Studio"), "lm-studio");
+        assert_eq!(provider_id("***"), "");
+        assert_eq!(provider_id(&"a".repeat(40)).len(), 32);
     }
 
     #[test]
@@ -231,8 +261,11 @@ mod tests {
         assert_eq!(cli.harvest().unwrap(), "args:harvest --yes");
         assert_eq!(cli.auto_collect("acct-1").unwrap(), "args:auto-collect --profile acct-1 --yes");
         assert_eq!(cli.remove_profile("acct-1").unwrap(), "args:profile remove acct-1");
-        assert_eq!(cli.set_auto_focus("coding").unwrap(), "args:auto --focus coding");
-        assert_eq!(cli.set_auto_mode("race").unwrap(), "args:auto --mode race");
+        assert_eq!(cli.add_custom("my-lab", " https://llm.example.com/v1 ", "My Lab").unwrap(), "args:custom add my-lab --url https://llm.example.com/v1 --name My Lab");
+        assert_eq!(cli.remove_custom("my-lab").unwrap(), "args:custom remove my-lab");
+        assert!(cli.add_custom("", "https://llm.example.com", "x").is_err());
+        assert!(cli.add_custom("lab", " ", "Lab").is_err());
+        assert_eq!(cli.set_web_order(&["deepseek".into(), "qwen-chat".into()]).unwrap(), "args:auto --order deepseek,qwen-chat");
         assert_eq!(cli.add_profile(" "), Err("Enter a name for the account".into()));
         assert_eq!(cli.set_auto("nvidia", false).unwrap(), "args:provider nvidia --auto off");
         assert_eq!(cli.set_auto("glm-chat", true).unwrap(), "args:provider glm-chat --auto on");

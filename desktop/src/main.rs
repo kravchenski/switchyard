@@ -14,16 +14,17 @@ use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use accounts::{AccountProfile, AccountsCli, SavedAccount};
+use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount};
 use settings::{AutoSettings, DesktopSettings, ThemeChoice};
 use gateway::{check_health, open_in_browser, stop_external, Gateway, GatewayConfig};
 use overview::{activity, detail, display_name, kind_label, Activity, ProviderOverview};
-use status::{check_models, fetch_status, now_ms, read_api_key, refresh_models, relative_time, GatewayStatus, ProviderStatus};
+use status::{check_models, fetch_status, now_ms, read_api_key, refresh_models, relative_time, summarize_requests, GatewayStatus, ProviderStatus};
 use ui::*;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const OVERVIEW_EVERY_POLLS: u32 = 10;
 const COMPACT_WIDTH: f32 = 1100.;
+const COPIED_FOR: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Health {
@@ -76,6 +77,9 @@ struct Shell {
     profile_name: Entity<InputState>,
     api_key: Entity<InputState>,
     account_id: Entity<InputState>,
+    custom_name: Entity<InputState>,
+    custom_url: Entity<InputState>,
+    custom_key: Entity<InputState>,
     key_provider: Option<String>,
     request_filter: Option<String>,
     selected_provider: Option<String>,
@@ -87,6 +91,7 @@ struct Shell {
     compact: bool,
     locked: bool,
     message: Option<(bool, String)>,
+    copied: bool,
 }
 
 impl Shell {
@@ -147,6 +152,9 @@ impl Shell {
             profile_name: cx.new(|cx| InputState::new(window, cx).placeholder("Account name, e.g. Work")),
             api_key: cx.new(|cx| InputState::new(window, cx).placeholder("Paste the API key").masked(true)),
             account_id: cx.new(|cx| InputState::new(window, cx).placeholder("Account ID")),
+            custom_name: cx.new(|cx| InputState::new(window, cx).placeholder("Name, e.g. Home Ollama")),
+            custom_url: cx.new(|cx| InputState::new(window, cx).placeholder("Base URL, e.g. http://localhost:11434/v1")),
+            custom_key: cx.new(|cx| InputState::new(window, cx).placeholder("API key (optional)").masked(true)),
             key_provider: None,
             request_filter: None,
             selected_provider: None,
@@ -158,6 +166,7 @@ impl Shell {
             compact: false,
             locked: false,
             message: None,
+            copied: false,
         };
         shell.refresh(cx);
         shell
@@ -337,6 +346,45 @@ impl Shell {
         self.run_command_then(cx, move |cli| cli.add_api_key(&provider, &key), true, Some(check));
     }
 
+    fn copy_url(&mut self, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(self.api_url()));
+        self.copied = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(COPIED_FOR).await;
+            let _ = this.update(cx, |shell, cx| {
+                shell.copied = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn api_url(&self) -> String {
+        format!("{}/v1", self.gateway.config.base_url())
+    }
+
+    fn name_of(&self, id: &str) -> String {
+        self.overview.iter().find(|row| row.id == id).and_then(|row| row.label.clone()).unwrap_or_else(|| display_name(id).to_string())
+    }
+
+    fn add_custom_provider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.custom_name.read(cx).value().trim().to_string();
+        let url = self.custom_url.read(cx).value().trim().to_string();
+        let key = self.custom_key.read(cx).value().trim().to_string();
+        let id = provider_id(&name);
+        self.custom_key.update(cx, |input, cx| input.set_value("", window, cx));
+        let check = id.clone();
+        self.run_command_then(
+            cx,
+            move |cli| {
+                let added = cli.add_custom(&id, &url, &name)?;
+                if key.is_empty() { Ok(added) } else { cli.add_api_key(&id, &key) }
+            },
+            true,
+            Some(check),
+        );
+    }
+
     fn open_link(&mut self, url: &str) {
         self.message = match open_in_browser(url) {
             Ok(()) => Some((true, format!("Opened {url} in your browser. Create a key there and paste it here."))),
@@ -407,19 +455,17 @@ impl Render for Shell {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .bg(col(SURFACE))
-                    .border_l_1()
-                    .border_color(col(BORDER))
-                    .child(self.render_header())
+                    .child(self.render_header(cx))
                     .child(
                         div()
                             .id("content")
                             .flex_1()
                             .overflow_y_scroll()
-                            .p(px(if self.compact { 16. } else { 24. }))
+                            .px(px(if self.compact { 16. } else { 28. }))
+                            .pb(px(28.))
                             .flex()
                             .flex_col()
-                            .gap_4()
+                            .gap_5()
                             .children(self.render_message())
                             .child(match self.page {
                                 Page::Accounts => self.render_accounts(cx, false),
@@ -436,10 +482,10 @@ impl Render for Shell {
 impl Shell {
     fn health_label(&self) -> (&'static str, u32) {
         match self.health {
-            Health::Online if self.external() => ("Online (external)", GREEN),
-            Health::Online => ("Online", GREEN),
-            Health::Starting => ("Starting…", AMBER),
-            Health::Stopped => ("Stopped", GRAY),
+            Health::Online if self.external() => ("API is running outside the app", GREEN),
+            Health::Online => ("API is running", GREEN),
+            Health::Starting => ("API is starting…", AMBER),
+            Health::Stopped => ("API is stopped", MUTED),
         }
     }
 
@@ -451,54 +497,65 @@ impl Shell {
                 cx.notify();
             }))
         };
+        let address = self.api_url().trim_start_matches("http://").to_string();
+        let gateway = div()
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .px_3()
+            .pt_3()
+            .border_t_1()
+            .border_color(col(BORDER))
+            .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(col(if self.health == Health::Stopped { MUTED } else { TEXT })).child(label))
+            .child(
+                div()
+                    .id("copy-url")
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .text_xs()
+                    .cursor_pointer()
+                    .text_color(col(if self.copied { color } else { MUTED }))
+                    .hover(|style| style.text_color(col(TEXT)))
+                    .child(if self.copied { "Copied to clipboard".to_string() } else { address })
+                    .child(div().text_size(px(12.)).child(if self.copied { IconName::Check } else { IconName::Copy }))
+                    .on_click(cx.listener(|shell, _, _, cx| {
+                        shell.copy_url(cx);
+                        cx.notify();
+                    })),
+            );
         div()
-            .w(px(if self.compact { 200. } else { 236. }))
+            .w(px(if self.compact { 212. } else { 248. }))
             .flex_none()
             .h_full()
             .flex()
             .flex_col()
-            .p_3()
-            .bg(col(SIDEBAR))
-            .child({
-                let enabled = !self.busy && self.health != Health::Starting;
-                let (label, name, tone) = match self.health {
-                    Health::Starting => ("Starting…", IconName::Play, Tone::Outline),
-                    Health::Online => ("Stop API", IconName::Square, Tone::Danger),
-                    Health::Stopped if self.running => ("Stop API", IconName::Square, Tone::Danger),
-                    Health::Stopped => ("Run API", IconName::Play, Tone::Primary),
-                };
-                button("gateway-toggle", label, Some(name), tone, enabled)
-                    .w_full()
-                    .h(px(40.))
-                    .justify_center()
-                    .when(enabled, |this| {
-                        this.on_click(cx.listener(|shell, _, _, cx| {
-                            shell.toggle_gateway(cx);
-                            cx.notify();
-                        }))
-                    })
-            })
-            .child(nav_heading("Main Menu"))
-            .child(nav("nav-requests", IconName::Activity, Page::Requests, cx))
-            .child(nav("nav-api-keys", IconName::KeyRound, Page::ApiKeys, cx))
-            .child(nav("nav-accounts", IconName::Users, Page::Accounts, cx))
-            .child(nav("nav-settings", IconName::Settings, Page::Settings, cx))
-            .child(div().mt_4().h(px(1.)).bg(col(BORDER)))
-            .child(nav_heading("Gateway"))
+            .px_3()
+            .py_4()
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .px_2p5()
-                    .pt_1()
-                    .text_sm()
-                    .child(div().size(px(8.)).flex_none().rounded_full().bg(col(color)))
-                    .child(div().min_w_0().overflow_hidden().child(label)),
+                    .gap_2p5()
+                    .px_2()
+                    .pb_5()
+                    .child(img("logos/switchyard.svg").size(px(30.)).flex_none())
+                    .child(div().font_family(assets::MONO_FAMILY).text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child("switchyard")),
             )
-            .child(div().px_2p5().pt_1().text_xs().text_color(col(MUTED)).child(format!("{}/v1", self.gateway.config.base_url())))
-            .child(div().mt_4().h(px(1.)).bg(col(BORDER)))
-            .child(nav_heading("Providers"))
+            .child(
+                div()
+                    .id("sidebar")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+            .child(nav("nav-requests", IconName::Activity, Page::Requests, cx))
+            .child(nav("nav-api-keys", IconName::KeyRound, Page::ApiKeys, cx))
+            .child(nav("nav-accounts", IconName::Users, Page::Accounts, cx))
+            .child(nav("nav-settings", IconName::Settings, Page::Settings, cx))
+            .child(div().mx_3().my_4().h(px(1.)).bg(col(BORDER)))
             .children(self.overview.iter().map(|row| {
                 let live = self.live(&row.id);
                 let state = activity(row, live);
@@ -507,18 +564,19 @@ impl Shell {
                 div()
                     .id(SharedString::from(format!("side-{}", row.id)))
                     .flex()
+                    .flex_none()
                     .items_center()
                     .gap_2p5()
-                    .h(px(34.))
+                    .h(px(36.))
                     .px_2p5()
-                    .rounded_md()
+                    .rounded_xl()
                     .cursor_pointer()
                     .text_sm()
                     .text_color(col(TEXT))
-                    .when(selected, |this| this.bg(col(SURFACE)).border_1().border_color(col(BORDER)).shadow_sm().font_weight(FontWeight::MEDIUM))
+                    .when(selected, |this| this.bg(col(SURFACE)).shadow_sm().font_weight(FontWeight::MEDIUM))
                     .when(!selected, |this| this.hover(|style| style.bg(col(HOVER))))
                     .child(provider_mark(&row.id, 22.))
-                    .child(div().flex_1().child(display_name(&row.id).to_string()))
+                    .child(div().flex_1().child(self.name_of(&row.id).to_string()))
                     .child(status_dot(state))
                     .on_click(cx.listener(move |shell, _, _, cx| {
                         shell.selected_provider = Some(id.clone());
@@ -526,34 +584,54 @@ impl Shell {
                         shell.message = None;
                         cx.notify();
                     }))
+            })),
+            )
+            .child(gateway)
+    }
+
+    fn render_gateway_toggle(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let enabled = !self.busy && self.health != Health::Starting;
+        let (label, name, tone) = match self.health {
+            Health::Starting => ("Starting…", IconName::Play, Tone::Outline),
+            Health::Online => ("Stop API", IconName::Square, Tone::Danger),
+            Health::Stopped if self.running => ("Stop API", IconName::Square, Tone::Danger),
+            Health::Stopped => ("Run API", IconName::Play, Tone::Primary),
+        };
+        button("gateway-toggle", label, Some(name), tone, enabled).when(enabled, |this| {
+            this.on_click(cx.listener(|shell, _, _, cx| {
+                shell.toggle_gateway(cx);
+                cx.notify();
             }))
+        })
     }
 
     fn page_title(&self) -> String {
         match (self.page, self.selected_provider.as_deref()) {
-            (Page::Provider, Some(id)) => display_name(id).to_string(),
+            (Page::Provider, Some(id)) => self.name_of(id).to_string(),
             (page, _) => page.title().to_string(),
         }
     }
 
-    fn render_header(&self) -> Div {
+    fn render_header(&self, cx: &mut Context<Self>) -> Div {
         div()
             .flex()
             .items_center()
             .justify_between()
-            .h(px(76.))
+            .gap_4()
             .flex_none()
-            .px_6()
-            .border_b_1()
-            .border_color(col(BORDER))
+            .px(px(if self.compact { 16. } else { 28. }))
+            .pt_6()
+            .pb_5()
             .child(
                 div()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(self.page_title()))
-                    .child(muted(self.page.subtitle()).text_xs()),
+                    .child(div().text_2xl().font_weight(FontWeight::SEMIBOLD).child(self.page_title()))
+                    .child(muted(self.page.subtitle())),
             )
+            .child(self.render_gateway_toggle(cx))
     }
 
     fn render_message(&self) -> Option<Div> {
@@ -563,9 +641,9 @@ impl Shell {
                 .flex()
                 .items_center()
                 .gap_2()
-                .px_3()
-                .py_2()
-                .rounded_md()
+                .px_4()
+                .py_2p5()
+                .rounded_xl()
                 .text_sm()
                 .bg(col(if ok { PRIMARY_SOFT } else { DANGER_SOFT }))
                 .text_color(col(if ok { PRIMARY } else { RED }))
@@ -583,7 +661,7 @@ impl Shell {
         let blocked = self.browser_blocked();
 
         let summary = card()
-            .p_4()
+            .p_5()
             .flex()
             .items_center()
             .gap_3()
@@ -600,7 +678,7 @@ impl Shell {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(display_name(&row.id).to_string()))
+                            .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(self.name_of(&row.id).to_string()))
                             .child(status_badge(state)),
                     )
                     .child(muted(format!("{} · {}", kind_label(&row.kind), row.id)).text_xs())
@@ -610,7 +688,19 @@ impl Shell {
                         detail(&row, live)
                     })),
             )
-            .children(row.url.clone().filter(|_| row.kind == "api-key").map(|url| {
+            .children(row.custom.then(|| {
+                let id = row.id.clone();
+                button("provider-remove-custom", "Remove provider", Some(IconName::Trash), Tone::Danger, !self.busy).when(!self.busy, |this| {
+                    this.on_click(cx.listener(move |shell, _, _, cx| {
+                        let id = id.clone();
+                        shell.selected_provider = None;
+                        shell.page = Page::ApiKeys;
+                        shell.run_key_command(cx, move |cli| cli.remove_custom(&id));
+                        cx.notify();
+                    }))
+                })
+            }))
+            .children(row.url.clone().filter(|_| row.kind == "api-key" && !row.custom).map(|url| {
                 button("provider-get-key", "Get API key", Some(IconName::ExternalLink), if state == Activity::NotConnected { Tone::Primary } else { Tone::Outline }, true)
                     .on_click(cx.listener(move |shell, _, _, cx| {
                         shell.open_link(&url);
@@ -618,7 +708,7 @@ impl Shell {
                     }))
             }));
 
-        let connection = card().p_4().flex().flex_col().gap_3().child(div().font_weight(FontWeight::SEMIBOLD).child("Connection"));
+        let connection = card().p_5().flex().flex_col().gap_3().child(section_title("Connection"));
         let connection = match (row.kind.as_str(), row.url.clone()) {
             ("web", Some(url)) => {
                 let open_url = url.clone();
@@ -686,7 +776,7 @@ impl Shell {
         let provider = row.id.clone();
         let auto = row.auto;
         let routing = card()
-            .p_4()
+            .p_5()
             .flex()
             .items_center()
             .justify_between()
@@ -698,7 +788,7 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Use in auto"))
+                    .child(section_title("Use in auto"))
                     .child(muted("When off, model=auto skips this provider. Requests that name its models still work.").text_xs()),
             )
             .child(switch("provider-auto", auto, !self.busy).when(!self.busy, |this| {
@@ -733,7 +823,7 @@ impl Shell {
             .flex()
             .items_center()
             .justify_between()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Models"))
+            .child(section_title("Models"))
             .when(checkable, |this| {
                 this.child(button("provider-check-models", if self.busy { "Working…" } else { "Check models" }, Some(IconName::RefreshCw), Tone::Outline, !self.busy).when(!self.busy, |this| {
                     this.on_click(cx.listener(move |shell, _, _, cx| {
@@ -743,7 +833,7 @@ impl Shell {
                 }))
             });
         let Some(status) = &self.status else {
-            return card().p_4().flex().flex_col().gap_2().child(heading).child(muted("Run the API to see this provider's models."));
+            return card().p_5().flex().flex_col().gap_2().child(heading).child(muted("Run the API to see this provider's models."));
         };
         let mut models: Vec<&str> = status.models.iter().filter(|model| model.provider == provider).map(|model| model.id.as_str()).collect();
         models.sort_by_key(|model| model_rank(status, model));
@@ -794,56 +884,67 @@ impl Shell {
         }
     }
 
+    fn move_web_chat(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        let Some(auto) = self.auto_settings.as_mut() else { return };
+        if from >= auto.order.len() || to >= auto.order.len() {
+            return;
+        }
+        auto.order.swap(from, to);
+        let order = auto.order.clone();
+        self.run_command(cx, move |cli| cli.set_web_order(&order));
+    }
+
     fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {
-        let pill = |id: String, label: &'static str, name: Option<IconName>, active: bool| {
-            div()
-                .id(SharedString::from(id))
-                .flex()
-                .items_center()
-                .gap_2()
-                .h(px(34.))
-                .px_3()
-                .rounded_md()
-                .border_1()
-                .border_color(col(if active { PRIMARY } else { BORDER }))
-                .bg(col(if active { PRIMARY_SOFT } else { SURFACE }))
-                .text_sm()
-                .cursor_pointer()
-                .children(name.map(|name| div().text_size(px(15.)).child(name)))
-                .child(label)
-        };
         let section = |title: &'static str, hint: &'static str| {
-            card().p_4().flex().flex_col().gap_3().child(div().font_weight(FontWeight::SEMIBOLD).child(title)).child(muted(hint).text_xs())
+            card().p_5().flex().flex_col().gap_3().child(div().flex().flex_col().gap_1().child(section_title(title)).child(muted(hint).text_xs()))
         };
         let themes = [(ThemeChoice::Light, "Light", IconName::Sun), (ThemeChoice::Dark, "Dark", IconName::Moon), (ThemeChoice::System, "System", IconName::Monitor)];
-        let theme_row = div().flex().flex_wrap().gap_2().children(themes.into_iter().map(|(choice, label, name)| {
-            pill(format!("theme-{label}"), label, Some(name), self.theme == choice).on_click(cx.listener(move |shell, _, _, cx| {
+        let theme_row = div().flex().flex_wrap().gap_1().p_1().rounded_full().bg(col(CANVAS)).self_start().children(themes.into_iter().map(|(choice, label, name)| {
+            chip(SharedString::from(format!("theme-{label}")), self.theme == choice).child(div().text_size(px(15.)).child(name)).child(label).on_click(cx.listener(move |shell, _, _, cx| {
                 shell.set_theme(choice);
                 cx.notify();
             }))
         }));
         let auto = self.auto_settings.clone();
-        let focuses: [(&'static str, &'static str, &'static str); 4] = [
-            ("general", "General", "Fastest working models first."),
-            ("coding", "Coding", "Models made for code first (coder, codestral, devstral…)."),
-            ("reasoning", "Reasoning", "Thinking models first (reasoner, r1, qwq, magistral…)."),
-            ("fast", "Fast", "Small and quick models first (flash, lightning, mini…)."),
-        ];
-        let current_focus = auto.as_ref().map(|auto| auto.focus.clone()).unwrap_or_default();
-        let focus_hint = focuses.iter().find(|(value, _, _)| *value == current_focus).map(|(_, _, hint)| *hint).unwrap_or("Loading…");
-        let focus_row = div().flex().flex_wrap().gap_2().children(focuses.into_iter().map(|(value, label, _)| {
-            pill(format!("focus-{value}"), label, None, current_focus == value).when(!self.busy, |this| {
-                this.on_click(cx.listener(move |shell, _, _, cx| {
-                    shell.run_command(cx, move |cli| cli.set_auto_focus(value));
-                    cx.notify();
-                }))
-            })
-        }));
-        let modes: [(&'static str, &'static str, &'static str); 3] = [
-            ("fallback", "One by one", "Tries the chain in order and moves on only when a model fails."),
-            ("race", "All at once", "Sends each request to the first three API models at the same time and keeps the first answer; web chats are tried one at a time after them. Faster, but uses the limits of several providers."),
-            ("decide", "Decision model", "A fast model reads each request and picks the model that suits it best; the rest of the chain stays as backup. Adds a few seconds per request. Images are not affected."),
-        ];
+        let order = auto.as_ref().map(|auto| auto.order.clone()).unwrap_or_default();
+        let last = order.len().saturating_sub(1);
+        let order_rows: Vec<Div> = order.iter().enumerate().map(|(index, id)| {
+            let arrow = |direction: &'static str, name: IconName, target: Option<usize>, cx: &mut Context<Self>| {
+                let enabled = target.is_some() && !self.busy;
+                div()
+                    .id(SharedString::from(format!("order-{direction}-{id}")))
+                    .size(px(30.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(col(BORDER))
+                    .text_size(px(14.))
+                    .text_color(col(MUTED))
+                    .child(name)
+                    .when(!enabled, |this| this.opacity(0.35))
+                    .when_some(target.filter(|_| enabled), |this, target| {
+                        this.cursor_pointer().hover(|style| style.bg(col(HOVER))).on_click(cx.listener(move |shell, _, _, cx| {
+                            shell.move_web_chat(index, target, cx);
+                            cx.notify();
+                        }))
+                    })
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py_2()
+                .rounded_xl()
+                .bg(col(CANVAS))
+                .child(div().w(px(18.)).text_sm().font_weight(FontWeight::SEMIBOLD).text_color(col(MUTED)).child((index + 1).to_string()))
+                .child(provider_mark(id, 26.))
+                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).child(self.name_of(id).to_string()))
+                .child(arrow("up", IconName::ArrowUp, index.checked_sub(1), cx))
+                .child(arrow("down", IconName::ArrowDown, (index < last).then_some(index + 1), cx))
+        }).collect();
         let agent_rows: Vec<Div> = auto.as_ref().map(|auto| auto.agents.clone()).unwrap_or_default().into_iter().map(|(name, on)| {
             let (title, description) = agent_option_text(&name);
             div()
@@ -851,7 +952,7 @@ impl Shell {
                 .items_center()
                 .justify_between()
                 .gap_4()
-                .child(div().flex().flex_col().gap_0p5().child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title)).child(muted(description).text_xs()))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap_0p5().child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title)).child(muted(description).text_xs()))
                 .child(switch(SharedString::from(format!("agent-{name}")), on, !self.busy).when(!self.busy, |this| {
                     this.on_click(cx.listener(move |shell, _, _, cx| {
                         let name = name.clone();
@@ -860,23 +961,12 @@ impl Shell {
                     }))
                 }))
         }).collect();
-        let current_mode = auto.as_ref().map(|auto| auto.mode.clone()).unwrap_or_default();
-        let mode_hint = modes.iter().find(|(value, _, _)| *value == current_mode).map(|(_, _, hint)| *hint).unwrap_or("Loading…");
-        let mode_row = div().flex().flex_wrap().gap_2().children(modes.into_iter().map(|(value, label, _)| {
-            pill(format!("mode-{value}"), label, None, current_mode == value).when(!self.busy, |this| {
-                this.on_click(cx.listener(move |shell, _, _, cx| {
-                    shell.run_command(cx, move |cli| cli.set_auto_mode(value));
-                    cx.notify();
-                }))
-            })
-        }));
         div()
             .flex()
             .flex_col()
             .gap_4()
             .child(section("Theme", "Light, dark, or follow the system appearance.").child(theme_row))
-            .child(section("Auto focus", "Which models model=auto prefers. Applies within about 30 seconds.").child(focus_row).child(muted(focus_hint).text_xs()))
-            .child(section("Auto mode", "How model=auto sends a request.").child(mode_row).child(muted(mode_hint).text_xs()))
+            .child(section("Web chat order", "model=auto tries the web chats from top to bottom, then the API models. Applies within about 30 seconds.").child(div().flex().flex_col().gap_2().children(order_rows).children(order.is_empty().then(|| muted("Loading…")))))
             .child(section("Coding agents", "Applied to requests from Claude Code, Codex, pi, OpenCode and other agents that send tools.").children(agent_rows))
             .into_any_element()
     }
@@ -911,7 +1001,7 @@ impl Shell {
                         .child(provider_mark(&account.provider, 26.))
                         .child(div().flex().flex_col().child(account.email.clone()).child(muted(account.id.clone()).text_xs())),
                 )
-                .when(!compact, |this| this.child(cell(140.).text_color(col(MUTED)).child(display_name(&account.provider).to_string())))
+                .when(!compact, |this| this.child(cell(140.).text_color(col(MUTED)).child(self.name_of(&account.provider).to_string())))
                 .child(cell(150.).flex().child(labeled_badge(state_activity, state_label)))
                 .when(!compact, |this| {
                     this.child(cell(100.).text_color(col(MUTED)).child(state.map(|state| state.consecutive_failures.to_string()).unwrap_or_else(|| "—".into())))
@@ -938,14 +1028,14 @@ impl Shell {
                 .gap_2()
                 .h(px(32.))
                 .px_2p5()
-                .rounded_md()
+                .rounded_full()
                 .border_1()
                 .border_color(col(if active { PRIMARY } else { BORDER }))
                 .bg(col(if active { PRIMARY_SOFT } else { SURFACE }))
                 .text_sm()
                 .cursor_pointer()
                 .child(provider_mark(id, 20.))
-                .child(display_name(id).to_string())
+                .child(self.name_of(id).to_string())
                 .on_click(cx.listener(move |shell, _, _, cx| {
                     shell.key_provider = Some(value.clone());
                     cx.notify();
@@ -956,11 +1046,11 @@ impl Shell {
         let add_card = card()
             .flex_1()
             .min_w_0()
-            .p_4()
+            .p_5()
             .flex()
             .flex_col()
             .gap_3()
-            .child(div().flex().items_center().gap_2().child(div().text_size(px(18.)).child(IconName::Users)).child(div().font_weight(FontWeight::SEMIBOLD).child("Add account")))
+            .child(div().flex().items_center().gap_2().child(div().text_size(px(18.)).child(IconName::Users)).child(section_title("Add account")))
             .child(muted("Each account is its own browser profile. Sign it in to Google once, then use “Sign in with Google” on every web chat. Requests rotate between signed-in accounts.").text_xs())
             .child(Input::new(&self.profile_name))
             .child(
@@ -983,7 +1073,7 @@ impl Shell {
             card()
                 .w(px(if compact { 320. } else { 390. }))
                 .flex_none()
-                .p_4()
+                .p_5()
                 .flex()
                 .flex_col()
                 .gap_3()
@@ -1032,7 +1122,7 @@ impl Shell {
                         .border_color(col(BORDER))
                         .text_xs()
                         .child(provider_mark(&chat.id, 18.))
-                        .child(display_name(&chat.id).trim_end_matches(" Chat").to_string())
+                        .child(self.name_of(&chat.id).trim_end_matches(" Chat").to_string())
                         .child(status_dot(state))
                 })))
                 .child(
@@ -1077,11 +1167,11 @@ impl Shell {
         let key_card = card()
             .flex_1()
             .min_w_0()
-            .p_4()
+            .p_5()
             .flex()
             .flex_col()
             .gap_3()
-            .child(div().flex().items_center().gap_2().child(div().text_size(px(18.)).child(IconName::KeyRound)).child(div().font_weight(FontWeight::SEMIBOLD).child("API keys")))
+            .child(div().flex().items_center().gap_2().child(div().text_size(px(18.)).child(IconName::KeyRound)).child(section_title("API keys")))
             .child(muted("Pick a provider. The key is checked and stored encrypted.").text_xs())
             .child(div().flex().flex_wrap().gap_2().children(provider_pills).children(key_providers.is_empty().then(|| muted("Loading providers…"))))
             .child(Input::new(&self.api_key))
@@ -1092,7 +1182,7 @@ impl Shell {
                     .justify_between()
                     .gap_2()
                     .children(selected.clone().and_then(|provider| self.key_page(&provider).map(|url| (provider, url))).map(|(provider, url)| {
-                        button("get-key", format!("Get {} key", display_name(&provider)), Some(IconName::ExternalLink), Tone::Outline, true).on_click(cx.listener(move |shell, _, _, cx| {
+                        button("get-key", format!("Get {} key", self.name_of(&provider)), Some(IconName::ExternalLink), Tone::Outline, true).on_click(cx.listener(move |shell, _, _, cx| {
                             shell.open_link(&url);
                             cx.notify();
                         }))
@@ -1126,7 +1216,7 @@ impl Shell {
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(div().flex().items_center().justify_between().child(div().font_weight(FontWeight::SEMIBOLD).child("Browser accounts")).child(muted(format!("{} account{}", self.profiles.len(), if self.profiles.len() == 1 { "" } else { "s" })).text_xs()))
+                        .child(div().flex().items_center().justify_between().child(section_title("Browser accounts")).child(muted(format!("{} account{}", self.profiles.len(), if self.profiles.len() == 1 { "" } else { "s" })).text_xs()))
                         .child(div().flex().flex_wrap().gap_4().children(profile_cards))
                         .children(blocked.then(|| muted("Connecting and checking open the account's browser profile. Stop the API first, because it uses the same profiles.").text_xs())),
                 )
@@ -1135,7 +1225,7 @@ impl Shell {
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child("Saved accounts"))
+                        .child(section_title("Saved accounts"))
                         .child(card().overflow_hidden().child(table_header(&columns)).children(saved_rows))
                 }))
                 .into_any_element();
@@ -1150,14 +1240,14 @@ impl Shell {
                     .items_center()
                     .justify_between()
                     .gap_3()
-                    .p_4()
+                    .p_5()
                     .bg(col(WARNING_SOFT))
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child("API keys are locked"))
+                            .child(section_title("API keys are locked"))
                             .child(muted("Create an encryption secret in the system keyring so API keys can be saved. Restart the API afterwards.").text_xs()),
                     )
                     .child(button("init-secret", "Create secret", Some(IconName::KeyRound), Tone::Primary, !self.busy).when(!self.busy, |this| {
@@ -1168,7 +1258,24 @@ impl Shell {
                     }))
             }))
             .child(key_card)
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Saved keys"))
+            .child(
+                card()
+                    .p_5()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(section_title("Custom provider"))
+                    .child(muted("Any OpenAI-compatible API: Ollama, LM Studio, vLLM, a company proxy. Use https://, or http:// for localhost. Its models show up as name/model and join auto as a fallback.").text_xs())
+                    .child(div().flex().gap_3().when(self.compact, |this| this.flex_col()).child(div().flex_1().child(Input::new(&self.custom_name))).child(div().flex_1().child(Input::new(&self.custom_url))))
+                    .child(Input::new(&self.custom_key))
+                    .child(div().flex().justify_end().child(button("add-custom", if self.busy { "Working…" } else { "Add provider" }, Some(IconName::Plus), Tone::Primary, !self.busy).when(!self.busy, |this| {
+                        this.on_click(cx.listener(|shell, _, window, cx| {
+                            shell.add_custom_provider(window, cx);
+                            cx.notify();
+                        }))
+                    }))),
+            )
+            .child(section_title("Saved keys"))
             .child(
                 card()
                     .overflow_hidden()
@@ -1178,6 +1285,22 @@ impl Shell {
             )
             .child(muted(format!("Showing {total} saved key{}", if total == 1 { "" } else { "s" })).text_xs())
             .into_any_element()
+    }
+
+    fn render_request_stats(&self, status: &GatewayStatus) -> Div {
+        let summary = summarize_requests(&status.requests);
+        let online = status.providers.iter().filter(|provider| provider.available).count();
+        let divider = || div().w(px(1.)).my_4().bg(col(BORDER));
+        card()
+            .flex()
+            .flex_wrap()
+            .child(stat_tile("Requests", summary.total.to_string(), None))
+            .child(divider())
+            .child(stat_tile("Success rate", summary.success_percent.map(|percent| format!("{percent}%")).unwrap_or_else(|| "—".into()), None))
+            .child(divider())
+            .child(stat_tile("Median first answer", summary.median_latency_ms.map(|ms| format!("{:.1} s", ms as f64 / 1000.)).unwrap_or_else(|| "—".into()), None))
+            .child(divider())
+            .child(stat_tile("Providers online", format!("{online}"), Some((format!("of {}", status.providers.len()), MUTED))))
     }
 
     fn render_requests(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1205,19 +1328,7 @@ impl Shell {
         let pill = |id: Option<String>, label: String, count: usize, cx: &mut Context<Self>| {
             let active = filter == id;
             let key = id.clone().unwrap_or_else(|| "all".into());
-            div()
-                .id(SharedString::from(format!("filter-{key}")))
-                .flex()
-                .items_center()
-                .gap_2()
-                .h(px(32.))
-                .px_2p5()
-                .rounded_md()
-                .border_1()
-                .border_color(col(if active { PRIMARY } else { BORDER }))
-                .bg(col(if active { PRIMARY_SOFT } else { SURFACE }))
-                .text_sm()
-                .cursor_pointer()
+            chip(SharedString::from(format!("filter-{key}")), active)
                 .children(id.as_deref().map(|provider| provider_mark(provider, 20.)))
                 .child(label)
                 .child(div().text_xs().text_color(col(MUTED)).child(count.to_string()))
@@ -1227,7 +1338,7 @@ impl Shell {
                 }))
         };
         let pills: Vec<_> = std::iter::once(pill(None, "All".into(), status.requests.len(), cx))
-            .chain(providers.iter().map(|(id, count)| pill(Some(id.clone()), display_name(id).to_string(), *count, cx)))
+            .chain(providers.iter().map(|(id, count)| pill(Some(id.clone()), self.name_of(id).to_string(), *count, cx)))
             .collect();
         let visible: Vec<_> = status.requests.iter().filter(|request| filter.as_deref().is_none_or(|id| request.provider == id)).take(50).collect();
         let columns: Vec<(&'static str, f32)> = if compact {
@@ -1240,7 +1351,7 @@ impl Shell {
             table_row()
                 .child(cell(if compact { 90. } else { 110. }).text_color(col(MUTED)).child(relative_time(request.created_at, now)))
                 .when(!compact, |this| {
-                    this.child(cell(150.).flex().items_center().gap_2().child(provider_mark(&request.provider, 20.)).child(display_name(&request.provider).to_string()))
+                    this.child(cell(150.).flex().items_center().gap_2().child(provider_mark(&request.provider, 20.)).child(self.name_of(&request.provider).to_string()))
                 })
                 .child(
                     cell(0.)
@@ -1264,8 +1375,9 @@ impl Shell {
         div()
             .flex()
             .flex_col()
-            .gap_4()
-            .child(div().flex().flex_wrap().gap_2().children(pills))
+            .gap_5()
+            .child(self.render_request_stats(status))
+            .child(div().flex().flex_wrap().gap_1().children(pills))
             .child(
                 card()
                     .overflow_hidden()
@@ -1290,7 +1402,7 @@ fn main() {
         cx.on_window_closed(|cx, _| cx.quit()).detach();
         cx.spawn(async move |cx| {
             let options = WindowOptions {
-                titlebar: Some(TitlebarOptions { title: Some("Free AI Gateway".into()), ..Default::default() }),
+                titlebar: Some(TitlebarOptions { title: Some("Switchyard".into()), ..Default::default() }),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             };

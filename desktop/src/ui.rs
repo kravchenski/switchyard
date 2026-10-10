@@ -7,24 +7,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::assets::logo_path;
 use crate::overview::Activity;
 
-pub const CANVAS: u32 = 0xf3f4f6;
+pub const CANVAS: u32 = 0xeef0f3;
 pub const SURFACE: u32 = 0xffffff;
-pub const SIDEBAR: u32 = 0xf9fafb;
-pub const BORDER: u32 = 0xe5e7eb;
-pub const HEADER_ROW: u32 = 0xf9fafb;
-pub const TEXT: u32 = 0x111827;
-pub const MUTED: u32 = 0x6b7280;
+pub const BORDER: u32 = 0xe4e6ea;
+pub const TEXT: u32 = 0x14161a;
+pub const MUTED: u32 = 0x717784;
 pub const PRIMARY: u32 = 0x1f7a4d;
-pub const PRIMARY_SOFT: u32 = 0xe8f3ee;
+pub const PRIMARY_SOFT: u32 = 0xe6f2ec;
 pub const GREEN: u32 = 0x16a34a;
 pub const AMBER: u32 = 0xd97706;
 pub const RED: u32 = 0xdc2626;
 pub const GRAY: u32 = 0x9ca3af;
 
-pub const HOVER: u32 = 0xf1f2f4;
-pub const WARNING_SOFT: u32 = 0xfffbeb;
-pub const DANGER_SOFT: u32 = 0xfef2f2;
+pub const HOVER: u32 = 0xe6e8ec;
+pub const WARNING_SOFT: u32 = 0xfdf4e3;
+pub const DANGER_SOFT: u32 = 0xfdeeee;
+pub const NEUTRAL_SOFT: u32 = 0xf1f2f4;
 pub const SWITCH_OFF: u32 = 0xd1d5db;
+const SUCCESS_TEXT: u32 = 0x15803d;
+const WARNING_TEXT: u32 = 0xb45309;
+const DANGER_TEXT: u32 = 0xc81e1e;
 const WHITE: u32 = 0xffffff;
 
 static DARK: AtomicBool = AtomicBool::new(false);
@@ -39,18 +41,21 @@ pub fn is_dark() -> bool {
 
 fn dark_variant(hex: u32) -> u32 {
     match hex {
-        SURFACE => 0x15181d,
-        CANVAS => 0x0e1013,
-        SIDEBAR => 0x111418,
-        BORDER => 0x2a2f37,
-        TEXT => 0xe6e8eb,
-        MUTED => 0x9aa3ad,
-        PRIMARY => 0x2f9e67,
-        PRIMARY_SOFT => 0x14301f,
-        HOVER => 0x1d2127,
-        WARNING_SOFT => 0x2b2512,
-        DANGER_SOFT => 0x2e1618,
+        SURFACE => 0x171a1f,
+        CANVAS => 0x0d0f12,
+        BORDER => 0x272b32,
+        TEXT => 0xe8eaed,
+        MUTED => 0x9aa1ac,
+        PRIMARY => 0x34a873,
+        PRIMARY_SOFT => 0x132b1f,
+        HOVER => 0x1e2228,
+        WARNING_SOFT => 0x2b2310,
+        DANGER_SOFT => 0x2e1517,
+        NEUTRAL_SOFT => 0x1e2228,
         SWITCH_OFF => 0x3b414a,
+        SUCCESS_TEXT => 0x4ade80,
+        WARNING_TEXT => 0xfbbf24,
+        DANGER_TEXT => 0xf87171,
         other => other,
     }
 }
@@ -68,6 +73,15 @@ pub fn activity_color(activity: Activity) -> u32 {
     }
 }
 
+fn activity_tint(activity: Activity) -> (u32, u32) {
+    match activity {
+        Activity::Active => (PRIMARY_SOFT, SUCCESS_TEXT),
+        Activity::Degraded => (WARNING_SOFT, WARNING_TEXT),
+        Activity::Inactive => (DANGER_SOFT, DANGER_TEXT),
+        Activity::Unknown | Activity::NotConnected => (NEUTRAL_SOFT, MUTED),
+    }
+}
+
 pub fn provider_mark(id: &str, size: f32) -> Div {
     let frame = div()
         .size(px(size))
@@ -75,13 +89,17 @@ pub fn provider_mark(id: &str, size: f32) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(size * 0.28))
+        .rounded(px(size * 0.3))
         .border_1()
         .border_color(col(BORDER))
         .bg(rgb(WHITE));
     match logo_path(id) {
         Some(path) => frame.child(img(path).size(px(size * 0.62))),
-        None => frame.text_color(col(MUTED)).text_size(px(size * 0.45)).child("?"),
+        None => frame
+            .text_color(rgb(0x14161a))
+            .text_size(px(size * 0.45))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(id.chars().next().map(|letter| letter.to_ascii_uppercase().to_string()).unwrap_or_default()),
     }
 }
 
@@ -94,19 +112,18 @@ pub fn status_badge(activity: Activity) -> Div {
 }
 
 pub fn labeled_badge(activity: Activity, label: impl Into<SharedString>) -> Div {
-    let color = activity_color(activity);
+    let (bg, fg) = activity_tint(activity);
     div()
         .flex()
+        .flex_none()
         .items_center()
-        .gap_1p5()
         .px_2()
         .py_0p5()
-        .rounded_full()
-        .border_1()
-        .border_color(col(BORDER))
+        .rounded_md()
+        .bg(col(bg))
         .text_xs()
-        .text_color(col(TEXT))
-        .child(div().size(px(7.)).rounded_full().bg(col(color)))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(col(fg))
         .child(label.into())
 }
 
@@ -124,34 +141,37 @@ pub fn switch(id: impl Into<SharedString>, on: bool, enabled: bool) -> Stateful<
         .when(on, |this| this.justify_end())
         .when(!enabled, |this| this.opacity(0.5))
         .when(enabled, |this| this.cursor_pointer())
-        .child(div().size(px(18.)).rounded_full().bg(col(SURFACE)).shadow_sm())
+        .child(div().size(px(18.)).rounded_full().bg(rgb(WHITE)).shadow_sm())
 }
 
 pub fn card() -> Div {
-    div().rounded_lg().border_1().border_color(col(BORDER)).bg(col(SURFACE))
+    div().rounded(px(16.)).border_1().border_color(col(BORDER)).bg(col(SURFACE)).shadow_xs()
+}
+
+pub fn section_title(title: impl Into<SharedString>) -> Div {
+    div().text_base().font_weight(FontWeight::SEMIBOLD).child(title.into())
 }
 
 pub fn table_header(columns: &[(&'static str, f32)]) -> Div {
     div()
         .flex()
         .items_center()
-        .h(px(38.))
-        .px_4()
-        .bg(col(HEADER_ROW))
+        .h(px(40.))
+        .px_5()
         .border_b_1()
         .border_color(col(BORDER))
-        .text_xs()
-        .font_weight(FontWeight::MEDIUM)
+        .text_size(px(11.))
+        .font_weight(FontWeight::SEMIBOLD)
         .text_color(col(MUTED))
-        .children(columns.iter().map(|(title, width)| cell(*width).child(*title)))
+        .children(columns.iter().map(|(title, width)| cell(*width).child(title.to_uppercase())))
 }
 
 pub fn table_row() -> Div {
     div()
         .flex()
         .items_center()
-        .min_h(px(52.))
-        .px_4()
+        .min_h(px(54.))
+        .px_5()
         .border_b_1()
         .border_color(col(BORDER))
         .text_sm()
@@ -186,6 +206,30 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, leading:
         Tone::Outline => (SURFACE, TEXT, BORDER),
         Tone::Danger => (SURFACE, RED, BORDER),
     };
+    let fg = if matches!(tone, Tone::Primary) { rgb(WHITE) } else { col(fg) };
+    div()
+        .id(id.into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .h(px(36.))
+        .px_4()
+        .rounded_full()
+        .border_1()
+        .border_color(col(border))
+        .bg(col(bg))
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(fg)
+        .when(matches!(tone, Tone::Primary), |this| this.shadow_sm())
+        .when(!enabled, |this| this.opacity(0.45))
+        .when(enabled, |this| this.cursor_pointer().hover(|style| style.opacity(0.85)))
+        .children(leading.map(|name| div().text_size(px(15.)).child(name)))
+        .child(label.into())
+}
+
+pub fn chip(id: impl Into<ElementId>, active: bool) -> Stateful<Div> {
     div()
         .id(id.into())
         .flex()
@@ -193,38 +237,50 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, leading:
         .items_center()
         .gap_2()
         .h(px(34.))
-        .px_3()
-        .rounded_md()
+        .px_3p5()
+        .rounded_full()
         .border_1()
-        .border_color(col(border))
-        .bg(col(bg))
         .text_sm()
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(col(fg))
-        .when(!enabled, |this| this.opacity(0.45))
-        .when(enabled, |this| this.cursor_pointer().hover(|style| style.opacity(0.85)))
-        .children(leading.map(|name| div().text_size(px(15.)).child(name)))
-        .child(label.into())
+        .cursor_pointer()
+        .when(active, |this| this.bg(col(SURFACE)).border_color(col(BORDER)).shadow_xs().font_weight(FontWeight::MEDIUM).text_color(col(TEXT)))
+        .when(!active, |this| this.border_color(gpui_kit::transparent_black()).text_color(col(MUTED)).hover(|style| style.bg(col(HOVER))))
+}
+
+pub fn stat_tile(label: &'static str, value: impl Into<SharedString>, note: Option<(String, u32)>) -> Div {
+    div()
+        .flex_1()
+        .min_w(px(140.))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .px_5()
+        .py_4()
+        .child(div().text_xs().text_color(col(MUTED)).child(label))
+        .child(
+            div()
+                .flex()
+                .items_baseline()
+                .gap_2()
+                .child(div().text_2xl().font_weight(FontWeight::SEMIBOLD).child(value.into()))
+                .children(note.map(|(text, color)| div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(col(color)).child(text))),
+        )
 }
 
 pub fn nav_item(id: impl Into<ElementId>, name: IconName, label: &'static str, selected: bool) -> Stateful<Div> {
     div()
         .id(id.into())
         .flex()
+        .flex_none()
         .items_center()
-        .gap_2p5()
-        .h(px(34.))
-        .px_2p5()
-        .rounded_md()
+        .gap_3()
+        .h(px(40.))
+        .px_3()
+        .rounded_xl()
         .text_sm()
         .cursor_pointer()
         .text_color(col(if selected { TEXT } else { MUTED }))
-        .when(selected, |this| this.bg(col(SURFACE)).border_1().border_color(col(BORDER)).shadow_sm().font_weight(FontWeight::MEDIUM))
+        .when(selected, |this| this.bg(col(SURFACE)).shadow_sm().font_weight(FontWeight::MEDIUM))
         .when(!selected, |this| this.hover(|style| style.bg(col(HOVER))))
         .child(div().text_size(px(16.)).child(name))
         .child(label)
-}
-
-pub fn nav_heading(label: &'static str) -> Div {
-    div().px_2p5().pt_4().pb_1().text_xs().font_weight(FontWeight::MEDIUM).text_color(col(TEXT)).child(label)
 }

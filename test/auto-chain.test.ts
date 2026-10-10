@@ -120,7 +120,7 @@ describe('SmartRouter auto chain', () => {
 describe('buildAgentChain', () => {
   const api = (id: string, nativeTools = true) => ({ id, provider: 'nvidia', fallback: true, nativeTools });
 
-  test('puts strong native tool models first, drops weak ones and keeps the auto chain as fallback', () => {
+  test('keeps the auto chain first and appends strong native tool models as fallback, dropping weak ones', () => {
     const chain = buildAgentChain([
       api('meta/llama-3.1-8b-instruct'),
       api('acme/helper-model'),
@@ -128,7 +128,7 @@ describe('buildAgentChain', () => {
       api('nvidia/nemotron-3-nano-30b'),
       api('text/only-model', false),
     ], new ModelStats(), ['qwen-chat', 'openai/gpt-oss-120b', 'glm-chat']);
-    expect(chain).toEqual(['openai/gpt-oss-120b', 'acme/helper-model', 'qwen-chat', 'glm-chat']);
+    expect(chain).toEqual(['qwen-chat', 'openai/gpt-oss-120b', 'glm-chat', 'acme/helper-model']);
   });
 
   test('without native tool models it is the auto chain', () => {

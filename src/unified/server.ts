@@ -6,7 +6,7 @@ import { serve } from 'bun';
 import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
-import { conversationalShellText, parseToolCallJson, recoverBrokenBashToolCall, toolsToPrompt } from '../core/tools/tool-calls.ts';
+import { conversationalShellText, hasFabricatedTranscript, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, toolsToPrompt } from '../core/tools/tool-calls.ts';
 import { bearerToken, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
 import { ResponsesStreamTranslator } from '../gateway/responses-stream.ts';
@@ -31,7 +31,6 @@ import { createQwenChatImages } from '../providers/images/qwen-chat.ts';
 import { collectChunks, ToolCallAssembler } from '../core/streaming/sse.ts';
 import { ProviderError, toHttpError } from '../core/providers/errors.ts';
 import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
-import { focusPreference, type AutoFocus } from '../core/router/focus.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
 import { AGENT_MODEL, AUTO_MODEL, isVirtualModel, parseAutoModels, SmartRouter, VIRTUAL_MODELS, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
 import { collectImageUrls } from '../core/providers/prompt.ts';
@@ -44,7 +43,8 @@ import { parseQwenStream, QWEN_CHAT_SITE } from '../providers/qwen/web.ts';
 import { gatewayStatus } from '../core/status.ts';
 import { Metrics, requestIdFrom } from '../observability/metrics.ts';
 import type { Database } from 'bun:sqlite';
-import { API_KEY_PROVIDERS, apiKeyProvider, createApiProvider, createNvidiaProvider, defaultAuto, forgetSavedKeys, FREE_API_PROVIDERS } from '../providers/catalog.ts';
+import { API_KEY_PROVIDERS, apiKeyProvider, createApiProvider, createNvidiaProvider, defaultAuto, forgetSavedKeys, FREE_API_PROVIDERS, setCustomProviders } from '../providers/catalog.ts';
+import { CUSTOM_PROVIDERS_SETTING, customProviderDefinition, readCustomProviders } from '../providers/custom.ts';
 import { openCredentialStore, savedApiKey } from '../core/accounts/credential-store.ts';
 import { parseKeyList } from '../core/accounts/key-pool.ts';
 import { loadAccountsSecret } from '../core/secrets/accounts-secret.ts';
@@ -257,7 +257,7 @@ const providerSettings = new ProviderSettings({
     save: setting => saveProviderSetting(db(), setting),
 }, Date.now, defaultAuto);
 
-const gatewaySettings = new GatewaySettings({
+export const gatewaySettings = new GatewaySettings({
     load: key => loadGatewaySetting(db(), key),
     save: (key, value) => saveGatewaySetting(db(), key, value),
 });
@@ -266,12 +266,10 @@ const decisions = new DecisionLog();
 
 export const router = new SmartRouter(registry, parseAutoModels(config.AUTO_MODELS), Date.now, {
     onDecision: decision => decisions.add(decision),
-    choose: (prompt, routes) => chooseRoute(prompt, routes),
     firstChunkTimeoutMs: config.AUTO_FIRST_CHUNK_TIMEOUT_MS,
     autoEnabled: provider => providerSettings.autoEnabled(provider),
-    autoMode: () => gatewaySettings.autoMode(),
     prepareAuto: () => {
-        if (gatewaySettings.autoFocus() !== chainFocus) rebuildAutoChain();
+        if (gatewaySettings.webOrder().join(',') !== chainOrder) rebuildAutoChain();
     },
 });
 
@@ -309,26 +307,49 @@ function logRequest(entry: RequestLog) {
 
 let allModels: ModelEntry[] = [];
 
+const customBaseUrls = new Map<string, string>();
+
+function syncCustomProviders() {
+    let definitions;
+    try {
+        definitions = readCustomProviders(loadGatewaySetting(db(), CUSTOM_PROVIDERS_SETTING)).map(customProviderDefinition);
+    } catch (error) {
+        console.error('Custom providers unavailable:', errorText(error));
+        return;
+    }
+    setCustomProviders(definitions);
+    for (const [id, baseUrl] of customBaseUrls) {
+        if (definitions.some(definition => definition.id === id && definition.baseUrl === baseUrl)) continue;
+        registry.unregister(id);
+        customBaseUrls.delete(id);
+    }
+    for (const definition of definitions) {
+        if (customBaseUrls.has(definition.id) || registry.list().some(provider => provider.id === definition.id)) continue;
+        registry.register(createApiProvider(definition, {}, credentialStore));
+        customBaseUrls.set(definition.id, definition.baseUrl);
+    }
+}
+
 async function refreshModelLists() {
     allModels = [...VIRTUAL_MODELS.map(id => ({ id, ownedBy: 'gateway' })), ...await registry.listModels()];
     rebuildAutoChain();
 }
 
-let chainFocus: AutoFocus | undefined;
+let chainOrder: string | undefined;
 
 function rebuildAutoChain() {
-    chainFocus = gatewaySettings.autoFocus();
+    const webOrder = gatewaySettings.webOrder();
+    chainOrder = webOrder.join(',');
     const isAvailable = (model: string) => registry.availability.isAvailable(model);
-    const preference = focusPreference(chainFocus);
     const candidates = allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
         if (!provider) return [];
         const capabilities = provider.capabilities(entry.id);
         return [{ id: entry.id, provider: provider.id, fallback: provider.fallback ?? false, vision: capabilities.vision, nativeTools: capabilities.nativeTools }];
     });
-    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, preference));
-    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, preference));
-    router.setChain(AGENT_MODEL, buildAgentChain(candidates, registry.stats, router.autoChain(), isAvailable, preference));
+    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, webOrder));
+    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, webOrder));
+    router.setChain(AGENT_MODEL, buildAgentChain(candidates, registry.stats, router.autoChain(), isAvailable));
 }
 
 function loadModelStatistics() {
@@ -427,6 +448,11 @@ function processToolCalls(
     nativeCalls: ToolCall[] = []
 ) {
     if (nativeCalls.length) return withRtk(content, nativeCalls.map((call, index) => ({ ...call, index })), null);
+    if (captureToolCalls && hasFabricatedTranscript(content)) {
+        const transcriptCalls = parseToolCallJson(content, combinedTools);
+        content = stripFabricatedTranscript(content);
+        if (transcriptCalls?.length) return withRtk(content, transcriptCalls, null);
+    }
     const recoveredShell = captureToolCalls ? recoverBrokenBashToolCall(content) : null;
     const conversationalText = recoveredShell
         ? conversationalShellText(recoveredShell.name, recoveredShell.arguments)
@@ -472,6 +498,66 @@ function streamChunk(
     })}\n\n`;
 }
 
+const TOOL_BLOCK_PATTERNS = [
+    /\{\s*"(?:tool_calls|tool_call|function_call|name|tool|function)"\s*:/,
+    /<[\uff5c|]+\s*DSML/,
+    /<function=/i,
+    /<(?:bash|terminal|read|ls|find|grep)>/i,
+    /\[\u8c03\u7528/,
+    /^[ \t]*Tool call:/m,
+    /^[ \t]*(?:Assistant tool calls:|Tool result \()/m,
+    /```(?:bash|sh|shell|zsh)/i
+];
+
+const TOOL_BLOCK_PREFIXES = [
+    '{"tool_calls"', '{"tool_call"', '{"function_call"', '{"name"', '{"tool"', '{"function"',
+    '<|DSML', '<||DSML', '<\uff5cDSML', '<\uff5c\uff5cDSML',
+    '<function=', '<bash>', '<terminal>', '<read>', '<ls>', '<find>', '<grep>',
+    '[\u8c03\u7528', 'Tool call:', '```bash', '```sh', '```shell', '```zsh'
+];
+
+const TRANSCRIPT_PREFIXES = ['Assistant tool calls:', 'Tool result ('];
+
+function toolBlockHoldLength(text: string) {
+    const trimmed = text.replace(/\s+$/, '');
+    const trailing = text.length - trimmed.length;
+    let hold = 0;
+    for (const prefix of TOOL_BLOCK_PREFIXES) {
+        const max = Math.min(prefix.length, trimmed.length);
+        for (let length = max; length > hold - trailing; length--) {
+            if (trimmed.endsWith(prefix.slice(0, length))) {
+                hold = length + trailing;
+                break;
+            }
+        }
+    }
+    for (const prefix of TRANSCRIPT_PREFIXES) {
+        for (let length = Math.min(prefix.length, trimmed.length); length >= 2 && length > hold - trailing; length--) {
+            const start = trimmed.length - length;
+            if (trimmed.endsWith(prefix.slice(0, length)) && /(?:^|\n)[ \t]*$/.test(trimmed.slice(0, start))) {
+                hold = length + trailing;
+                break;
+            }
+        }
+    }
+    return hold;
+}
+
+function toolBlockIndex(text: string) {
+    let earliest = -1;
+    for (const pattern of TOOL_BLOCK_PATTERNS) {
+        const match = pattern.exec(text);
+        if (match?.index !== undefined && (earliest < 0 || match.index < earliest)) earliest = match.index;
+    }
+    return earliest;
+}
+
+function safeStreamLength(text: string) {
+    const boundary = text.length - toolBlockHoldLength(text);
+    const block = toolBlockIndex(text);
+    return block >= 0 ? Math.min(boundary, block) : boundary;
+}
+
 function handleProviderStream(
     id: string,
     created: number,
@@ -506,6 +592,8 @@ function handleProviderStream(
 
         let content = '';
         let reasoning = '';
+        let sentContent = 0;
+        let sentReasoning = 0;
         const assembler = new ToolCallAssembler();
         for await (const chunk of first.chunks) {
             if (chunk.type === 'tool_call') {
@@ -514,17 +602,31 @@ function handleProviderStream(
             }
             if (chunk.type === 'content') content += chunk.text;
             else reasoning += chunk.text;
-            if (captureToolCalls) continue;
-            send(chunk.type === 'content' ? { content: chunk.text } : { reasoning_content: chunk.text });
+            if (!captureToolCalls) {
+                send(chunk.type === 'content' ? { content: chunk.text } : { reasoning_content: chunk.text });
+                continue;
+            }
+            const safe = safeStreamLength(content);
+            if (safe > sentContent) {
+                send({ content: content.slice(sentContent, safe) });
+                sentContent = safe;
+            }
+            if (reasoning.length > sentReasoning) {
+                send({ reasoning_content: reasoning.slice(sentReasoning) });
+                sentReasoning = reasoning.length;
+            }
         }
         let nativeCalls = assembler.result();
 
-        if (captureToolCalls && !nativeCalls.length && (needsNudge(content) || announcesAction(content, combinedTools)) && !isCodebaseActionRequest(messages)) {
+        if (captureToolCalls && !nativeCalls.length && sentContent === 0 && (needsNudge(content) || announcesAction(content, combinedTools)) && !isCodebaseActionRequest(messages)) {
             ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks((await retry()).chunks));
+            sentContent = 0;
+            sentReasoning = 0;
         }
 
-        const { toolCalls, conversationalText } = processToolCalls(content, captureToolCalls, combinedTools, messages, nativeCalls);
-        if (conversationalText) content = conversationalText;
+        const processed = processToolCalls(content, captureToolCalls, combinedTools, messages, nativeCalls);
+        const { toolCalls, conversationalText } = processed;
+        content = conversationalText || processed.content;
 
         if (toolCalls?.length) {
             for (const call of toolCalls) {
@@ -532,8 +634,11 @@ function handleProviderStream(
             }
             send({}, 'tool_calls');
         } else {
-            if (captureToolCalls && reasoning) send({ reasoning_content: reasoning });
-            if (captureToolCalls && content) send({ content });
+            if (captureToolCalls && reasoning.slice(sentReasoning)) send({ reasoning_content: reasoning.slice(sentReasoning) });
+            if (captureToolCalls && content) {
+                const tail = conversationalText || content.slice(sentContent);
+                if (tail) send({ content: tail });
+            }
             send({}, 'stop');
         }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -559,6 +664,7 @@ app.post('/v1/gateway/providers/:id/check', async (c) => {
 });
 
 app.post('/v1/gateway/refresh', async (c) => {
+    syncCustomProviders();
     forgetSavedKeys();
     await refreshModelLists();
     return c.json({
@@ -572,8 +678,7 @@ app.get('/v1/gateway/status', (c) => c.json({
     autoModels: router.autoChain(),
     visionModels: router.autoChain(VISION_MODEL),
     agentModels: router.autoChain(AGENT_MODEL),
-    autoFocus: gatewaySettings.autoFocus(),
-    autoMode: gatewaySettings.autoMode(),
+    webOrder: gatewaySettings.webOrder(),
     modelStats: registry.stats.list(),
     models: allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
@@ -677,7 +782,7 @@ app.post('/api/chat/completions', async (c) => {
                 ...(native ? { tools: promptTools as ChatMessage[] } : {}),
             };
         };
-        const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details, { nativeToolsFirst: captureToolCalls })
+        const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details)
             .catch(error => {
                 logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error) });
                 throw error;
@@ -761,7 +866,6 @@ const imageProviders: ImageProvider[] = [
 const DECISION_TIMEOUT_MS = 15_000;
 const DECISION_CANDIDATES = 3;
 const QUICK_DECISION_MS = 8_000;
-const CHOOSE_OPTIONS = 16;
 
 function decisionModels(requested?: string) {
     if (requested && !isVirtualModel(requested) && registry.resolve(requested)) return [requested];
@@ -793,35 +897,6 @@ async function completeDecision(messages: ChatMessage[], read: (text: string) =>
         }
     }
     throw new ProviderError(failures.length ? `No decision model answered: ${failures.join('; ')}` : 'No API model is available for decisions', 'unavailable', 503);
-}
-
-function describeRoute(route: Route) {
-    const stat = registry.stats.get(route.model);
-    const traits = (['coding', 'reasoning', 'fast'] as const).filter(focus => focusPreference(focus)(route.model) > 0);
-    const size = /(\d+(?:\.\d+)?)b\b/i.exec(route.model.replace(/-a\d+(?:\.\d+)?b\b/i, ''))?.[1];
-    return [
-        route.provider.fallback ? `${route.model} through the ${route.provider.id} API` : `${route.model}: a flagship model in the ${route.provider.id} web chat, strong but slower`,
-        size ? `about ${size}B parameters` : undefined,
-        traits.length ? `good for ${traits.join(', ')}` : undefined,
-        stat?.latencyMs !== undefined ? `first answer in about ${(stat.latencyMs / 1000).toFixed(1)}s` : undefined,
-    ].filter(Boolean).join('; ');
-}
-
-async function chooseRoute(prompt: string, routes: Route[]) {
-    const options = routes.slice(0, CHOOSE_OPTIONS);
-    const request: DecisionRequest = {
-        state: { request: prompt.slice(0, 4_000) },
-        questions: {
-            which: {
-                type: 'choice',
-                instructions: 'Which model should answer this request? For coding, reasoning, analysis or long writing pick a large, strong model (a flagship web chat or an API model well above 30B parameters). Pick a small fast model only for a greeting or a trivial one-line answer.',
-                criteria: Object.fromEntries(options.map(route => [route.model, describeRoute(route)])),
-            },
-        },
-    };
-    const { answers } = await decide(request, (messages, read) => completeDecision(messages, read));
-    const answer = answers.which;
-    return answer && 'choice' in answer ? answer.choice : undefined;
 }
 
 const toolSelector = new ToolSelector((request, questions) =>
@@ -1026,6 +1101,7 @@ export async function startUnifiedServer() {
     process.once('SIGTERM', shutdown);
     await loadAccountsSecret();
     loadModelStatistics();
+    syncCustomProviders();
     await refreshModelLists();
     scheduleModelRefresh();
     const modelCount = allModels.length;
@@ -1038,7 +1114,7 @@ export async function startUnifiedServer() {
     });
 
     console.log(`
-  FreeQwenApi — OpenCode-compatible API
+  Switchyard — OpenAI- and Anthropic-compatible API
 
   Endpoint: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}
   Models:   ${modelCount} total (fetched from upstream APIs)

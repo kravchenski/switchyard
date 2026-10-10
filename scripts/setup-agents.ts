@@ -20,7 +20,7 @@ try {
         const detail = result.detail ? ` (${result.detail})` : '';
         console.log(`- ${result.agent}: ${result.status} ${result.path}${detail}`);
     }
-    console.log('\nCodex uses the native FreeQwenApi Responses bridge; Claude Code can use the optional LiteLLM bridge. See ~/.freeqwenapi/README.md.');
+    console.log('\nCodex and Claude Code connect directly to the gateway (Responses and Anthropic Messages). See ~/.freeqwenapi/README.md.');
 } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);

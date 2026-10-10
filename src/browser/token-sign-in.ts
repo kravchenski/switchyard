@@ -7,7 +7,7 @@ import { evaluateSignIn, readSignIn, type SignInResult, type SignInRule } from '
 const SETTLE_MS = 5_000;
 const NAVIGATION_RETRIES = 3;
 
-export interface TokenCheck extends SignInResult {
+interface TokenCheck extends SignInResult {
   token?: string;
 }
 
@@ -26,7 +26,7 @@ export function supportsTokenSignIn(site: ChatSite) {
   return Boolean(site.signIn?.storageKey);
 }
 
-export async function checkTokenWithSite(page: Page, path: string, token: string, rule: SignInRule): Promise<TokenCheck> {
+async function checkTokenWithSite(page: Page, path: string, token: string, rule: SignInRule): Promise<TokenCheck> {
   const answer = await settled(page, () => page.evaluate(async ({ path, token }) => {
     const response = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
     return { status: response.status, body: response.ok ? await response.json().catch(() => null) : null };

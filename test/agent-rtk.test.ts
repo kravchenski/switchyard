@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { restoreShellCalls, rewriteShellCalls, rtkPath, rtkRewriter } from '../src/core/agents/rtk.ts';
+import { restoreShellCalls, rewriteShellCalls, rtkPath, rtkRewriter, splitLineFilters } from '../src/core/agents/rtk.ts';
 
 const call = (name: string, args: Record<string, unknown>) => ({ id: 'c', type: 'function', function: { name, arguments: JSON.stringify(args) } });
 const fake = (command: string) => (/^(?:git|ls|cat) /.test(command) ? `rtk ${command}` : undefined);
@@ -63,6 +63,33 @@ describe('rtk rewriting', () => {
     expect(rewrite('npm test')).toBeUndefined();
   });
 
+  test('rewrites the command in front of head and tail pipes', () => {
+    const seen: string[] = [];
+    const rewrite = rtkRewriter('rtk', (_binary, command) => {
+      seen.push(command);
+      if (command.includes('|')) return { exitCode: 1, stdout: '' };
+      return /^(?:ls|git) /.test(command) ? { exitCode: 3, stdout: `rtk ${command}\n` } : { exitCode: 1, stdout: '' };
+    })!;
+    expect(rewrite('ls -la /tmp/pi-clipboard-* 2>/dev/null | tail -20')).toBe('rtk ls -la /tmp/pi-clipboard-* 2>/dev/null | tail -20');
+    expect(rewrite('git log --oneline | head -n 5 | tail -2')).toBe('rtk git log --oneline | head -n 5 | tail -2');
+    expect(seen).toContain('ls -la /tmp/pi-clipboard-* 2>/dev/null');
+  });
+
+  test('leaves pipes that parse the output untouched', () => {
+    const rewrite = rtkRewriter('rtk', (_binary, command) => (command.includes('|') ? { exitCode: 1, stdout: '' } : { exitCode: 3, stdout: `rtk ${command}\n` }))!;
+    expect(rewrite('ls -la | grep pptx')).toBeUndefined();
+    expect(rewrite('git log --oneline | wc -l')).toBeUndefined();
+    expect(rewrite('ls || tail -5')).toBeUndefined();
+    expect(splitLineFilters("grep -c 'a|b' file | tail -1")).toEqual({ head: "grep -c 'a|b' file", rest: '| tail -1' });
+    expect(splitLineFilters("echo \"$(ls | wc -l)\" | head -1")?.head).toBe('echo "$(ls | wc -l)"');
+    expect(rewrite('npm test 2>&1 |& tail -5')).toBeUndefined();
+  });
+
+  test('passes head and tail pipes through when rtk has no equivalent for the command', () => {
+    const rewrite = rtkRewriter('rtk', () => ({ exitCode: 1, stdout: '' }))!;
+    expect(rewrite('python3 run.py | tail -20')).toBeUndefined();
+  });
+
   test('does not pass RTK_REWRITE_HOST on to rtk', () => {
     if (process.platform === 'win32' || !rtkPath()) return;
     process.env.RTK_REWRITE_HOST = 'openclaw';
@@ -79,5 +106,6 @@ describe('rtk rewriting', () => {
     if (!rtkPath() || !rewrite) return;
     expect(rewrite('git status')).toBe('rtk git status');
     expect(rewrite('rtk git status')).toBeUndefined();
+    expect(rewrite('git log --oneline | head -5')).toBe('rtk git log --oneline | head -5');
   });
 });

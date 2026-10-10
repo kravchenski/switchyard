@@ -20,6 +20,12 @@ export class ProviderRegistry {
     return this;
   }
 
+  unregister(id: string) {
+    const index = this.providers.findIndex(provider => provider.id === id);
+    if (index !== -1) this.providers.splice(index, 1);
+    return this;
+  }
+
   resolve(model: string) {
     return this.providers.find(provider => provider.supports(model));
   }

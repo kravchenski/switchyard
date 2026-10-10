@@ -1,7 +1,7 @@
 export type ProviderErrorKind = 'rate_limit' | 'quota_exhausted' | 'auth' | 'unavailable' | 'upstream' | 'invalid_request' | 'model_unavailable';
 
 const MAX_DETAIL_LENGTH = 500;
-const QUOTA_PATTERN = /quota|insufficient|exceeded your|billing|balance|credit/i;
+const QUOTA_PATTERN = /quota|insufficient|exceeded your|billing|balance|credit|recharged/i;
 const MODEL_MISSING_PATTERN = /not found for account|page not found|function .* not found|model .*(?:not found|does not exist)|no such model|unknown model/i;
 const MODEL_DENIED_PATTERN = /model is (?:unavailable|not available|not supported)|invalid model|model .*not (?:available|allowed|enabled|supported)|(?:no|not have|don't have|do not have) access to (?:the |this )?model|model_not_found|model_not_supported|unsupported model|no endpoints found|not included in your|is only available|not available (?:on|in|for) (?:your|the free)/i;
 const EXPIRED_AUTH_PATTERN = /token (?:has )?expired|log ?in again|invalid (?:access )?token|not authenticated/i;

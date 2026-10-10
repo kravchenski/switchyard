@@ -18,6 +18,7 @@ export interface ApiProviderDefinition {
   modelFilter?: (model: string, entry?: Record<string, unknown>) => boolean;
   autoByDefault?: boolean;
   normalizeModel?: (model: string) => string;
+  custom?: boolean;
   config?: Partial<OpenAICompatibleConfig>;
 }
 
@@ -28,11 +29,11 @@ export function isNvidiaChatModel(model: string) {
   return !NON_CHAT_MODEL.test(model);
 }
 
-export function isApiChatModel(model: string) {
+function isApiChatModel(model: string) {
   return !NON_CHAT_API_MODEL.test(model);
 }
 
-export const NVIDIA_PROVIDER: ApiProviderDefinition = {
+const NVIDIA_PROVIDER: ApiProviderDefinition = {
   id: 'nvidia',
   label: 'NVIDIA',
   baseUrl: 'https://integrate.api.nvidia.com/v1',
@@ -287,8 +288,18 @@ export const FREE_API_PROVIDERS: ApiProviderDefinition[] = [
 
 export const API_KEY_PROVIDERS: ApiProviderDefinition[] = [NVIDIA_PROVIDER, ...FREE_API_PROVIDERS];
 
+let customDefinitions: ApiProviderDefinition[] = [];
+
+export function setCustomProviders(definitions: ApiProviderDefinition[]) {
+  customDefinitions = definitions;
+}
+
+export function apiKeyProviders() {
+  return [...API_KEY_PROVIDERS, ...customDefinitions];
+}
+
 export function apiKeyProvider(id: string) {
-  return API_KEY_PROVIDERS.find(provider => provider.id === id);
+  return apiKeyProviders().find(provider => provider.id === id);
 }
 
 export function defaultAuto(id: string) {

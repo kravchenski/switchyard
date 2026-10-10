@@ -73,7 +73,13 @@ function linuxChromeUa(version: string): string {
 
 function hardenFingerprint(browser: Browser, version: string | null) {
   const context = browser.contexts()[0];
-  if (!context || !version) return;
+  if (!context) return;
+  context.addInitScript(`(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(navigator), 'webdriver');
+    if (!descriptor?.get) Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    else Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
+  })()`).catch(() => {});
+  if (!version) return;
   const metadata = {
     brands: [
       { brand: 'Google Chrome', version: version.split('.')[0]! },
@@ -140,7 +146,7 @@ export async function launchCdpBrowser(options: LaunchOptions = {}): Promise<Cdp
   try {
     await waitForEndpoint(port, 15_000);
     const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    if (headless) hardenFingerprint(browser, version ?? normalChromeVersion(browser.version()));
+    hardenFingerprint(browser, version ?? normalChromeVersion(browser.version()));
     return {
       browser,
       exited,
