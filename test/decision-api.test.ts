@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import { decide, decisionMessages, readDecisionAnswers, readDecisionRequest } from '../src/core/decisions/engine.ts';
-import type { ChatChunk, Provider } from '../src/core/providers/provider.ts';
-import { ProviderRegistry } from '../src/core/providers/registry.ts';
-import { DecisionLog } from '../src/core/router/decisions.ts';
-import { promptOf, SmartRouter } from '../src/core/router/smart-router.ts';
 
 const skillRequest = {
   model: 'jev-latest',
@@ -52,58 +48,5 @@ describe('decision API', () => {
       throw new Error('none');
     });
     expect(result.which).toMatchObject({ choice: 'docx' });
-  });
-});
-
-function provider(id: string, seen: string[]): Provider {
-  return {
-    id,
-    ownedBy: id,
-    fallback: true,
-    supports: model => model === `${id}-model`,
-    listModels: async () => [`${id}-model`],
-    capabilities: () => ({ nativeTools: false, reasoning: false, vision: false }),
-    health: () => ({ available: true }),
-    async stream(request) {
-      seen.push(request.model);
-      return { chunks: (async function* (): AsyncGenerator<ChatChunk> { yield { type: 'content', text: 'ok' }; })() };
-    },
-  };
-}
-
-describe('decide mode', () => {
-  test('puts the route the decision model picks first and records it', async () => {
-    const seen: string[] = [];
-    const log = new DecisionLog();
-    const prompts: string[] = [];
-    const registry = new ProviderRegistry().register(provider('a', seen)).register(provider('b', seen));
-    let clock = 1_000;
-    const router = new SmartRouter(registry, ['a-model', 'b-model'], () => clock, {
-      autoMode: () => 'decide',
-      choose: async (prompt, routes) => {
-        prompts.push(`${prompt} | ${routes.map(route => route.model).join(',')}`);
-        clock += 1_500;
-        return 'b-model';
-      },
-      onDecision: decision => log.add(decision),
-    });
-    const opened = await router.open('auto', route => ({ model: route.model, messages: [{ role: 'user', content: 'fix my code' }] }));
-    expect(opened.route.model).toBe('b-model');
-    expect(prompts).toEqual(['fix my code | a-model,b-model']);
-    expect(log.list()[0]).toMatchObject({ mode: 'decide', picked: 'b-model', decisionMs: 1_500, chosen: { model: 'b-model' } });
-  });
-
-  test('keeps the chain order when the decision fails', async () => {
-    const seen: string[] = [];
-    const registry = new ProviderRegistry().register(provider('a', seen)).register(provider('b', seen));
-    const log = new DecisionLog();
-    const router = new SmartRouter(registry, ['a-model', 'b-model'], Date.now, { autoMode: () => 'decide', choose: async () => { throw new Error('down'); }, onDecision: decision => log.add(decision) });
-    expect((await router.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('a-model');
-    expect(log.list()[0]).toMatchObject({ mode: 'decide', decisionError: 'down' });
-  });
-
-  test('reads the latest user text from plain and multi-part messages', () => {
-    expect(promptOf([{ role: 'user', content: 'first' }, { role: 'assistant', content: 'x' }, { role: 'user', content: [{ type: 'text', text: 'second' }, { type: 'image_url' }] }])).toBe('second\n');
-    expect(promptOf([])).toBe('');
   });
 });

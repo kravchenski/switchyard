@@ -6,7 +6,6 @@ import { ProviderError } from '../src/core/providers/errors.ts';
 import type { ChatChunk, Provider } from '../src/core/providers/provider.ts';
 import { ProviderRegistry } from '../src/core/providers/registry.ts';
 import { buildAutoChain } from '../src/core/router/auto-chain.ts';
-import { focusPreference } from '../src/core/router/focus.ts';
 import { SmartRouter } from '../src/core/router/smart-router.ts';
 import { GatewaySettings } from '../src/core/settings/gateway-settings.ts';
 import { loadGatewaySetting, openDatabase, saveGatewaySetting } from '../src/core/store/database.ts';
@@ -14,44 +13,30 @@ import { collectChunks } from '../src/core/streaming/sse.ts';
 
 const nvidia = (ids: string[]) => ids.map(id => ({ id, provider: 'nvidia', fallback: true }));
 
-describe('auto focus', () => {
-  test('moves models that match the focus ahead inside each group', () => {
-    const stats = new ModelStats(() => 0);
-    stats.recordSuccess('meta/llama-4', 100);
-    stats.recordSuccess('qwen/qwen3-coder-480b', 900);
-    stats.recordSuccess('deepseek-ai/deepseek-r1', 500);
-    const candidates = nvidia(['meta/llama-4', 'qwen/qwen3-coder-480b', 'deepseek-ai/deepseek-r1', 'mistralai/codestral-22b', 'nvidia/nemotron-flash']);
-    expect(buildAutoChain(candidates, stats)).toEqual(['meta/llama-4', 'deepseek-ai/deepseek-r1', 'qwen/qwen3-coder-480b', 'mistralai/codestral-22b', 'nvidia/nemotron-flash']);
-    expect(buildAutoChain(candidates, stats, () => true, focusPreference('coding')))
-      .toEqual(['qwen/qwen3-coder-480b', 'meta/llama-4', 'deepseek-ai/deepseek-r1', 'mistralai/codestral-22b', 'nvidia/nemotron-flash']);
-    expect(buildAutoChain(candidates, stats, () => true, focusPreference('reasoning'))[0]).toBe('deepseek-ai/deepseek-r1');
-    expect(buildAutoChain(candidates, stats, () => true, focusPreference('fast')).slice(3)).toEqual(['nvidia/nemotron-flash', 'mistralai/codestral-22b']);
-  });
-
-  test('picks the focused model of a web chat provider', () => {
-    const web = ['deepseek-default', 'deepseek-reasoner', 'deepseek-search'].map(id => ({ id, provider: 'deepseek', fallback: false }));
-    expect(buildAutoChain(web, new ModelStats())).toEqual(['deepseek-default']);
-    expect(buildAutoChain(web, new ModelStats(), () => true, focusPreference('reasoning'))).toEqual(['deepseek-reasoner']);
+describe('web chat order', () => {
+  test('puts the web chats in the chosen order ahead of the API models', () => {
+    const web = (provider: string, ...ids: string[]) => ids.map(id => ({ id, provider, fallback: false }));
+    const candidates = [...nvidia(['meta/llama-4']), ...web('glm-chat', 'glm-chat'), ...web('deepseek', 'deepseek-default', 'deepseek-reasoner'), ...web('qwen-chat', 'qwen-chat')];
+    expect(buildAutoChain(candidates, new ModelStats(), () => true, ['qwen-chat', 'deepseek', 'glm-chat'])).toEqual(['qwen-chat', 'deepseek-default', 'glm-chat', 'meta/llama-4']);
+    expect(buildAutoChain(candidates, new ModelStats(), () => true, ['glm-chat', 'qwen-chat'])).toEqual(['glm-chat', 'qwen-chat', 'deepseek-default', 'meta/llama-4']);
   });
 });
 
 describe('gateway settings', () => {
-  test('defaults to general fallback, validates changes and persists them', () => {
+  test('defaults to the built-in web order, validates changes and persists them', () => {
     const db = openDatabase(':memory:');
     const settings = new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: (key, value) => saveGatewaySetting(db, key, value) });
-    expect(settings.autoFocus()).toBe('general');
-    expect(settings.autoMode()).toBe('fallback');
-    settings.setAutoFocus('coding');
-    settings.setAutoMode('race');
-    expect(loadGatewaySetting(db, 'auto.focus')).toBe('coding');
-    expect(new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: () => {} }).autoMode()).toBe('race');
-    expect(() => settings.setAutoFocus('poetry')).toThrow('Unknown focus: poetry');
-    expect(() => settings.setAutoMode('parallel')).toThrow('Unknown mode: parallel');
+    expect(settings.webOrder()).toEqual(['qwen-chat', 'deepseek', 'glm-chat', 'kimi-chat', 'arena-chat']);
+    settings.setWebOrder('kimi-chat, qwen-chat');
+    expect(loadGatewaySetting(db, 'auto.web-order')).toBe('kimi-chat,qwen-chat');
+    expect(new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: () => {} }).webOrder()).toEqual(['kimi-chat', 'qwen-chat', 'deepseek', 'glm-chat', 'arena-chat']);
+    expect(() => settings.setWebOrder('poetry')).toThrow('Unknown web chat: poetry');
+    expect(() => settings.setWebOrder(' , ')).toThrow('Give at least one web chat');
   });
 
   test('ignores unknown stored values and store failures', () => {
-    expect(new GatewaySettings({ load: () => 'weird', save: () => {} }).autoFocus()).toBe('general');
-    expect(new GatewaySettings({ load: () => { throw new Error('locked'); }, save: () => {} }).autoMode()).toBe('fallback');
+    expect(new GatewaySettings({ load: () => 'weird,glm-chat', save: () => {} }).webOrder()[0]).toBe('glm-chat');
+    expect(new GatewaySettings({ load: () => { throw new Error('locked'); }, save: () => {} }).webOrder()[0]).toBe('qwen-chat');
   });
 });
 
@@ -82,80 +67,36 @@ function racer(id: string, delayMs: number, events: string[], fail = false, web 
   };
 }
 
-describe('race mode', () => {
-  test('sends to several routes at once, keeps the first answer and cancels the rest', async () => {
-    const events: string[] = [];
-    const registry = new ProviderRegistry().register(racer('slow', 80, events)).register(racer('fast', 10, events)).register(racer('broken', 5, events, true));
-    const router = new SmartRouter(registry, ['slow-model', 'fast-model', 'broken-model'], Date.now, { autoMode: () => 'race' });
-    const opened = await router.open('auto', route => ({ model: route.model, messages: [] }));
-    expect(opened.route.model).toBe('fast-model');
-    expect((await collectChunks(opened.chunks)).content).toBe('fast-model');
-    expect(events.slice(0, 3).sort()).toEqual(['start broken', 'start fast', 'start slow']);
-    expect(events).toContain('abort slow');
-    await Bun.sleep(120);
-    expect(events).toContain('closed slow');
-    expect(registry.stats.get('fast-model')?.lastOutcome).toBe('success');
-    expect(registry.stats.get('broken-model')?.lastOutcome).toBe('failure');
-    expect(registry.stats.get('slow-model')).toBeUndefined();
-  });
-
-  test('reports every failure when all raced routes fail and ignores race mode for explicit models', async () => {
-    const events: string[] = [];
-    const registry = new ProviderRegistry().register(racer('a', 5, events, true)).register(racer('b', 5, events, true));
-    const router = new SmartRouter(registry, ['a-model', 'b-model'], Date.now, { autoMode: () => 'race' });
-    await expect(router.open('auto', route => ({ model: route.model, messages: [] }))).rejects.toThrow(/All routes failed for model auto: .*a broke.*b broke|All routes failed for model auto: .*b broke.*a broke/);
-    const single = new SmartRouter(new ProviderRegistry().register(racer('c', 1, events)), ['c-model'], Date.now, { autoMode: () => 'race' });
-    expect((await single.open('c-model', route => ({ model: route.model, messages: [] }))).route.model).toBe('c-model');
-  });
-
-  test('races only API routes and tries web chats one at a time afterwards', async () => {
-    const events: string[] = [];
-    const registry = new ProviderRegistry()
-      .register(racer('webA', 5, events, true, true)).register(racer('webB', 5, events, false, true))
-      .register(racer('apiA', 5, events, true)).register(racer('apiB', 5, events, true));
-    const router = new SmartRouter(registry, ['webA-model', 'webB-model', 'apiA-model', 'apiB-model'], Date.now, { autoMode: () => 'race' });
-    expect((await router.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('webB-model');
-    expect(events.filter(event => event.startsWith('start'))).toEqual(['start apiA', 'start apiB', 'start webA', 'start webB']);
-  });
-
-  test('falls through to the rest of the chain when every raced route fails', async () => {
-    const events: string[] = [];
-    const registry = new ProviderRegistry()
-      .register(racer('a', 5, events, true)).register(racer('b', 5, events, true)).register(racer('c', 5, events, true))
-      .register(racer('d', 5, events));
-    const router = new SmartRouter(registry, ['a-model', 'b-model', 'c-model', 'd-model'], Date.now, { autoMode: () => 'race' });
-    expect((await router.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('d-model');
-  });
-
-  test('a pinned conversation goes to its own route alone and races the rest only when it fails', async () => {
+describe('pinned conversations', () => {
+  test('go to their own route first and fall back to the chain in order when it fails', async () => {
     const events: string[] = [];
     const registry = new ProviderRegistry().register(racer('a', 5, events)).register(racer('b', 5, events)).register(racer('c', 20, events));
-    const router = new SmartRouter(registry, ['a-model', 'b-model', 'c-model'], Date.now, { autoMode: () => 'race' });
+    const router = new SmartRouter(registry, ['a-model', 'b-model', 'c-model'], Date.now);
     expect((await router.open('auto', route => ({ model: route.model, messages: [] }), 'c-model')).route.model).toBe('c-model');
     expect(events.filter(event => event.startsWith('start'))).toEqual(['start c']);
 
     const failing: string[] = [];
     const broken = new ProviderRegistry().register(racer('a', 5, failing)).register(racer('b', 30, failing)).register(racer('c', 5, failing, true));
-    const fallback = new SmartRouter(broken, ['a-model', 'b-model', 'c-model'], Date.now, { autoMode: () => 'race' });
+    const fallback = new SmartRouter(broken, ['a-model', 'b-model', 'c-model'], Date.now);
     expect((await fallback.open('auto', route => ({ model: route.model, messages: [] }), 'c-model')).route.model).toBe('a-model');
-    expect(failing.filter(event => event.startsWith('start'))).toEqual(['start c', 'start a', 'start b']);
+    expect(failing.filter(event => event.startsWith('start'))).toEqual(['start c', 'start a']);
   });
 });
 
 describe('accounts CLI auto command', () => {
-  test('shows and changes the focus and mode', async () => {
+  test('shows and changes the web chat order', async () => {
     const lines: string[] = [];
-    let current = { focus: 'general', mode: 'fallback' };
+    let current = { order: ['qwen-chat', 'deepseek'] };
     const deps: AccountsCliDeps = {
       store: { list: () => [], addApiKey: () => { throw new Error('unused'); }, remove: () => false },
       askHidden: async () => '',
       log: line => lines.push(line),
       autoSettings: change => {
-        current = { focus: change.focus ?? current.focus, mode: change.mode ?? current.mode };
+        current = { order: change.order?.split(',') ?? current.order };
         return current;
       },
     };
-    await runAccountsCommand(['auto', '--focus', 'coding', '--mode', 'race'], deps);
-    expect(lines).toEqual(['auto focus: coding', 'auto mode: race']);
+    await runAccountsCommand(['auto', '--order', 'deepseek,qwen-chat'], deps);
+    expect(lines).toEqual(['web order: deepseek,qwen-chat']);
   });
 });

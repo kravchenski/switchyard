@@ -20,7 +20,7 @@ One OpenAI- and Anthropic-compatible endpoint in front of 25+ model providers �
 ```mermaid
 flowchart LR
   A["Claude Code · Codex · OpenCode · pi · Continue · Cline · any OpenAI client"] -->|"/v1/chat/completions · /v1/messages · /v1/responses"| S(("Switchyard<br/>localhost:3260"))
-  S --> R{"router<br/>fallback · race · decide"}
+  S --> R{"router<br/>fallback chain"}
   R --> W["Web chats<br/>DeepSeek · Qwen · GLM · Kimi · Arena"]
   R --> P["API providers<br/>NVIDIA · OpenRouter · Groq · Gemini · Cerebras · Mistral · Ollama · Kilo · Cloudflare · …"]
 ```
@@ -100,14 +100,7 @@ Three virtual models, each with its own chain built from measured latency and su
 | `vision` | only models that can see images: the web chats and multimodal API models (`*-vision-*`, `*-VL-*`, omni, Gemini, Gemma, Pixtral, …) | screenshots, charts, photos |
 | `agent` | strong API models with native tool calling first, then the `auto` chain with emulated tools | Claude Code, Codex, OpenCode, pi and other coding agents |
 
-The chains are listed in `GET /v1/gateway/status` (`autoModels`, `visionModels`, `agentModels`). Tune them with `bun run account auto` or on the desktop Settings page:
-
-| Option | Values | What it does |
-|---|---|---|
-| `--focus` | `general`, `coding`, `reasoning`, `fast` | prefer models made for the task |
-| `--mode` | `fallback` (default) | try the chain one model at a time |
-| | `race` | send to the first three API models at once, keep the fastest answer; web chats are tried one at a time after them |
-| | `decide` | a decision model reads the request and picks the best model; the rest stays as fallback |
+The chains are listed in `GET /v1/gateway/status` (`autoModels`, `visionModels`, `agentModels`). Each request tries its chain one model at a time and moves on only when a model fails. Set the order of the web chats with `bun run account auto --order qwen-chat,deepseek,glm-chat,kimi-chat,arena-chat` or on the desktop Settings page; chats you leave out keep their default place after the ones you list.
 
 Requests that carry tools prefer strong models with native tool calling; plain chat keeps the usual order. Every decision — skipped candidates and why, each attempt, latency, the pick — is visible at `GET /v1/gateway/decisions`.
 
@@ -159,7 +152,7 @@ A native app (Rust + [GPUI](https://www.gpui.rs)) to start and stop the gateway,
 
 | Provider models and health | Routing and agent options |
 |---|---|
-| ![NVIDIA provider page with the models the key can use and their first-answer time](docs/images/app-nvidia.png) | ![Settings page with auto focus, auto mode and coding agent options](docs/images/app-settings.png) |
+| ![NVIDIA provider page with the models the key can use and their first-answer time](docs/images/app-nvidia.png) | ![Settings page with the web chat order and coding agent options](docs/images/app-settings.png) |
 | **Web chat accounts** | **API keys for 20+ providers** |
 | ![DeepSeek provider page with two signed-in accounts](docs/images/app-deepseek.png) | ![API keys page with the provider picker](docs/images/app-keys.png) |
 

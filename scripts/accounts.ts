@@ -69,12 +69,10 @@ try {
     secretSource: async () => secretSource,
     autoSettings: change => withDb(db => {
       const settings = new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: (key, value) => saveGatewaySetting(db, key, value) });
-      if (change.focus !== undefined) settings.setAutoFocus(change.focus);
-      if (change.mode !== undefined) settings.setAutoMode(change.mode);
+      if (change.order !== undefined) settings.setWebOrder(change.order);
       for (const [name, value] of Object.entries(change.agents ?? {})) if (value !== undefined) settings.setAgentOption(name, value);
       return {
-        focus: settings.autoFocus(),
-        mode: settings.autoMode(),
+        order: settings.webOrder(),
         agents: Object.fromEntries(Object.keys(AGENT_OPTIONS).map(name => [name, settings.agentOption(name as AgentOption)])),
       };
     }),

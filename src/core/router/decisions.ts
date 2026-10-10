@@ -1,4 +1,4 @@
-export type RouteOutcome = 'chosen' | 'failed' | 'timeout' | 'lost';
+type RouteOutcome = 'chosen' | 'failed' | 'timeout';
 
 export interface RouteAttempt {
   model: string;
@@ -17,10 +17,7 @@ export interface RoutingDecision {
   id: number;
   at: number;
   requestedModel: string;
-  mode: 'direct' | 'fallback' | 'race' | 'decide';
-  picked?: string;
-  decisionMs?: number;
-  decisionError?: string;
+  mode: 'direct' | 'fallback';
   details?: Record<string, unknown>;
   preferredModel?: string;
   skipped: SkippedRoute[];

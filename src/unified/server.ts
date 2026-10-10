@@ -31,7 +31,6 @@ import { createQwenChatImages } from '../providers/images/qwen-chat.ts';
 import { collectChunks, ToolCallAssembler } from '../core/streaming/sse.ts';
 import { ProviderError, toHttpError } from '../core/providers/errors.ts';
 import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
-import { focusPreference, type AutoFocus } from '../core/router/focus.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
 import { AGENT_MODEL, AUTO_MODEL, isVirtualModel, parseAutoModels, SmartRouter, VIRTUAL_MODELS, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
 import { collectImageUrls } from '../core/providers/prompt.ts';
@@ -266,12 +265,10 @@ const decisions = new DecisionLog();
 
 export const router = new SmartRouter(registry, parseAutoModels(config.AUTO_MODELS), Date.now, {
     onDecision: decision => decisions.add(decision),
-    choose: (prompt, routes) => chooseRoute(prompt, routes),
     firstChunkTimeoutMs: config.AUTO_FIRST_CHUNK_TIMEOUT_MS,
     autoEnabled: provider => providerSettings.autoEnabled(provider),
-    autoMode: () => gatewaySettings.autoMode(),
     prepareAuto: () => {
-        if (gatewaySettings.autoFocus() !== chainFocus) rebuildAutoChain();
+        if (gatewaySettings.webOrder().join(',') !== chainOrder) rebuildAutoChain();
     },
 });
 
@@ -314,21 +311,21 @@ async function refreshModelLists() {
     rebuildAutoChain();
 }
 
-let chainFocus: AutoFocus | undefined;
+let chainOrder: string | undefined;
 
 function rebuildAutoChain() {
-    chainFocus = gatewaySettings.autoFocus();
+    const webOrder = gatewaySettings.webOrder();
+    chainOrder = webOrder.join(',');
     const isAvailable = (model: string) => registry.availability.isAvailable(model);
-    const preference = focusPreference(chainFocus);
     const candidates = allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
         if (!provider) return [];
         const capabilities = provider.capabilities(entry.id);
         return [{ id: entry.id, provider: provider.id, fallback: provider.fallback ?? false, vision: capabilities.vision, nativeTools: capabilities.nativeTools }];
     });
-    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, preference));
-    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, preference));
-    router.setChain(AGENT_MODEL, buildAgentChain(candidates, registry.stats, router.autoChain(), isAvailable, preference));
+    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, webOrder));
+    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, webOrder));
+    router.setChain(AGENT_MODEL, buildAgentChain(candidates, registry.stats, router.autoChain(), isAvailable));
 }
 
 function loadModelStatistics() {
@@ -656,8 +653,7 @@ app.get('/v1/gateway/status', (c) => c.json({
     autoModels: router.autoChain(),
     visionModels: router.autoChain(VISION_MODEL),
     agentModels: router.autoChain(AGENT_MODEL),
-    autoFocus: gatewaySettings.autoFocus(),
-    autoMode: gatewaySettings.autoMode(),
+    webOrder: gatewaySettings.webOrder(),
     modelStats: registry.stats.list(),
     models: allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
@@ -845,7 +841,6 @@ const imageProviders: ImageProvider[] = [
 const DECISION_TIMEOUT_MS = 15_000;
 const DECISION_CANDIDATES = 3;
 const QUICK_DECISION_MS = 8_000;
-const CHOOSE_OPTIONS = 16;
 
 function decisionModels(requested?: string) {
     if (requested && !isVirtualModel(requested) && registry.resolve(requested)) return [requested];
@@ -877,35 +872,6 @@ async function completeDecision(messages: ChatMessage[], read: (text: string) =>
         }
     }
     throw new ProviderError(failures.length ? `No decision model answered: ${failures.join('; ')}` : 'No API model is available for decisions', 'unavailable', 503);
-}
-
-function describeRoute(route: Route) {
-    const stat = registry.stats.get(route.model);
-    const traits = (['coding', 'reasoning', 'fast'] as const).filter(focus => focusPreference(focus)(route.model) > 0);
-    const size = /(\d+(?:\.\d+)?)b\b/i.exec(route.model.replace(/-a\d+(?:\.\d+)?b\b/i, ''))?.[1];
-    return [
-        route.provider.fallback ? `${route.model} through the ${route.provider.id} API` : `${route.model}: a flagship model in the ${route.provider.id} web chat, strong but slower`,
-        size ? `about ${size}B parameters` : undefined,
-        traits.length ? `good for ${traits.join(', ')}` : undefined,
-        stat?.latencyMs !== undefined ? `first answer in about ${(stat.latencyMs / 1000).toFixed(1)}s` : undefined,
-    ].filter(Boolean).join('; ');
-}
-
-async function chooseRoute(prompt: string, routes: Route[]) {
-    const options = routes.slice(0, CHOOSE_OPTIONS);
-    const request: DecisionRequest = {
-        state: { request: prompt.slice(0, 4_000) },
-        questions: {
-            which: {
-                type: 'choice',
-                instructions: 'Which model should answer this request? For coding, reasoning, analysis or long writing pick a large, strong model (a flagship web chat or an API model well above 30B parameters). Pick a small fast model only for a greeting or a trivial one-line answer.',
-                criteria: Object.fromEntries(options.map(route => [route.model, describeRoute(route)])),
-            },
-        },
-    };
-    const { answers } = await decide(request, (messages, read) => completeDecision(messages, read));
-    const answer = answers.which;
-    return answer && 'choice' in answer ? answer.choice : undefined;
 }
 
 const toolSelector = new ToolSelector((request, questions) =>

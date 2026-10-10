@@ -37,7 +37,7 @@ export interface AccountsCliDeps {
   initSecret?: () => Promise<string>;
   secretSource?: () => Promise<string>;
   providerAuto?: (provider: string, auto?: boolean) => boolean;
-  autoSettings?: (change: { focus?: string; mode?: string; agents?: Record<string, string | undefined> }) => { focus: string; mode: string; agents?: Record<string, boolean> };
+  autoSettings?: (change: { order?: string; agents?: Record<string, string | undefined> }) => { order: string[]; agents?: Record<string, boolean> };
   harvest?: (options: { profile: string; providers?: string[]; session?: unknown; onResult?: (result: HarvestResult) => void }) => Promise<HarvestResult[]>;
   autoLogin?: (options: { profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean; session?: unknown }) => Promise<AutoLoginResult[]>;
   beginSession?: (profile: string) => Promise<unknown>;
@@ -59,8 +59,8 @@ export const ACCOUNTS_USAGE = `Usage: bun run account <command>
   init                                            Create ACCOUNTS_SECRET in the system keyring (moves it out of .env)
   secret                                          Show where ACCOUNTS_SECRET is loaded from
   provider <id> [--auto on|off]                   Show or change whether model=auto may use a provider
-  auto [--focus <f>] [--mode <m>] [--compact on|off] [--tools on|off] [--rtk on|off]
-                                                  Show or change model=auto (focus general|coding|reasoning|fast, mode fallback|race|decide)
+  auto [--order <id,...>] [--compact on|off] [--tools on|off] [--rtk on|off]
+                                                  Show or change model=auto (order of the web chats, e.g. qwen-chat,deepseek,glm-chat)
                                                   and coding agent requests (--compact trims tool output,
                                                   --tools keeps only the tools a request needs,
                                                   --rtk runs the agent's shell commands through rtk)
@@ -187,9 +187,8 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
   }
 
   if (command === 'auto' && deps.autoSettings) {
-    const current = deps.autoSettings({ focus: option(args, '--focus'), mode: option(args, '--mode'), agents: { compact: option(args, '--compact'), tools: option(args, '--tools'), rtk: option(args, '--rtk') } });
-    deps.log(`auto focus: ${current.focus}`);
-    deps.log(`auto mode: ${current.mode}`);
+    const current = deps.autoSettings({ order: option(args, '--order'), agents: { compact: option(args, '--compact'), tools: option(args, '--tools'), rtk: option(args, '--rtk') } });
+    deps.log(`web order: ${current.order.join(',')}`);
     for (const [name, on] of Object.entries(current.agents ?? {})) deps.log(`agents ${name}: ${on ? 'on' : 'off'}`);
     return 0;
   }
