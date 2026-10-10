@@ -15,6 +15,8 @@ export interface ProviderOverview {
   auto: boolean;
   url?: string;
   accountLabel?: string;
+  label?: string;
+  custom?: boolean;
 }
 
 type Row = Omit<ProviderOverview, 'auto'>;
@@ -28,11 +30,11 @@ export interface OverviewInput {
   accountSignIns?: (provider: string) => SignInRecord[];
   webSites: ChatSite[];
   autoEnabled?: (provider: string) => boolean;
-  apiKeyProviders?: Array<{ id: string; apiKeyEnv: string; keyUrl?: string; keyOptional?: boolean; account?: { label: string } }>;
+  apiKeyProviders?: Array<{ id: string; label?: string; custom?: boolean; apiKeyEnv: string; keyUrl?: string; keyOptional?: boolean; account?: { label: string } }>;
   now?: number;
 }
 
-const DEFAULT_API_KEY_PROVIDERS: Array<{ id: string; apiKeyEnv: string; keyUrl?: string; keyOptional?: boolean; account?: { label: string } }> = [{ id: 'nvidia', apiKeyEnv: 'NVIDIA_API_KEY' }];
+const DEFAULT_API_KEY_PROVIDERS: NonNullable<OverviewInput['apiKeyProviders']> = [{ id: 'nvidia', apiKeyEnv: 'NVIDIA_API_KEY' }];
 
 const STATUS_LABELS: Record<Exclude<AccountStatus, 'healthy'>, string> = {
   cooldown: 'cooling down',
@@ -137,7 +139,7 @@ function collectRows(input: OverviewInput): Row[] {
     const savedKeys = credentials.filter(entry => entry.provider === provider.id && entry.method === 'api-key' && entry.token).length;
     const fromEnvironment = environmentKeys > 0;
     const saved = savedKeys > 0;
-    const url = { ...(provider.keyUrl ? { url: provider.keyUrl } : {}), ...(provider.account ? { accountLabel: provider.account.label } : {}) };
+    const url = { ...(provider.keyUrl ? { url: provider.keyUrl } : {}), ...(provider.account ? { accountLabel: provider.account.label } : {}), ...(provider.custom ? { custom: true, label: provider.label } : {}) };
     if (fromEnvironment || saved) {
       const total = environmentKeys + savedKeys;
       const detail = total === 1

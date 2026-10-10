@@ -95,7 +95,11 @@ pub fn provider_mark(id: &str, size: f32) -> Div {
         .bg(rgb(WHITE));
     match logo_path(id) {
         Some(path) => frame.child(img(path).size(px(size * 0.62))),
-        None => frame.text_color(col(MUTED)).text_size(px(size * 0.45)).child("?"),
+        None => frame
+            .text_color(rgb(0x14161a))
+            .text_size(px(size * 0.45))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(id.chars().next().map(|letter| letter.to_ascii_uppercase().to_string()).unwrap_or_default()),
     }
 }
 

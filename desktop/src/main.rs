@@ -14,7 +14,7 @@ use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use accounts::{AccountProfile, AccountsCli, SavedAccount};
+use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount};
 use settings::{AutoSettings, DesktopSettings, ThemeChoice};
 use gateway::{check_health, open_in_browser, stop_external, Gateway, GatewayConfig};
 use overview::{activity, detail, display_name, kind_label, Activity, ProviderOverview};
@@ -77,6 +77,9 @@ struct Shell {
     profile_name: Entity<InputState>,
     api_key: Entity<InputState>,
     account_id: Entity<InputState>,
+    custom_name: Entity<InputState>,
+    custom_url: Entity<InputState>,
+    custom_key: Entity<InputState>,
     key_provider: Option<String>,
     request_filter: Option<String>,
     selected_provider: Option<String>,
@@ -149,6 +152,9 @@ impl Shell {
             profile_name: cx.new(|cx| InputState::new(window, cx).placeholder("Account name, e.g. Work")),
             api_key: cx.new(|cx| InputState::new(window, cx).placeholder("Paste the API key").masked(true)),
             account_id: cx.new(|cx| InputState::new(window, cx).placeholder("Account ID")),
+            custom_name: cx.new(|cx| InputState::new(window, cx).placeholder("Name, e.g. Home Ollama")),
+            custom_url: cx.new(|cx| InputState::new(window, cx).placeholder("Base URL, e.g. http://localhost:11434/v1")),
+            custom_key: cx.new(|cx| InputState::new(window, cx).placeholder("API key (optional)").masked(true)),
             key_provider: None,
             request_filter: None,
             selected_provider: None,
@@ -357,6 +363,28 @@ impl Shell {
         format!("{}/v1", self.gateway.config.base_url())
     }
 
+    fn name_of(&self, id: &str) -> String {
+        self.overview.iter().find(|row| row.id == id).and_then(|row| row.label.clone()).unwrap_or_else(|| display_name(id).to_string())
+    }
+
+    fn add_custom_provider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.custom_name.read(cx).value().trim().to_string();
+        let url = self.custom_url.read(cx).value().trim().to_string();
+        let key = self.custom_key.read(cx).value().trim().to_string();
+        let id = provider_id(&name);
+        self.custom_key.update(cx, |input, cx| input.set_value("", window, cx));
+        let check = id.clone();
+        self.run_command_then(
+            cx,
+            move |cli| {
+                let added = cli.add_custom(&id, &url, &name)?;
+                if key.is_empty() { Ok(added) } else { cli.add_api_key(&id, &key) }
+            },
+            true,
+            Some(check),
+        );
+    }
+
     fn open_link(&mut self, url: &str) {
         self.message = match open_in_browser(url) {
             Ok(()) => Some((true, format!("Opened {url} in your browser. Create a key there and paste it here."))),
@@ -548,7 +576,7 @@ impl Shell {
                     .when(selected, |this| this.bg(col(SURFACE)).shadow_sm().font_weight(FontWeight::MEDIUM))
                     .when(!selected, |this| this.hover(|style| style.bg(col(HOVER))))
                     .child(provider_mark(&row.id, 22.))
-                    .child(div().flex_1().child(display_name(&row.id).to_string()))
+                    .child(div().flex_1().child(self.name_of(&row.id).to_string()))
                     .child(status_dot(state))
                     .on_click(cx.listener(move |shell, _, _, cx| {
                         shell.selected_provider = Some(id.clone());
@@ -579,7 +607,7 @@ impl Shell {
 
     fn page_title(&self) -> String {
         match (self.page, self.selected_provider.as_deref()) {
-            (Page::Provider, Some(id)) => display_name(id).to_string(),
+            (Page::Provider, Some(id)) => self.name_of(id).to_string(),
             (page, _) => page.title().to_string(),
         }
     }
@@ -650,7 +678,7 @@ impl Shell {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(display_name(&row.id).to_string()))
+                            .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(self.name_of(&row.id).to_string()))
                             .child(status_badge(state)),
                     )
                     .child(muted(format!("{} · {}", kind_label(&row.kind), row.id)).text_xs())
@@ -660,7 +688,19 @@ impl Shell {
                         detail(&row, live)
                     })),
             )
-            .children(row.url.clone().filter(|_| row.kind == "api-key").map(|url| {
+            .children(row.custom.then(|| {
+                let id = row.id.clone();
+                button("provider-remove-custom", "Remove provider", Some(IconName::Trash), Tone::Danger, !self.busy).when(!self.busy, |this| {
+                    this.on_click(cx.listener(move |shell, _, _, cx| {
+                        let id = id.clone();
+                        shell.selected_provider = None;
+                        shell.page = Page::ApiKeys;
+                        shell.run_key_command(cx, move |cli| cli.remove_custom(&id));
+                        cx.notify();
+                    }))
+                })
+            }))
+            .children(row.url.clone().filter(|_| row.kind == "api-key" && !row.custom).map(|url| {
                 button("provider-get-key", "Get API key", Some(IconName::ExternalLink), if state == Activity::NotConnected { Tone::Primary } else { Tone::Outline }, true)
                     .on_click(cx.listener(move |shell, _, _, cx| {
                         shell.open_link(&url);
@@ -901,7 +941,7 @@ impl Shell {
                 .bg(col(CANVAS))
                 .child(div().w(px(18.)).text_sm().font_weight(FontWeight::SEMIBOLD).text_color(col(MUTED)).child((index + 1).to_string()))
                 .child(provider_mark(id, 26.))
-                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).child(display_name(id).to_string()))
+                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).child(self.name_of(id).to_string()))
                 .child(arrow("up", IconName::ArrowUp, index.checked_sub(1), cx))
                 .child(arrow("down", IconName::ArrowDown, (index < last).then_some(index + 1), cx))
         }).collect();
@@ -961,7 +1001,7 @@ impl Shell {
                         .child(provider_mark(&account.provider, 26.))
                         .child(div().flex().flex_col().child(account.email.clone()).child(muted(account.id.clone()).text_xs())),
                 )
-                .when(!compact, |this| this.child(cell(140.).text_color(col(MUTED)).child(display_name(&account.provider).to_string())))
+                .when(!compact, |this| this.child(cell(140.).text_color(col(MUTED)).child(self.name_of(&account.provider).to_string())))
                 .child(cell(150.).flex().child(labeled_badge(state_activity, state_label)))
                 .when(!compact, |this| {
                     this.child(cell(100.).text_color(col(MUTED)).child(state.map(|state| state.consecutive_failures.to_string()).unwrap_or_else(|| "—".into())))
@@ -995,7 +1035,7 @@ impl Shell {
                 .text_sm()
                 .cursor_pointer()
                 .child(provider_mark(id, 20.))
-                .child(display_name(id).to_string())
+                .child(self.name_of(id).to_string())
                 .on_click(cx.listener(move |shell, _, _, cx| {
                     shell.key_provider = Some(value.clone());
                     cx.notify();
@@ -1082,7 +1122,7 @@ impl Shell {
                         .border_color(col(BORDER))
                         .text_xs()
                         .child(provider_mark(&chat.id, 18.))
-                        .child(display_name(&chat.id).trim_end_matches(" Chat").to_string())
+                        .child(self.name_of(&chat.id).trim_end_matches(" Chat").to_string())
                         .child(status_dot(state))
                 })))
                 .child(
@@ -1142,7 +1182,7 @@ impl Shell {
                     .justify_between()
                     .gap_2()
                     .children(selected.clone().and_then(|provider| self.key_page(&provider).map(|url| (provider, url))).map(|(provider, url)| {
-                        button("get-key", format!("Get {} key", display_name(&provider)), Some(IconName::ExternalLink), Tone::Outline, true).on_click(cx.listener(move |shell, _, _, cx| {
+                        button("get-key", format!("Get {} key", self.name_of(&provider)), Some(IconName::ExternalLink), Tone::Outline, true).on_click(cx.listener(move |shell, _, _, cx| {
                             shell.open_link(&url);
                             cx.notify();
                         }))
@@ -1218,6 +1258,23 @@ impl Shell {
                     }))
             }))
             .child(key_card)
+            .child(
+                card()
+                    .p_5()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(section_title("Custom provider"))
+                    .child(muted("Any OpenAI-compatible API: Ollama, LM Studio, vLLM, a company proxy. Use https://, or http:// for localhost. Its models show up as name/model and join auto as a fallback.").text_xs())
+                    .child(div().flex().gap_3().when(self.compact, |this| this.flex_col()).child(div().flex_1().child(Input::new(&self.custom_name))).child(div().flex_1().child(Input::new(&self.custom_url))))
+                    .child(Input::new(&self.custom_key))
+                    .child(div().flex().justify_end().child(button("add-custom", if self.busy { "Working…" } else { "Add provider" }, Some(IconName::Plus), Tone::Primary, !self.busy).when(!self.busy, |this| {
+                        this.on_click(cx.listener(|shell, _, window, cx| {
+                            shell.add_custom_provider(window, cx);
+                            cx.notify();
+                        }))
+                    }))),
+            )
             .child(section_title("Saved keys"))
             .child(
                 card()
@@ -1281,7 +1338,7 @@ impl Shell {
                 }))
         };
         let pills: Vec<_> = std::iter::once(pill(None, "All".into(), status.requests.len(), cx))
-            .chain(providers.iter().map(|(id, count)| pill(Some(id.clone()), display_name(id).to_string(), *count, cx)))
+            .chain(providers.iter().map(|(id, count)| pill(Some(id.clone()), self.name_of(id).to_string(), *count, cx)))
             .collect();
         let visible: Vec<_> = status.requests.iter().filter(|request| filter.as_deref().is_none_or(|id| request.provider == id)).take(50).collect();
         let columns: Vec<(&'static str, f32)> = if compact {
@@ -1294,7 +1351,7 @@ impl Shell {
             table_row()
                 .child(cell(if compact { 90. } else { 110. }).text_color(col(MUTED)).child(relative_time(request.created_at, now)))
                 .when(!compact, |this| {
-                    this.child(cell(150.).flex().items_center().gap_2().child(provider_mark(&request.provider, 20.)).child(display_name(&request.provider).to_string()))
+                    this.child(cell(150.).flex().items_center().gap_2().child(provider_mark(&request.provider, 20.)).child(self.name_of(&request.provider).to_string()))
                 })
                 .child(
                     cell(0.)

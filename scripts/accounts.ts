@@ -2,7 +2,8 @@
 
 import { runAccountsCommand, type ProfileSignIn } from '../src/cli/accounts.ts';
 import { openCredentialStore } from '../src/core/accounts/credential-store.ts';
-import { API_KEY_PROVIDERS, apiKeyProvider, defaultAuto, verifyProviderKey } from '../src/providers/catalog.ts';
+import { API_KEY_PROVIDERS, apiKeyProvider, apiKeyProviders, defaultAuto, setCustomProviders, verifyProviderKey } from '../src/providers/catalog.ts';
+import { CUSTOM_PROVIDERS_SETTING, customProviderDefinition, readCustomProviders, validateCustomProvider, type CustomProvider } from '../src/providers/custom.ts';
 import { askHidden } from '../src/utils/hiddenPrompt.ts';
 import { listGoogleAccounts, openGoogleSignIn, openProfileWindow } from '../src/browser/google-profile.ts';
 import { checkSignIns } from '../src/browser/sign-in-check.ts';
@@ -44,6 +45,17 @@ const environmentSecret = process.env.ACCOUNTS_SECRET;
 const secretSource = await loadAccountsSecret();
 const store = openCredentialStore();
 
+function loadCustomProviders() {
+  return withDb(db => readCustomProviders(loadGatewaySetting(db, CUSTOM_PROVIDERS_SETTING)));
+}
+
+function saveCustomProviders(providers: CustomProvider[]) {
+  withDb(db => saveGatewaySetting(db, CUSTOM_PROVIDERS_SETTING, JSON.stringify(providers)));
+  setCustomProviders(providers.map(customProviderDefinition));
+}
+
+setCustomProviders(loadCustomProviders().map(customProviderDefinition));
+
 try {
   process.exitCode = await runAccountsCommand(process.argv.slice(2), {
     store,
@@ -76,8 +88,25 @@ try {
         agents: Object.fromEntries(Object.keys(AGENT_OPTIONS).map(name => [name, settings.agentOption(name as AgentOption)])),
       };
     }),
+    customProviders: {
+      list: loadCustomProviders,
+      add: input => {
+        const providers = loadCustomProviders();
+        const reserved = new Set(['deepseek', 'auto', 'vision', 'agent', ...WEB_CHAT_SITES.map(site => site.id)]);
+        const added = validateCustomProvider(input, id => reserved.has(id) || Boolean(apiKeyProvider(id)));
+        saveCustomProviders([...providers, added]);
+        return added;
+      },
+      remove: id => {
+        const providers = loadCustomProviders();
+        if (!providers.some(provider => provider.id === id)) return false;
+        for (const entry of store.list().filter(entry => entry.provider === id)) store.remove(entry.id);
+        saveCustomProviders(providers.filter(provider => provider.id !== id));
+        return true;
+      },
+    },
     providerAuto: (provider, auto) => {
-      const known = new Set(['deepseek', ...API_KEY_PROVIDERS.map(entry => entry.id), ...WEB_CHAT_SITES.map(site => site.id)]);
+      const known = new Set(['deepseek', ...apiKeyProviders().map(entry => entry.id), ...WEB_CHAT_SITES.map(site => site.id)]);
       if (!known.has(provider)) throw new Error(`Unknown provider: ${provider}`);
       const db = openDatabase();
       try {
@@ -98,7 +127,7 @@ try {
           signIn: provider => loadSignIn(db, provider),
           accountSignIns: provider => loadSignIns(db, provider),
           webSites: WEB_CHAT_SITES,
-          apiKeyProviders: API_KEY_PROVIDERS,
+          apiKeyProviders: apiKeyProviders(),
           autoEnabled: provider => loadProviderSetting(db, provider)?.auto ?? defaultAuto(provider),
         });
       } finally {

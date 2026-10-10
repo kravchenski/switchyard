@@ -14,6 +14,10 @@ pub struct ProviderOverview {
     pub url: Option<String>,
     #[serde(default, rename = "accountLabel")]
     pub account_label: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub custom: bool,
 }
 
 fn enabled() -> bool {
@@ -113,7 +117,7 @@ mod tests {
     use super::*;
 
     fn row(id: &str, kind: &str, state: &str, fix: Option<&str>) -> ProviderOverview {
-        ProviderOverview { id: id.into(), kind: kind.into(), state: state.into(), detail: "d".into(), fix: fix.map(Into::into), auto: true, url: None, account_label: None }
+        ProviderOverview { id: id.into(), kind: kind.into(), state: state.into(), detail: "d".into(), fix: fix.map(Into::into), auto: true, url: None, account_label: None, label: None, custom: false }
     }
 
     fn live(available: bool, reason: Option<&str>) -> ProviderStatus {
@@ -133,8 +137,12 @@ mod tests {
             auto: false,
             url: None,
             account_label: None,
+            label: None,
+            custom: false,
         });
         assert!(rows[1].auto);
+        let custom = parse_overview("[{\"id\":\"lab\",\"kind\":\"api-key\",\"state\":\"connected\",\"detail\":\"d\",\"label\":\"My Lab\",\"custom\":true}]").unwrap();
+        assert_eq!((custom[0].label.as_deref(), custom[0].custom), (Some("My Lab"), true));
         assert_eq!(rows[1].url.as_deref(), Some("https://chat.z.ai/"));
         assert!(parse_overview("no json").is_err());
     }

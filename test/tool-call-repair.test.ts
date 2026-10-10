@@ -157,6 +157,28 @@ describe('tool call JSON repair', () => {
         expect(parseToolCallJson(broken)).toBeNull();
     });
 
+    test('recovers bash calls whose arguments were emitted as an unescaped string', () => {
+        const broken = `{"tool_calls":[{"name":"bash","arguments":"{"command":"cd /tmp && python3 - <<'PY'\\nprint("ok")\\nPY\\nls -la out.png"}"}}]}\n`;
+        const command = [
+            "cd /tmp && python3 - <<'PY'",
+            'print("ok")',
+            'PY',
+            'ls -la out.png'
+        ].join('\n');
+
+        expect(recoverBrokenBashToolCall(broken)).toEqual({ name: 'bash', arguments: { command } });
+        expect(recoverBrokenBashToolCall(broken.trimEnd())).toEqual({ name: 'bash', arguments: { command } });
+        expect(parseToolCallJson(broken, [{ function: { name: 'bash' } }])?.[0].function.arguments)
+            .toBe(JSON.stringify({ command }));
+    });
+
+    test('drops wrapper braces left after a string-typed command', () => {
+        expect(recoverBrokenBashToolCall('{"tool_calls":[{"name":"bash","arguments":"{"command":"pwd"}"]}\n'))
+            .toEqual({ name: 'bash', arguments: { command: 'pwd' } });
+        expect(recoverBrokenBashToolCall('{"tool_calls":[{"name":"bash","arguments":"{"command":"ls -la"}"}}]}\n'))
+            .toEqual({ name: 'bash', arguments: { command: 'ls -la' } });
+    });
+
     test('extracts the first tool call when prose and duplicate JSON surround it', () => {
         const content = 'Сначала изучу проект.\n{"tool_calls":[{"name":"ls","arguments":{"path":"."}}]}\n{"tool_calls":[{"name":"ls","arguments":{"path":"."}}]}';
 

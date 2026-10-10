@@ -88,6 +88,7 @@ All providers below have free tiers or work through your own signed-in web accou
 - **Several web accounts:** each is its own browser profile; requests rotate between the signed-in ones (`bun run account profile add`, `connect`, `status`).
 - **Gentle on web accounts:** each web chat account keeps requests in one chat (a request with its own `conversation_id` gets its own chat), sends one message at a time and waits `WEB_CHAT_MIN_INTERVAL_MS` (10 s) between messages. Heavy automated traffic still breaks the sites' terms and can get an account blocked; use API providers for bots.
 - **Collect keys from an account:** `bun run account auto-collect --profile <id>` signs in to the web chats and provider dashboards with that account's Google session and creates its API keys (Auto-collect keys on the desktop Accounts page). Stop the API first, because it uses the same browser profile.
+- **Custom providers:** add any OpenAI-compatible API (Ollama, LM Studio, vLLM, a company proxy) with `bun run account custom add <id> --url <base-url> [--name <name>]` or the Custom provider card on the desktop API keys page, then save its key with `bun run account add <id> --api-key` if it needs one. Its models are named `<id>/<model>` and join `auto` as a fallback. Use `https://`, or `http://` only for localhost.
 - Models a key cannot use are detected and hidden; `bun run models:probe` measures which models answer and how fast.
 
 ## Routing

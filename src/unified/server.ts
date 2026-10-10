@@ -43,7 +43,8 @@ import { parseQwenStream, QWEN_CHAT_SITE } from '../providers/qwen/web.ts';
 import { gatewayStatus } from '../core/status.ts';
 import { Metrics, requestIdFrom } from '../observability/metrics.ts';
 import type { Database } from 'bun:sqlite';
-import { API_KEY_PROVIDERS, apiKeyProvider, createApiProvider, createNvidiaProvider, defaultAuto, forgetSavedKeys, FREE_API_PROVIDERS } from '../providers/catalog.ts';
+import { API_KEY_PROVIDERS, apiKeyProvider, createApiProvider, createNvidiaProvider, defaultAuto, forgetSavedKeys, FREE_API_PROVIDERS, setCustomProviders } from '../providers/catalog.ts';
+import { CUSTOM_PROVIDERS_SETTING, customProviderDefinition, readCustomProviders } from '../providers/custom.ts';
 import { openCredentialStore, savedApiKey } from '../core/accounts/credential-store.ts';
 import { parseKeyList } from '../core/accounts/key-pool.ts';
 import { loadAccountsSecret } from '../core/secrets/accounts-secret.ts';
@@ -305,6 +306,29 @@ function logRequest(entry: RequestLog) {
 }
 
 let allModels: ModelEntry[] = [];
+
+const customBaseUrls = new Map<string, string>();
+
+function syncCustomProviders() {
+    let definitions;
+    try {
+        definitions = readCustomProviders(loadGatewaySetting(db(), CUSTOM_PROVIDERS_SETTING)).map(customProviderDefinition);
+    } catch (error) {
+        console.error('Custom providers unavailable:', errorText(error));
+        return;
+    }
+    setCustomProviders(definitions);
+    for (const [id, baseUrl] of customBaseUrls) {
+        if (definitions.some(definition => definition.id === id && definition.baseUrl === baseUrl)) continue;
+        registry.unregister(id);
+        customBaseUrls.delete(id);
+    }
+    for (const definition of definitions) {
+        if (customBaseUrls.has(definition.id) || registry.list().some(provider => provider.id === definition.id)) continue;
+        registry.register(createApiProvider(definition, {}, credentialStore));
+        customBaseUrls.set(definition.id, definition.baseUrl);
+    }
+}
 
 async function refreshModelLists() {
     allModels = [...VIRTUAL_MODELS.map(id => ({ id, ownedBy: 'gateway' })), ...await registry.listModels()];
@@ -640,6 +664,7 @@ app.post('/v1/gateway/providers/:id/check', async (c) => {
 });
 
 app.post('/v1/gateway/refresh', async (c) => {
+    syncCustomProviders();
     forgetSavedKeys();
     await refreshModelLists();
     return c.json({
@@ -1076,6 +1101,7 @@ export async function startUnifiedServer() {
     process.once('SIGTERM', shutdown);
     await loadAccountsSecret();
     loadModelStatistics();
+    syncCustomProviders();
     await refreshModelLists();
     scheduleModelRefresh();
     const modelCount = allModels.length;
