@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.14.0](https://github.com/kravchenski/switchyard/compare/v2.13.1...v2.14.0) (2026-10-10)
+
+
+### Features
+
+* **deepseek:** sign DeepSeek in through browser accounts and show it on their cards ([dffa177](https://github.com/kravchenski/switchyard/commit/dffa177fdf19f31fb55274c128d8b65a2d294519))
+* **deepseek:** sign DeepSeek in through browser accounts and show it on their cards ([6194b93](https://github.com/kravchenski/switchyard/commit/6194b93342108e93c8f177b3288b2166dce3fea7))
+
+
+### Bug Fixes
+
+* **desktop:** set the window app id so docks and launchers show the Switchyard icon ([1d88cc2](https://github.com/kravchenski/switchyard/commit/1d88cc2eee19fd5146024a3958b76b3999294171))
+* **desktop:** set the window app id so docks and launchers show the Switchyard icon ([3460ca4](https://github.com/kravchenski/switchyard/commit/3460ca44a95d1b8d6425f5498a68fb091d1c0d96))
+
+
+### Documentation
+
+* explain signing DeepSeek in through a browser account ([f2b7a8e](https://github.com/kravchenski/switchyard/commit/f2b7a8e1b1512c3540425b8c36e7dd848ae9af3c))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.13.1 ([12a291b](https://github.com/kravchenski/switchyard/commit/12a291bd9d1968721114d089fc1539ce757970fc))
+
 ## [2.13.1](https://github.com/kravchenski/switchyard/compare/v2.13.0...v2.13.1) (2026-10-10)
 
 
