@@ -71,7 +71,7 @@ A bearer token is only required when `GATEWAY_API_KEY` is set.
 
 ## Desktop app
 
-A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click the address in the sidebar to copy the base URL.
+A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click a request to see how it was routed: which models were skipped and why, each attempt with its error and time, and who answered. Click the address in the sidebar to copy the base URL.
 
 <p align="center">
   <picture>
@@ -255,6 +255,7 @@ Each Jev question costs one request to a fast API model, so the savings pay off 
 |---|---|---|
 | `POST` | `/v1/decisions` (also `/v1/systemone`) | Decision API in TypeSafe's System One shape: `choice` / `noul` / `boolean` questions answered with probabilities |
 | `GET` | `/v1/gateway/decisions` | Recent routing decisions |
+| `GET` | `/v1/gateway/decisions/:id` | One routing decision; request logs carry its `decisionId` |
 | `GET` | `/v1/gateway/status` | Providers, accounts, models, chains, web chat order, recent requests |
 | `POST` | `/v1/gateway/refresh` | Reload saved keys, custom providers and model lists |
 | `POST` | `/v1/gateway/providers/:id/check` | Check which models a provider key can use |

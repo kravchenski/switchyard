@@ -114,6 +114,7 @@ const MIGRATIONS = [
     models TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   )`,
+  'ALTER TABLE request_logs ADD COLUMN decision_id INTEGER',
 ];
 
 function defaultDatabaseFile() {
@@ -149,11 +150,12 @@ export interface RequestLog {
   status: 'success' | 'error';
   latencyMs?: number;
   error?: string;
+  decisionId?: number;
 }
 
 export function recordRequest(db: Database, log: RequestLog, now = Date.now()) {
-  db.query(`INSERT INTO request_logs (created_at, provider, model, account_id, status, latency_ms, error)
-    VALUES ($createdAt, $provider, $model, $accountId, $status, $latencyMs, $error)`).run({
+  db.query(`INSERT INTO request_logs (created_at, provider, model, account_id, status, latency_ms, error, decision_id)
+    VALUES ($createdAt, $provider, $model, $accountId, $status, $latencyMs, $error, $decisionId)`).run({
     createdAt: now,
     provider: log.provider,
     model: log.model,
@@ -161,12 +163,13 @@ export function recordRequest(db: Database, log: RequestLog, now = Date.now()) {
     status: log.status,
     latencyMs: log.latencyMs ?? null,
     error: log.error ?? null,
+    decisionId: log.decisionId ?? null,
   });
 }
 
 export function recentRequests(db: Database, limit = 50) {
   return db.query(`SELECT created_at AS createdAt, provider, model, account_id AS accountId, status,
-    latency_ms AS latencyMs, error FROM request_logs ORDER BY id DESC LIMIT $limit`).all({ limit });
+    latency_ms AS latencyMs, error, decision_id AS decisionId FROM request_logs ORDER BY id DESC LIMIT $limit`).all({ limit });
 }
 
 export function loadModelStats(db: Database): ModelStat[] {
