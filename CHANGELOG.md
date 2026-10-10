@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.8.0](https://github.com/kravchenski/switchyard/compare/v2.7.0...v2.8.0) (2026-10-10)
+
+
+### Features
+
+* **agents:** enable rtk shell rewriting by default ([e824968](https://github.com/kravchenski/switchyard/commit/e824968872724832612f029309d5e717b5700359))
+* **gateway:** stream tool-enabled responses live with hold-back ([f4c435d](https://github.com/kravchenski/switchyard/commit/f4c435d1a15def1088730cbc805685b3c0de928d))
+* **gateway:** web-first routing, live streaming and rtk by default ([1f2d043](https://github.com/kravchenski/switchyard/commit/1f2d04352f0e59383aaff10043dc84e1ec0459f4))
+* **router:** try web chats first and keep API models as fallback ([4b52afb](https://github.com/kravchenski/switchyard/commit/4b52afbb849293b216b473df849a8b4820085bb8))
+* **setup:** point claude at gateway and mark vision models for pi ([9c0d526](https://github.com/kravchenski/switchyard/commit/9c0d5264fa8518de128f564da68e73853909eb5c))
+* **setup:** point claude at gateway and mark vision models for pi ([9f1ba5f](https://github.com/kravchenski/switchyard/commit/9f1ba5fed791e0eb73de31bb8254a33038defe35))
+
+
+### Bug Fixes
+
+* **agents:** run piped shell commands through rtk ([43caa30](https://github.com/kravchenski/switchyard/commit/43caa30963e75fbc2e87965ac60d30bef0640565))
+* **gateway:** parse transcript-style tool calls from web chats ([3f97a5f](https://github.com/kravchenski/switchyard/commit/3f97a5fe0f419c055d999a0070a513ab84729d72))
+* **prompt:** keep web chats concise and block install commands ([f34e22b](https://github.com/kravchenski/switchyard/commit/f34e22b4808e9fd2eb40505a0bc4481c8f8ba080))
+
 ## [2.7.0](https://github.com/kravchenski/switchyard/compare/v2.6.0...v2.7.0) (2026-10-09)
 
 
