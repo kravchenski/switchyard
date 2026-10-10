@@ -83,6 +83,7 @@ struct Shell {
     key_provider: Option<String>,
     request_filter: Option<String>,
     selected_provider: Option<String>,
+    expanded_chat: Option<String>,
     theme: ThemeChoice,
     applied_dark: Option<bool>,
     auto_settings: Option<AutoSettings>,
@@ -158,6 +159,7 @@ impl Shell {
             key_provider: None,
             request_filter: None,
             selected_provider: None,
+            expanded_chat: None,
             theme: settings::load(&config_root).theme,
             applied_dark: None,
             auto_settings: None,
@@ -422,6 +424,13 @@ fn agent_option_text(name: &str) -> (String, &'static str) {
         "rtk" => ("Run shell commands through rtk".into(), "Rewrites the agent's shell commands with the installed rtk (git status -> rtk git status) so their output reaches the model already compact. Needs rtk on this machine."),
         other => (other.to_string(), ""),
     }
+}
+
+fn model_label(chat: &str, model: &str) -> String {
+    if model == chat {
+        return "Default".into();
+    }
+    model.strip_prefix(&format!("{chat}/")).unwrap_or(model).to_string()
 }
 
 fn last_line(text: &str, fallback: &str) -> String {
@@ -894,6 +903,17 @@ impl Shell {
         self.run_command(cx, move |cli| cli.set_web_order(&order));
     }
 
+    fn choose_web_model(&mut self, chat: String, model: Option<String>, cx: &mut Context<Self>) {
+        if let Some(auto) = self.auto_settings.as_mut() {
+            auto.models.retain(|(id, _)| *id != chat);
+            if let Some(model) = &model {
+                auto.models.push((chat.clone(), model.clone()));
+            }
+        }
+        let value = model.unwrap_or_else(|| "fastest".into());
+        self.run_command(cx, move |cli| cli.set_web_model(&chat, &value));
+    }
+
     fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {
         let section = |title: &'static str, hint: &'static str| {
             card().p_5().flex().flex_col().gap_3().child(div().flex().flex_col().gap_1().child(section_title(title)).child(muted(hint).text_xs()))
@@ -931,19 +951,57 @@ impl Shell {
                         }))
                     })
             };
-            div()
+            let chosen = auto.as_ref().and_then(|auto| auto.models.iter().find(|(chat, _)| chat == id).map(|(_, model)| model.clone()));
+            let expanded = self.expanded_chat.as_deref() == Some(id.as_str());
+            let toggle_id = id.clone();
+            let header = div()
                 .flex()
                 .items_center()
                 .gap_3()
-                .px_3()
-                .py_2()
-                .rounded_xl()
-                .bg(col(CANVAS))
                 .child(div().w(px(18.)).text_sm().font_weight(FontWeight::SEMIBOLD).text_color(col(MUTED)).child((index + 1).to_string()))
                 .child(provider_mark(id, 26.))
-                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).child(self.name_of(id).to_string()))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("chat-models-{id}")))
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .cursor_pointer()
+                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(self.name_of(id)))
+                        .child(div().min_w_0().overflow_hidden().text_xs().text_color(col(MUTED)).child(chosen.as_deref().map(|model| model_label(id, model)).unwrap_or_else(|| "Fastest".into())))
+                        .child(div().text_size(px(14.)).text_color(col(MUTED)).child(if expanded { IconName::ChevronUp } else { IconName::ChevronDown }))
+                        .on_click(cx.listener(move |shell, _, _, cx| {
+                            shell.expanded_chat = if shell.expanded_chat.as_deref() == Some(toggle_id.as_str()) { None } else { Some(toggle_id.clone()) };
+                            cx.notify();
+                        })),
+                )
                 .child(arrow("up", IconName::ArrowUp, index.checked_sub(1), cx))
-                .child(arrow("down", IconName::ArrowDown, (index < last).then_some(index + 1), cx))
+                .child(arrow("down", IconName::ArrowDown, (index < last).then_some(index + 1), cx));
+            let models: Vec<String> = self.status.as_ref().map(|status| status.models.iter().filter(|model| model.provider == *id).map(|model| model.id.clone()).collect()).unwrap_or_default();
+            let choices = expanded.then(|| {
+                let options = std::iter::once(None).chain(models.iter().cloned().map(Some)).map(|model| {
+                    let active = model == chosen;
+                    let label = model.as_deref().map(|model| model_label(id, model)).unwrap_or_else(|| "Fastest".into());
+                    let chat = id.clone();
+                    let key = model.clone().unwrap_or_else(|| "fastest".into());
+                    chip(SharedString::from(format!("pick-{id}-{key}")), active).child(label).when(!self.busy, |this| {
+                        this.on_click(cx.listener(move |shell, _, _, cx| {
+                            shell.choose_web_model(chat.clone(), model.clone(), cx);
+                            cx.notify();
+                        }))
+                    })
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .pl(px(56.))
+                    .child(div().flex().flex_wrap().gap_1().children(options))
+                    .children(models.is_empty().then(|| muted("Run the API to list this chat's models.").text_xs()))
+            });
+            div().flex().flex_col().gap_2().px_3().py_2().rounded_xl().bg(col(CANVAS)).child(header).children(choices)
         }).collect();
         let agent_rows: Vec<Div> = auto.as_ref().map(|auto| auto.agents.clone()).unwrap_or_default().into_iter().map(|(name, on)| {
             let (title, description) = agent_option_text(&name);
@@ -966,7 +1024,7 @@ impl Shell {
             .flex_col()
             .gap_4()
             .child(section("Theme", "Light, dark, or follow the system appearance.").child(theme_row))
-            .child(section("Web chat order", "model=auto tries the web chats from top to bottom, then the API models. Applies within about 30 seconds.").child(div().flex().flex_col().gap_2().children(order_rows).children(order.is_empty().then(|| muted("Loading…")))))
+            .child(section("Web chat order", "model=auto tries the web chats from top to bottom, then the API models. Click a chat to pick the model it uses. Applies within about 30 seconds.").child(div().flex().flex_col().gap_2().children(order_rows).children(order.is_empty().then(|| muted("Loading…")))))
             .child(section("Coding agents", "Applied to requests from Claude Code, Codex, pi, OpenCode and other agents that send tools.").children(agent_rows))
             .into_any_element()
     }

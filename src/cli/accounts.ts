@@ -43,7 +43,7 @@ export interface AccountsCliDeps {
     add(input: { id: string; label?: string; baseUrl: string }): CustomProvider;
     remove(id: string): boolean;
   };
-  autoSettings?: (change: { order?: string; agents?: Record<string, string | undefined> }) => { order: string[]; agents?: Record<string, boolean> };
+  autoSettings?: (change: { order?: string; model?: { chat: string; model: string }; agents?: Record<string, string | undefined> }) => { order: string[]; models?: Record<string, string>; agents?: Record<string, boolean> };
   harvest?: (options: { profile: string; providers?: string[]; session?: unknown; onResult?: (result: HarvestResult) => void }) => Promise<HarvestResult[]>;
   autoLogin?: (options: { profile: string; sites?: string[]; providers?: string[]; credentials: { email: string; password: string }; viaGoogle?: boolean; session?: unknown }) => Promise<AutoLoginResult[]>;
   beginSession?: (profile: string) => Promise<unknown>;
@@ -65,8 +65,9 @@ const ACCOUNTS_USAGE = `Usage: bun run account <command>
   init                                            Create ACCOUNTS_SECRET in the system keyring (moves it out of .env)
   secret                                          Show where ACCOUNTS_SECRET is loaded from
   provider <id> [--auto on|off]                   Show or change whether model=auto may use a provider
-  auto [--order <id,...>] [--compact on|off] [--tools on|off] [--rtk on|off]
-                                                  Show or change model=auto (order of the web chats, e.g. qwen-chat,deepseek,glm-chat)
+  auto [--order <id,...>] [--model <chat>=<model|fastest>] [--compact on|off] [--tools on|off] [--rtk on|off]
+                                                  Show or change model=auto (order of the web chats, e.g. qwen-chat,deepseek,glm-chat;
+                                                  the model each web chat uses, e.g. qwen-chat=qwen-chat/qwen3.8-max)
                                                   and coding agent requests (--compact trims tool output,
                                                   --tools keeps only the tools a request needs,
                                                   --rtk runs the agent's shell commands through rtk)
@@ -219,8 +220,12 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
   }
 
   if (command === 'auto' && deps.autoSettings) {
-    const current = deps.autoSettings({ order: option(args, '--order'), agents: { compact: option(args, '--compact'), tools: option(args, '--tools'), rtk: option(args, '--rtk') } });
+    const chosen = option(args, '--model');
+    const [chat, model] = chosen?.split(/=(.*)/s) ?? [];
+    if (chosen !== undefined && (!chat || !model)) throw new Error('Use --model <chat>=<model>, or <chat>=fastest');
+    const current = deps.autoSettings({ order: option(args, '--order'), ...(chat && model ? { model: { chat, model } } : {}), agents: { compact: option(args, '--compact'), tools: option(args, '--tools'), rtk: option(args, '--rtk') } });
     deps.log(`web order: ${current.order.join(',')}`);
+    for (const [id, model] of Object.entries(current.models ?? {})) deps.log(`web model ${id}: ${model}`);
     for (const [name, on] of Object.entries(current.agents ?? {})) deps.log(`agents ${name}: ${on ? 'on' : 'off'}`);
     return 0;
   }
