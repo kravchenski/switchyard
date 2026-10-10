@@ -1,6 +1,6 @@
 {
     "name": "switchyard",
-    "version": "2.13.0",
+    "version": "2.13.1",
     "description": "Local OpenAI-compatible gateway for web AI chats and free model APIs",
     "author": "kravchenski",
     "license": "MIT",
