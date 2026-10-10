@@ -30,6 +30,27 @@ export function tokenMatches(token: string | null, expected: string | undefined)
     return crypto.timingSafeEqual(actual, reference);
 }
 
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+function hostnameOf(value: string) {
+    try {
+        return new URL(value.includes('://') ? value : `http://${value}`).hostname.toLowerCase();
+    } catch {
+        return null;
+    }
+}
+
+function isLocalHostname(hostname: string | null) {
+    return hostname !== null && (LOCAL_HOSTNAMES.has(hostname) || hostname.endsWith('.localhost'));
+}
+
+export function isLocalRequest(headers: { get(name: string): string | null }) {
+    const host = headers.get('host');
+    if (!host || !isLocalHostname(hostnameOf(host))) return false;
+    const origin = headers.get('origin');
+    return !origin || isLocalHostname(hostnameOf(origin));
+}
+
 export function isForwardableResponseHeader(name: string) {
     return !HOP_BY_HOP_HEADERS.has(name.toLowerCase());
 }

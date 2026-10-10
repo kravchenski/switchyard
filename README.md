@@ -162,7 +162,7 @@ A native app (Rust + [GPUI](https://www.gpui.rs)) to start and stop the gateway,
 | Variable | Default | Description |
 |---|---|---|
 | `UNIFIED_PORT` | `3260` | Server port |
-| `HOST` | `0.0.0.0` | Bind address |
+| `HOST` | `127.0.0.1` | Bind address; without `GATEWAY_API_KEY` only requests to `localhost` from local pages are accepted |
 | `GATEWAY_API_KEY` | — | Require this bearer token on every request except `/health` |
 | `<PROVIDER>_API_KEY` | — | One key or a list per provider (see `.env.example`) |
 | `AUTO_MODELS` | — | Fixed `auto` chain instead of the measured one |

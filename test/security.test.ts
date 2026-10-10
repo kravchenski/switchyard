@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { bearerToken, isForwardableResponseHeader, tokenMatches } from '../src/gateway/security.ts';
+import { bearerToken, isForwardableResponseHeader, isLocalRequest, tokenMatches } from '../src/gateway/security.ts';
 
 describe('security boundaries', () => {
     test('protects the gateway with timing-safe bearer checks', () => {
@@ -28,5 +28,27 @@ describe('tokenMatches edge cases', () => {
     test('compares multibyte tokens by bytes', () => {
         expect(tokenMatches('key-✓-€', 'key-✓-€')).toBeTrue();
         expect(tokenMatches('key-x-€', 'key-✓-€')).toBeFalse();
+    });
+});
+
+describe('isLocalRequest', () => {
+    const request = (headers: Record<string, string>) => isLocalRequest(new Headers(headers));
+
+    test('accepts loopback hosts without a foreign origin', () => {
+        expect(request({ host: 'localhost:3260' })).toBeTrue();
+        expect(request({ host: '127.0.0.1:3260' })).toBeTrue();
+        expect(request({ host: '[::1]:3260' })).toBeTrue();
+        expect(request({ host: 'localhost:3260', origin: 'http://localhost:3000' })).toBeTrue();
+    });
+
+    test('rejects other hosts and rebinding names', () => {
+        expect(request({ host: '192.168.1.20:3260' })).toBeFalse();
+        expect(request({ host: 'attacker.example:3260' })).toBeFalse();
+        expect(request({})).toBeFalse();
+    });
+
+    test('rejects pages from other origins', () => {
+        expect(request({ host: 'localhost:3260', origin: 'https://attacker.example' })).toBeFalse();
+        expect(request({ host: '127.0.0.1:3260', origin: 'null' })).toBeFalse();
     });
 });

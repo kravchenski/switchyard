@@ -7,7 +7,7 @@ import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
 import { conversationalShellText, hasFabricatedTranscript, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, toolsToPrompt } from '../core/tools/tool-calls.ts';
-import { bearerToken, tokenMatches } from '../gateway/security.ts';
+import { bearerToken, isLocalRequest, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
 import { ResponsesStreamTranslator } from '../gateway/responses-stream.ts';
 import { anthropicError, anthropicToChatRequest, chatToAnthropicMessage, estimateInputTokens } from '../api/anthropic/messages.ts';
@@ -81,6 +81,9 @@ app.use('*', async (c, next) => {
 
 app.use('*', async (c, next) => {
     if (c.req.path === '/health') return next();
+    if (!apiKey && !isLocalRequest(c.req.raw.headers)) {
+        return c.json({ error: { message: 'Set GATEWAY_API_KEY to accept requests from other hosts or web pages', type: 'permission_error' } }, 403);
+    }
     if (tokenMatches(bearerToken(c.req.header('authorization')) ?? c.req.header('x-api-key') ?? null, apiKey)) return next();
     return c.json({ error: { message: 'Invalid bearer token', type: 'authentication_error' } }, 401);
 });

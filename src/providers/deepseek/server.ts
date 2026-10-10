@@ -11,7 +11,7 @@ import { hasValidDeepSeekAccounts } from './accounts.ts';
 import { runDeepSeekAccountMenu } from './auth.ts';
 
 const port = Number(process.env.DEEPSEEK_PORT || 3265);
-const host = process.env.HOST || '0.0.0.0';
+const host = process.env.HOST || '127.0.0.1';
 const VERIFICATION = /verification|captcha|verify you are human/i;
 
 type ErrorStatus = 400 | 401 | 404 | 429 | 502 | 503;
