@@ -1,5 +1,3 @@
-import { isAutoFocus, isAutoMode, type AutoFocus, type AutoMode } from '../router/focus.ts';
-
 export interface SettingsStore {
   load(key: string): string | undefined;
   save(key: string, value: string): void;
@@ -10,8 +8,14 @@ const CACHE_MS = 30_000;
 export const AGENT_OPTIONS = { compact: true, tools: true, rtk: true } as const;
 export type AgentOption = keyof typeof AGENT_OPTIONS;
 
-export function isAgentOption(value: string): value is AgentOption {
+const WEB_CHAT_ORDER = ['qwen-chat', 'deepseek', 'glm-chat', 'kimi-chat', 'arena-chat'] as const;
+
+function isAgentOption(value: string): value is AgentOption {
   return Object.hasOwn(AGENT_OPTIONS, value);
+}
+
+function parseOrder(value: string | undefined) {
+  return (value ?? '').split(',').map(id => id.trim()).filter(Boolean);
 }
 
 export class GatewaySettings {
@@ -38,19 +42,19 @@ export class GatewaySettings {
     this.cache.set(key, { value, readAt: this.now() });
   }
 
-  autoFocus(): AutoFocus {
-    const value = this.read('auto.focus');
-    return isAutoFocus(value) ? value : 'general';
+  webOrder(): string[] {
+    const known: readonly string[] = WEB_CHAT_ORDER;
+    const saved = parseOrder(this.read('auto.web-order')).filter(id => known.includes(id));
+    return [...new Set([...saved, ...WEB_CHAT_ORDER])];
   }
 
-  autoMode(): AutoMode {
-    const value = this.read('auto.mode');
-    return isAutoMode(value) ? value : 'fallback';
-  }
-
-  setAutoFocus(focus: string) {
-    if (!isAutoFocus(focus)) throw new Error(`Unknown focus: ${focus}. Use general, coding, reasoning or fast`);
-    this.write('auto.focus', focus);
+  setWebOrder(order: string) {
+    const ids = parseOrder(order);
+    const known: readonly string[] = WEB_CHAT_ORDER;
+    const unknown = ids.filter(id => !known.includes(id));
+    if (unknown.length) throw new Error(`Unknown web chat: ${unknown.join(', ')}. Use ${WEB_CHAT_ORDER.join(', ')}`);
+    if (!ids.length) throw new Error('Give at least one web chat');
+    this.write('auto.web-order', [...new Set(ids)].join(','));
   }
 
   agentOption(name: AgentOption) {
@@ -62,10 +66,5 @@ export class GatewaySettings {
     if (!isAgentOption(name)) throw new Error(`Unknown agent option: ${name}`);
     if (value !== 'on' && value !== 'off') throw new Error(`Use on or off for ${name}`);
     this.write(`agents.${name}`, value);
-  }
-
-  setAutoMode(mode: string) {
-    if (!isAutoMode(mode)) throw new Error(`Unknown mode: ${mode}. Use fallback, race or decide`);
-    this.write('auto.mode', mode);
   }
 }

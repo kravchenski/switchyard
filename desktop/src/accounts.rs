@@ -172,12 +172,8 @@ impl AccountsCli {
         self.run(&["auto"], None).and_then(|output| crate::settings::parse_auto(&output).ok_or_else(|| "Unexpected auto settings output".to_string()))
     }
 
-    pub fn set_auto_focus(&self, focus: &str) -> Result<String, String> {
-        self.run(&["auto", "--focus", focus], None)
-    }
-
-    pub fn set_auto_mode(&self, mode: &str) -> Result<String, String> {
-        self.run(&["auto", "--mode", mode], None)
+    pub fn set_web_order(&self, order: &[String]) -> Result<String, String> {
+        self.run(&["auto", "--order", &order.join(",")], None)
     }
 
     pub fn set_agent_option(&self, name: &str, on: bool) -> Result<String, String> {
@@ -231,8 +227,7 @@ mod tests {
         assert_eq!(cli.harvest().unwrap(), "args:harvest --yes");
         assert_eq!(cli.auto_collect("acct-1").unwrap(), "args:auto-collect --profile acct-1 --yes");
         assert_eq!(cli.remove_profile("acct-1").unwrap(), "args:profile remove acct-1");
-        assert_eq!(cli.set_auto_focus("coding").unwrap(), "args:auto --focus coding");
-        assert_eq!(cli.set_auto_mode("race").unwrap(), "args:auto --mode race");
+        assert_eq!(cli.set_web_order(&["deepseek".into(), "qwen-chat".into()]).unwrap(), "args:auto --order deepseek,qwen-chat");
         assert_eq!(cli.add_profile(" "), Err("Enter a name for the account".into()));
         assert_eq!(cli.set_auto("nvidia", false).unwrap(), "args:provider nvidia --auto off");
         assert_eq!(cli.set_auto("glm-chat", true).unwrap(), "args:provider glm-chat --auto on");

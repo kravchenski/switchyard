@@ -794,6 +794,16 @@ impl Shell {
         }
     }
 
+    fn move_web_chat(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        let Some(auto) = self.auto_settings.as_mut() else { return };
+        if from >= auto.order.len() || to >= auto.order.len() {
+            return;
+        }
+        auto.order.swap(from, to);
+        let order = auto.order.clone();
+        self.run_command(cx, move |cli| cli.set_web_order(&order));
+    }
+
     fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {
         let pill = |id: String, label: &'static str, name: Option<IconName>, active: bool| {
             div()
@@ -823,27 +833,45 @@ impl Shell {
             }))
         }));
         let auto = self.auto_settings.clone();
-        let focuses: [(&'static str, &'static str, &'static str); 4] = [
-            ("general", "General", "Fastest working models first."),
-            ("coding", "Coding", "Models made for code first (coder, codestral, devstral…)."),
-            ("reasoning", "Reasoning", "Thinking models first (reasoner, r1, qwq, magistral…)."),
-            ("fast", "Fast", "Small and quick models first (flash, lightning, mini…)."),
-        ];
-        let current_focus = auto.as_ref().map(|auto| auto.focus.clone()).unwrap_or_default();
-        let focus_hint = focuses.iter().find(|(value, _, _)| *value == current_focus).map(|(_, _, hint)| *hint).unwrap_or("Loading…");
-        let focus_row = div().flex().flex_wrap().gap_2().children(focuses.into_iter().map(|(value, label, _)| {
-            pill(format!("focus-{value}"), label, None, current_focus == value).when(!self.busy, |this| {
-                this.on_click(cx.listener(move |shell, _, _, cx| {
-                    shell.run_command(cx, move |cli| cli.set_auto_focus(value));
-                    cx.notify();
-                }))
-            })
-        }));
-        let modes: [(&'static str, &'static str, &'static str); 3] = [
-            ("fallback", "One by one", "Tries the chain in order and moves on only when a model fails."),
-            ("race", "All at once", "Sends each request to the first three API models at the same time and keeps the first answer; web chats are tried one at a time after them. Faster, but uses the limits of several providers."),
-            ("decide", "Decision model", "A fast model reads each request and picks the model that suits it best; the rest of the chain stays as backup. Adds a few seconds per request. Images are not affected."),
-        ];
+        let order = auto.as_ref().map(|auto| auto.order.clone()).unwrap_or_default();
+        let last = order.len().saturating_sub(1);
+        let order_rows: Vec<Div> = order.iter().enumerate().map(|(index, id)| {
+            let arrow = |direction: &'static str, name: IconName, target: Option<usize>, cx: &mut Context<Self>| {
+                let enabled = target.is_some() && !self.busy;
+                div()
+                    .id(SharedString::from(format!("order-{direction}-{id}")))
+                    .size(px(30.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(col(BORDER))
+                    .text_size(px(14.))
+                    .text_color(col(MUTED))
+                    .child(name)
+                    .when(!enabled, |this| this.opacity(0.35))
+                    .when_some(target.filter(|_| enabled), |this, target| {
+                        this.cursor_pointer().hover(|style| style.bg(col(HOVER))).on_click(cx.listener(move |shell, _, _, cx| {
+                            shell.move_web_chat(index, target, cx);
+                            cx.notify();
+                        }))
+                    })
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py_2()
+                .rounded_xl()
+                .bg(col(CANVAS))
+                .child(div().w(px(18.)).text_sm().font_weight(FontWeight::SEMIBOLD).text_color(col(MUTED)).child((index + 1).to_string()))
+                .child(provider_mark(id, 26.))
+                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).child(display_name(id).to_string()))
+                .child(arrow("up", IconName::ArrowUp, index.checked_sub(1), cx))
+                .child(arrow("down", IconName::ArrowDown, (index < last).then_some(index + 1), cx))
+        }).collect();
         let agent_rows: Vec<Div> = auto.as_ref().map(|auto| auto.agents.clone()).unwrap_or_default().into_iter().map(|(name, on)| {
             let (title, description) = agent_option_text(&name);
             div()
@@ -860,23 +888,12 @@ impl Shell {
                     }))
                 }))
         }).collect();
-        let current_mode = auto.as_ref().map(|auto| auto.mode.clone()).unwrap_or_default();
-        let mode_hint = modes.iter().find(|(value, _, _)| *value == current_mode).map(|(_, _, hint)| *hint).unwrap_or("Loading…");
-        let mode_row = div().flex().flex_wrap().gap_2().children(modes.into_iter().map(|(value, label, _)| {
-            pill(format!("mode-{value}"), label, None, current_mode == value).when(!self.busy, |this| {
-                this.on_click(cx.listener(move |shell, _, _, cx| {
-                    shell.run_command(cx, move |cli| cli.set_auto_mode(value));
-                    cx.notify();
-                }))
-            })
-        }));
         div()
             .flex()
             .flex_col()
             .gap_4()
             .child(section("Theme", "Light, dark, or follow the system appearance.").child(theme_row))
-            .child(section("Auto focus", "Which models model=auto prefers. Applies within about 30 seconds.").child(focus_row).child(muted(focus_hint).text_xs()))
-            .child(section("Auto mode", "How model=auto sends a request.").child(mode_row).child(muted(mode_hint).text_xs()))
+            .child(section("Web chat order", "model=auto tries the web chats from top to bottom, then the API models. Applies within about 30 seconds.").child(div().flex().flex_col().gap_2().children(order_rows).children(order.is_empty().then(|| muted("Loading…")))))
             .child(section("Coding agents", "Applied to requests from Claude Code, Codex, pi, OpenCode and other agents that send tools.").children(agent_rows))
             .into_any_element()
     }
