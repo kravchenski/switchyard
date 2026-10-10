@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.9.0](https://github.com/kravchenski/switchyard/compare/v2.8.0...v2.9.0) (2026-10-10)
+
+
+### Features
+
+* **desktop:** refresh the app design ([d45d2c5](https://github.com/kravchenski/switchyard/commit/d45d2c5e8caa6016040e792ddc7b2bc3e57cd6e8))
+* **providers:** add custom OpenAI-compatible providers from the CLI and the desktop app ([8c123a4](https://github.com/kravchenski/switchyard/commit/8c123a4de6ac0b2bbc998571a321e453a744cf4e))
+* **router:** replace auto focus and modes with a web chat order ([6f31224](https://github.com/kravchenski/switchyard/commit/6f3122402278806ced21bbfe4e80979ce0ba381f))
+
+
+### Bug Fixes
+
+* **desktop:** save the app icons as 8-bit PNGs for the installers ([1172bbf](https://github.com/kravchenski/switchyard/commit/1172bbf128969d0ba09c07142bca0d47f949e26b))
+* **tools:** recover bash calls with unescaped quotes and wrapper junk ([b7260bf](https://github.com/kravchenski/switchyard/commit/b7260bf69b94d943d6993c77bf53cfebbc189583))
+
+
+### Performance
+
+* **desktop:** build dependencies optimized and rename the bundle id to switchyard ([d659a44](https://github.com/kravchenski/switchyard/commit/d659a4480517d997ef575df6306e3b869cfc73ef))
+
+
+### Chores
+
+* remove dead code and unexport file-local helpers ([0ec749e](https://github.com/kravchenski/switchyard/commit/0ec749e5de76f7da490eb0f6f1654dc17cc08629))
+
 ## [2.8.0](https://github.com/kravchenski/switchyard/compare/v2.7.0...v2.8.0) (2026-10-10)
 
 
