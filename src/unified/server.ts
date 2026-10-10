@@ -32,7 +32,7 @@ import { collectChunks, ToolCallAssembler } from '../core/streaming/sse.ts';
 import { ProviderError, toHttpError } from '../core/providers/errors.ts';
 import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
-import { AGENT_MODEL, AUTO_MODEL, chainFor, isVirtualModel, parseAutoModels, SmartRouter, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
+import { AGENT_MODEL, AUTO_MODEL, chainFor, decisionIdOf, isVirtualModel, parseAutoModels, SmartRouter, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
 import { collectImageUrls } from '../core/providers/prompt.ts';
 import { conversationKey, SessionAffinity } from '../core/router/session-affinity.ts';
 import { listBrowserProfiles, loadGatewaySetting, loadModelStats, loadWebChatModels, saveWebChatModels, loadUnavailableModels, replaceUnavailableModels, loadProviderSetting, loadSignIn, saveGatewaySetting, saveProviderSetting, openDatabase, recordRequest, saveModelStat, saveSignIn, type RequestLog } from '../core/store/database.ts';
@@ -262,7 +262,7 @@ export const gatewaySettings = new GatewaySettings({
     save: (key, value) => saveGatewaySetting(db(), key, value),
 });
 
-const decisions = new DecisionLog();
+const decisions = new DecisionLog(undefined, Date.now());
 
 export const router = new SmartRouter(registry, parseAutoModels(config.AUTO_MODELS), Date.now, {
     onDecision: decision => decisions.add(decision),
@@ -789,7 +789,7 @@ app.post('/api/chat/completions', async (c) => {
         };
         const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details)
             .catch(error => {
-                logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error) });
+                logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error), decisionId: decisionIdOf(error) });
                 throw error;
             });
         const { provider, model: routedModel } = first.route;
@@ -800,6 +800,7 @@ app.post('/api/chat/completions', async (c) => {
             status: error === undefined ? 'success' : 'error',
             latencyMs: Date.now() - startedAt,
             ...(error === undefined ? {} : { error: errorText(error) }),
+            decisionId: first.decisionId,
         });
         const open = (nudge = false) => provider.stream(requestFor(first.route, nudge));
         const routeHeaders: Record<string, string> = {
@@ -926,6 +927,11 @@ async function handleDecision(c: Context) {
 
 app.post('/v1/decisions', handleDecision);
 app.post('/v1/systemone', handleDecision);
+
+app.get('/v1/gateway/decisions/:id', (c) => {
+    const decision = decisions.get(Number(c.req.param('id')));
+    return decision ? c.json(decision) : c.json({ error: { message: 'No such decision; the gateway keeps the last 200', type: 'not_found' } }, 404);
+});
 
 app.get('/v1/gateway/decisions', (c) => {
     const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 50) || 50, 1), 200);

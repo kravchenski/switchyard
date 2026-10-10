@@ -18,7 +18,7 @@ use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount};
 use settings::{AutoSettings, DesktopSettings, ThemeChoice};
 use gateway::{check_health, open_in_browser, stop_external, Gateway, GatewayConfig};
 use overview::{activity, detail, display_name, kind_label, Activity, ProviderOverview};
-use status::{check_models, fetch_status, now_ms, read_api_key, refresh_models, relative_time, summarize_requests, GatewayStatus, ProviderStatus};
+use status::{check_models, fetch_decision, fetch_status, now_ms, read_api_key, refresh_models, relative_time, summarize_requests, Decision, GatewayStatus, ProviderStatus, RequestLog};
 use ui::*;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -84,6 +84,8 @@ struct Shell {
     request_filter: Option<String>,
     selected_provider: Option<String>,
     expanded_chat: Option<String>,
+    open_request: Option<(i64, String)>,
+    request_decision: Option<Result<Decision, String>>,
     theme: ThemeChoice,
     applied_dark: Option<bool>,
     auto_settings: Option<AutoSettings>,
@@ -160,6 +162,8 @@ impl Shell {
             request_filter: None,
             selected_provider: None,
             expanded_chat: None,
+            open_request: None,
+            request_decision: None,
             theme: settings::load(&config_root).theme,
             applied_dark: None,
             auto_settings: None,
@@ -385,6 +389,70 @@ impl Shell {
             true,
             Some(check),
         );
+    }
+
+    fn toggle_request(&mut self, request: &RequestLog, cx: &mut Context<Self>) {
+        let key = (request.created_at, request.model.clone());
+        if self.open_request.as_ref() == Some(&key) {
+            self.open_request = None;
+            return;
+        }
+        self.open_request = Some(key.clone());
+        self.request_decision = None;
+        let Some(id) = request.decision_id else {
+            self.request_decision = Some(Err("This request was logged before routing details were kept.".into()));
+            return;
+        };
+        let base_url = self.gateway.config.base_url();
+        let api_key = read_api_key(&self.gateway.config.root);
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { fetch_decision(&base_url, api_key.as_deref(), id) }).await;
+            let _ = this.update(cx, |shell, cx| {
+                if shell.open_request.as_ref() == Some(&key) {
+                    shell.request_decision = Some(result);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn render_decision(&self) -> Div {
+        let panel = div().flex().flex_col().gap_2().px_5().py_4().bg(col(CANVAS)).border_b_1().border_color(col(BORDER)).text_sm();
+        let decision = match &self.request_decision {
+            None => return panel.child(muted("Loading the routing details…").text_xs()),
+            Some(Err(error)) => return panel.child(muted(error.clone()).text_xs()),
+            Some(Ok(decision)) => decision,
+        };
+        let attempts = decision.attempts.iter().map(|attempt| {
+            let (state, label) = match attempt.outcome.as_str() {
+                "chosen" => (Activity::Active, "Answered"),
+                "timeout" => (Activity::Degraded, "No answer in time"),
+                _ => (Activity::Inactive, "Failed"),
+            };
+            div()
+                .flex()
+                .items_start()
+                .gap_3()
+                .child(div().w(px(150.)).flex_none().flex().child(labeled_badge(state, label)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(div().flex().items_center().gap_2().child(provider_mark(&attempt.provider, 18.)).child(attempt.model.clone()))
+                        .children(attempt.error.clone().map(|error| div().text_xs().text_color(col(RED)).child(error.chars().take(300).collect::<String>()))),
+                )
+                .child(div().flex_none().text_xs().text_color(col(MUTED)).child(attempt.latency_ms.map(|ms| format!("{:.1} s", ms as f64 / 1000.)).unwrap_or_default()))
+        });
+        let skipped = decision.skipped.iter().map(|route| div().text_xs().text_color(col(MUTED)).child(format!("Skipped {}: {}", route.model, route.reason)));
+        panel
+            .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(col(MUTED)).child(format!("Asked for {}", decision.requested_model)))
+            .children(skipped)
+            .children(attempts)
+            .children(decision.attempts.is_empty().then(|| muted(decision.error.clone().unwrap_or_else(|| "No model was tried.".into())).text_xs()))
     }
 
     fn open_link(&mut self, url: &str) {
@@ -1404,9 +1472,19 @@ impl Shell {
         } else {
             vec![("Time", 110.), ("Provider", 150.), ("Model", 0.), ("Latency", 100.), ("Status", 130.)]
         };
-        let rows = visible.iter().map(|request| {
+        let rows = visible.iter().flat_map(|request| {
             let ok = request.status == "success";
-            table_row()
+            let open = self.open_request.as_ref().is_some_and(|(at, model)| *at == request.created_at && *model == request.model);
+            let clicked = (*request).clone();
+            let row = table_row()
+                .id(SharedString::from(format!("request-{}-{}", request.created_at, request.model)))
+                .cursor_pointer()
+                .hover(|style| style.bg(col(HOVER)))
+                .when(open, |this| this.bg(col(CANVAS)))
+                .on_click(cx.listener(move |shell, _, _, cx| {
+                    shell.toggle_request(&clicked, cx);
+                    cx.notify();
+                }))
                 .child(cell(if compact { 90. } else { 110. }).text_color(col(MUTED)).child(relative_time(request.created_at, now)))
                 .when(!compact, |this| {
                     this.child(cell(150.).flex().items_center().gap_2().child(provider_mark(&request.provider, 20.)).child(self.name_of(&request.provider).to_string()))
@@ -1428,7 +1506,8 @@ impl Shell {
                 .when(!compact, |this| {
                     this.child(cell(100.).text_color(col(MUTED)).child(request.latency_ms.map(|latency| format!("{latency} ms")).unwrap_or_else(|| "—".into())))
                 })
-                .child(cell(if compact { 120. } else { 130. }).flex().child(labeled_badge(if ok { Activity::Active } else { Activity::Inactive }, if ok { "Success" } else { "Failed" })))
+                .child(cell(if compact { 120. } else { 130. }).flex().child(labeled_badge(if ok { Activity::Active } else { Activity::Inactive }, if ok { "Success" } else { "Failed" })));
+            std::iter::once(row.into_any_element()).chain(open.then(|| self.render_decision().into_any_element()))
         });
         div()
             .flex()

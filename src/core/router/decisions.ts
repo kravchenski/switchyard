@@ -30,13 +30,21 @@ const DEFAULT_LIMIT = 200;
 
 export class DecisionLog {
   private readonly entries: RoutingDecision[] = [];
-  private nextId = 1;
+  private nextId: number;
 
-  constructor(private readonly limit = DEFAULT_LIMIT) {}
+  constructor(private readonly limit = DEFAULT_LIMIT, firstId = 1) {
+    this.nextId = firstId;
+  }
 
   add(decision: Omit<RoutingDecision, 'id'>) {
-    this.entries.push({ ...decision, id: this.nextId++ });
+    const id = this.nextId++;
+    this.entries.push({ ...decision, id });
     if (this.entries.length > this.limit) this.entries.splice(0, this.entries.length - this.limit);
+    return id;
+  }
+
+  get(id: number) {
+    return this.entries.find(entry => entry.id === id);
   }
 
   list(limit = 50, model?: string): RoutingDecision[] {

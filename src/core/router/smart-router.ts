@@ -29,7 +29,7 @@ export interface SmartRouterOptions {
   firstChunkTimeoutMs?: number;
   autoEnabled?: (providerId: string) => boolean;
   prepareAuto?: () => void;
-  onDecision?: (decision: Omit<RoutingDecision, 'id'>) => void;
+  onDecision?: (decision: Omit<RoutingDecision, 'id'>) => number | void;
 }
 
 export interface Route {
@@ -39,6 +39,11 @@ export interface Route {
 
 export interface RoutedStream extends ProviderStream {
   route: Route;
+  decisionId?: number;
+}
+
+export function decisionIdOf(error: unknown) {
+  return error && typeof error === 'object' && 'decisionId' in error && typeof error.decisionId === 'number' ? error.decisionId : undefined;
 }
 
 class FirstChunkTimeout extends Error {}
@@ -142,7 +147,7 @@ export class SmartRouter {
   }
 
   private decide(model: string, mode: RoutingDecision['mode'], preferredModel: string | undefined, skipped: SkippedRoute[], attempts: RouteAttempt[], chosen?: Route, error?: unknown, details?: Record<string, unknown>) {
-    this.options.onDecision?.({
+    return this.options.onDecision?.({
       ...(details ? { details } : {}),
       at: this.now(),
       requestedModel: model,
@@ -162,18 +167,16 @@ export class SmartRouter {
     const mode: RoutingDecision['mode'] = virtual ? 'fallback' : 'direct';
     if (!routes.length) {
       const error = new ProviderError(`No available provider for model ${model}`, 'unavailable');
-      this.decide(model, mode, preferredModel, skipped, [], undefined, error, details);
-      throw error;
+      throw withDecision(error, this.decide(model, mode, preferredModel, skipped, [], undefined, error, details));
     }
     const failures: string[] = [];
     const attempts: RouteAttempt[] = [];
     const finish = (route: Route, result: { stream: ProviderStream; chunks: Awaited<ReturnType<typeof primeChunks>> }): RoutedStream => {
-      this.decide(model, mode, preferredModel, skipped, attempts, route, undefined, details);
-      return { ...result.stream, chunks: result.chunks, route };
+      const decisionId = this.decide(model, mode, preferredModel, skipped, attempts, route, undefined, details);
+      return { ...result.stream, chunks: result.chunks, route, ...(typeof decisionId === 'number' ? { decisionId } : {}) };
     };
     const fail = (error: unknown): never => {
-      this.decide(model, mode, preferredModel, skipped, attempts, undefined, error, details);
-      throw error;
+      throw withDecision(error, this.decide(model, mode, preferredModel, skipped, attempts, undefined, error, details));
     };
     if (routes.length === 1) {
       const won = await this.sequential(routes, build, attempts, failures, true).catch(error => fail(error));
@@ -215,6 +218,11 @@ export class SmartRouter {
     }
     return undefined;
   }
+}
+
+function withDecision(error: unknown, decisionId: number | void) {
+  if (typeof decisionId === 'number' && error && typeof error === 'object') Object.assign(error, { decisionId });
+  return error;
 }
 
 function errorText(error: unknown) {

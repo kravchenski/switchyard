@@ -25,11 +25,11 @@ describe('gateway database', () => {
     const db = openDatabase(':memory:');
     recordRequest(db, { provider: 'qwen', model: 'a', status: 'success' }, 1);
     recordRequest(db, { provider: 'deepseek', model: 'b', status: 'error', accountId: 'ds-1', error: '429' }, 2);
-    recordRequest(db, { provider: 'glm', model: 'c', status: 'success' }, 3);
+    recordRequest(db, { provider: 'glm', model: 'c', status: 'success', decisionId: 42 }, 3);
 
     expect(recentRequests(db, 2)).toEqual([
-      { createdAt: 3, provider: 'glm', model: 'c', accountId: null, status: 'success', latencyMs: null, error: null },
-      { createdAt: 2, provider: 'deepseek', model: 'b', accountId: 'ds-1', status: 'error', latencyMs: null, error: '429' },
+      { createdAt: 3, provider: 'glm', model: 'c', accountId: null, status: 'success', latencyMs: null, error: null, decisionId: 42 },
+      { createdAt: 2, provider: 'deepseek', model: 'b', accountId: 'ds-1', status: 'error', latencyMs: null, error: '429', decisionId: null },
     ]);
   });
 
