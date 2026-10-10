@@ -9,6 +9,13 @@ async function pageFormatter() {
 }
 
 describe('web UI', () => {
+  test('refuses API calls from other sites and hosts', async () => {
+    const chat = (url: string, headers: Record<string, string> = {}) =>
+      app.fetch(new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain', ...headers }, body: '{"message":"hi"}' }));
+    expect((await chat('http://localhost:3000/api/chat', { origin: 'https://attacker.example' })).status).toBe(403);
+    expect((await chat('http://attacker.example:3000/api/chat')).status).toBe(403);
+  });
+
   test('serves a script the browser can parse', async () => {
     const html = await (await app.fetch(new Request('http://localhost/'))).text();
     const script = html.slice(html.indexOf('<script>') + '<script>'.length, html.indexOf('</script>'));

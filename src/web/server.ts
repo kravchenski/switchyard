@@ -2,11 +2,23 @@ import { Hono } from 'hono';
 import { serve } from 'bun';
 import { streamSSE } from 'hono/streaming';
 
+import { isLocalRequest } from '../gateway/security.ts';
+
 export const app = new Hono();
 
 const port = Number(process.env.UI_PORT || 3000);
 const host = process.env.HOST || '127.0.0.1';
 const API_ENDPOINT = process.env.AGENT_API_URL || 'http://localhost:3260/api';
+const GATEWAY_API_KEY = process.env.GATEWAY_API_KEY;
+
+function gatewayHeaders(): Record<string, string> {
+  return GATEWAY_API_KEY ? { 'Content-Type': 'application/json', Authorization: `Bearer ${GATEWAY_API_KEY}` } : { 'Content-Type': 'application/json' };
+}
+
+app.use('/api/*', async (c, next) => {
+  if (isLocalRequest(c.req.raw)) return next();
+  return c.json({ error: 'The web UI only answers pages opened from localhost' }, 403);
+});
 
 app.get('/', (c) => {
   return c.html(`<!DOCTYPE html>
@@ -304,7 +316,7 @@ app.post('/api/chat', async (c) => {
         const ep = API_ENDPOINT.replace(/\/?api\/?$/, '');
         const res = await fetch(`${ep}/v1/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: gatewayHeaders(),
           body: JSON.stringify({ model, messages: [{ role: 'user', content: message }], stream: true })
         });
 
@@ -339,7 +351,7 @@ app.post('/api/chat', async (c) => {
     const ep = API_ENDPOINT.replace(/\/?api\/?$/, '');
     const res = await fetch(`${ep}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: gatewayHeaders(),
       body: JSON.stringify({ model, messages: [{ role: 'user', content: message }], stream: false })
     });
     return c.json(await res.json());
