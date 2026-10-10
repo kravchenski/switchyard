@@ -7,11 +7,18 @@ import type { RouteAttempt, RoutingDecision, SkippedRoute } from './decisions.ts
 export const AUTO_MODEL = 'auto';
 export const VISION_MODEL = 'vision';
 export const AGENT_MODEL = 'agent';
-export const VIRTUAL_MODELS = [AUTO_MODEL, VISION_MODEL, AGENT_MODEL] as const;
+const VIRTUAL_MODELS = [AUTO_MODEL, VISION_MODEL, AGENT_MODEL] as const;
 export type VirtualModel = typeof VIRTUAL_MODELS[number];
 
 export function isVirtualModel(model: string): model is VirtualModel {
   return (VIRTUAL_MODELS as readonly string[]).includes(model);
+}
+
+export function chainFor(model: string, request: { images: boolean; tools: boolean }, ready: (chain: VirtualModel) => boolean) {
+  if (!isVirtualModel(model)) return model;
+  if (request.images && ready(VISION_MODEL)) return VISION_MODEL;
+  if (request.tools && ready(AGENT_MODEL)) return AGENT_MODEL;
+  return AUTO_MODEL;
 }
 
 const PROVIDER_COOLDOWN_MS = 30_000;
