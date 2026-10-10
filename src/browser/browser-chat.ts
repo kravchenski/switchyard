@@ -2,6 +2,7 @@ import type { Locator, Page } from 'playwright-core';
 
 import type { AutoLoginResult, SiteLoginOptions } from './auto-login.ts';
 import { autoSolveCaptcha, type CaptchaHints } from './captcha/index.ts';
+import { assertPublicUrl } from '../core/net/public-url.ts';
 import { ProviderError } from '../core/providers/errors.ts';
 import { launchCdpBrowser, type CdpBrowser, type LaunchOptions } from './cdp.ts';
 import { googleProfileDir } from './google-profile.ts';
@@ -52,7 +53,55 @@ const MIME_EXTENSIONS: Record<string, string> = {
   'image/svg+xml': 'svg',
 };
 
-export async function toAttachFiles(urls: string[]): Promise<AttachFile[]> {
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_IMAGE_REDIRECTS = 3;
+const IMAGE_TIMEOUT_MS = 30_000;
+
+export interface AttachOptions {
+  checkUrl?: (url: string) => Promise<void>;
+}
+
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function downloadImage(url: string, index: number, checkUrl: (url: string) => Promise<void>) {
+  let target = url;
+  for (let hop = 0; hop <= MAX_IMAGE_REDIRECTS; hop += 1) {
+    try {
+      await checkUrl(target);
+    } catch (error) {
+      throw new ProviderError(`Failed to download image ${index}: ${errorText(error)}`, 'invalid_request');
+    }
+    const response = await fetch(target, { redirect: 'manual', signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
+    const location = response.headers.get('location');
+    if (response.status < 300 || response.status >= 400 || !location) return response;
+    target = new URL(location, target).href;
+  }
+  throw new ProviderError(`Failed to download image ${index}: too many redirects`, 'invalid_request');
+}
+
+async function readImage(response: Response) {
+  if (Number(response.headers.get('content-length') ?? 0) > MAX_IMAGE_BYTES) throw new Error('image is larger than 20 MB');
+  const reader = response.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > MAX_IMAGE_BYTES) {
+      await reader.cancel();
+      throw new Error('image is larger than 20 MB');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function toAttachFiles(urls: string[], options: AttachOptions = {}): Promise<AttachFile[]> {
+  const checkUrl = options.checkUrl ?? (url => assertPublicUrl(url));
   const files: AttachFile[] = [];
   let index = 0;
   for (const url of urls) {
@@ -69,13 +118,20 @@ export async function toAttachFiles(urls: string[]): Promise<AttachFile[]> {
     }
     let response: Response;
     try {
-      response = await fetch(url);
+      response = await downloadImage(url, index, checkUrl);
     } catch (error) {
-      throw new ProviderError(`Failed to download image ${index}: ${error instanceof Error ? error.message : String(error)}`, 'unavailable');
+      if (error instanceof ProviderError) throw error;
+      throw new ProviderError(`Failed to download image ${index}: ${errorText(error)}`, 'unavailable');
     }
     if (!response.ok) throw new ProviderError(`Failed to download image ${index}: HTTP ${response.status}`, 'unavailable');
     const mimeType = (response.headers.get('content-type') ?? '').split(';')[0] || 'image/png';
-    files.push({ name: `image-${index}.${MIME_EXTENSIONS[mimeType] ?? 'png'}`, mimeType, buffer: Buffer.from(await response.arrayBuffer()) });
+    let buffer: Buffer;
+    try {
+      buffer = await readImage(response);
+    } catch (error) {
+      throw new ProviderError(`Failed to download image ${index}: ${errorText(error)}`, 'invalid_request');
+    }
+    files.push({ name: `image-${index}.${MIME_EXTENSIONS[mimeType] ?? 'png'}`, mimeType, buffer });
   }
   return files;
 }
