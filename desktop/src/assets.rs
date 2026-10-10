@@ -4,12 +4,13 @@ use gpui_kit::assets::{icon_assets, Assets};
 use gpui_kit::{AssetSource, Result, SharedString};
 
 icon_assets!(AppIcons, [
-    Users, Activity, Settings, Sun, Moon, Monitor, Play, Square, RefreshCw, LogIn, KeyRound, ExternalLink, Trash, CircleCheck, CircleAlert, ArrowUp, ArrowDown, Copy, Check, Route,
+    Users, Activity, Settings, Sun, Moon, Monitor, Play, Square, RefreshCw, LogIn, KeyRound, ExternalLink, Trash, CircleCheck, CircleAlert, ArrowUp, ArrowDown, Copy, Check,
 ]);
 
 pub struct AppAssets;
 
-const LOGOS: [(&str, &[u8]); 24] = [
+const LOGOS: [(&str, &[u8]); 25] = [
+    ("logos/switchyard.svg", include_bytes!("../assets/logos/switchyard.svg")),
     ("logos/qwen.svg", include_bytes!("../assets/logos/qwen.svg")),
     ("logos/qwen-chat.svg", include_bytes!("../assets/logos/qwen.svg")),
     ("logos/deepseek.svg", include_bytes!("../assets/logos/deepseek.svg")),
@@ -80,7 +81,7 @@ mod tests {
 
     #[test]
     fn serves_app_icons_and_default_component_icons() {
-        for icon in [IconName::Route, IconName::Copy, IconName::KeyRound, IconName::Trash] {
+        for icon in [IconName::Check, IconName::Copy, IconName::KeyRound, IconName::Trash] {
             let path = icon.path();
             assert!(AppAssets.load(&path).unwrap().is_some_and(|bytes| bytes.starts_with(b"<svg")), "{path}");
         }

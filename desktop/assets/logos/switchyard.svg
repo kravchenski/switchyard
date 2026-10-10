@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" stroke-linecap="round">
+  <defs>
+    <mask id="rail" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <path d="M4 32 H20 C35 32 40 12 60 12" stroke="#fff" stroke-width="12" stroke-linecap="butt"/>
+      <path d="M4 32 H20 C35 32 40 12 60 12" stroke="#000" stroke-width="4.5" stroke-linecap="butt"/>
+    </mask>
+  </defs>
+  <path d="M27 36 H59" stroke="#8b929e" stroke-width="3.75"/>
+  <path d="M27 36 C40 36 43 53 59 53" stroke="#8b929e" stroke-width="3.75"/>
+  <rect width="64" height="64" fill="#22a06b" mask="url(#rail)"/>
+</svg>

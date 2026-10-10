@@ -534,18 +534,7 @@ impl Shell {
                     .gap_2p5()
                     .px_2()
                     .pb_5()
-                    .child(
-                        div()
-                            .size(px(32.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_lg()
-                            .bg(col(PRIMARY))
-                            .text_color(rgb(0xffffff))
-                            .text_size(px(17.))
-                            .child(IconName::Route),
-                    )
+                    .child(img("logos/switchyard.svg").size(px(30.)).flex_none())
                     .child(div().font_family(assets::MONO_FAMILY).text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child("switchyard")),
             )
             .child(
@@ -556,6 +545,7 @@ impl Shell {
                     .overflow_y_scroll()
                     .flex()
                     .flex_col()
+                    .gap_1()
             .child(nav("nav-requests", IconName::Activity, Page::Requests, cx))
             .child(nav("nav-api-keys", IconName::KeyRound, Page::ApiKeys, cx))
             .child(nav("nav-accounts", IconName::Users, Page::Accounts, cx))
@@ -945,7 +935,7 @@ impl Shell {
                 .items_center()
                 .justify_between()
                 .gap_4()
-                .child(div().flex().flex_col().gap_0p5().child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title)).child(muted(description).text_xs()))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap_0p5().child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title)).child(muted(description).text_xs()))
                 .child(switch(SharedString::from(format!("agent-{name}")), on, !self.busy).when(!self.busy, |this| {
                     this.on_click(cx.listener(move |shell, _, _, cx| {
                         let name = name.clone();
