@@ -10,9 +10,19 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 ureq = { version = "3.4", features = ["json"] }
 
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
 [package.metadata.packager]
 product-name = "Switchyard"
-identifier = "com.kravchenski.free-ai-gateway"
+identifier = "com.kravchenski.switchyard"
 description = "Local OpenAI-compatible gateway for web AI chats and free model APIs"
 homepage = "https://github.com/kravchenski/switchyard"
 authors = ["kravchenski"]
