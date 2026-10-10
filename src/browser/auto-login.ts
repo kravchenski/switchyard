@@ -19,7 +19,7 @@ interface AutoLoginCredentials {
   password: string;
 }
 
-export interface AutoLoginDashboard {
+interface AutoLoginDashboard {
   id: string;
   url: string;
 }

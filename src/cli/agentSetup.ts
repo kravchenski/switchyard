@@ -683,21 +683,6 @@ async function updateYamlFile(
     return writeGeneratedFile(path, stringifyYaml(merge(current)), options, agent);
 }
 
-async function updateManagedTextFile(
-    path: string,
-    content: string,
-    options: AgentSetupOptions,
-    agent: AgentId
-): Promise<InstallResult> {
-    let existing = '';
-    try {
-        existing = await readFile(path, 'utf8');
-    } catch (error) {
-        if (!isMissingFile(error)) throw error;
-    }
-    return writeGeneratedFile(path, mergeManagedBlock(existing, content), options, agent);
-}
-
 async function writeGeneratedFile(
     path: string,
     content: string,

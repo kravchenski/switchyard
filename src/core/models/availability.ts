@@ -1,4 +1,4 @@
-export const MODEL_UNAVAILABLE_TTL_MS = 24 * 60 * 60 * 1000;
+const MODEL_UNAVAILABLE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface UnavailableModel {
   model: string;

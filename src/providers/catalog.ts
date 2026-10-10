@@ -29,11 +29,11 @@ export function isNvidiaChatModel(model: string) {
   return !NON_CHAT_MODEL.test(model);
 }
 
-export function isApiChatModel(model: string) {
+function isApiChatModel(model: string) {
   return !NON_CHAT_API_MODEL.test(model);
 }
 
-export const NVIDIA_PROVIDER: ApiProviderDefinition = {
+const NVIDIA_PROVIDER: ApiProviderDefinition = {
   id: 'nvidia',
   label: 'NVIDIA',
   baseUrl: 'https://integrate.api.nvidia.com/v1',

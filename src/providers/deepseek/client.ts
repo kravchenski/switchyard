@@ -79,10 +79,6 @@ export async function fetchDeepSeekModels(): Promise<string[]> {
     return HARDCODED_DEEPSEEK_MODELS;
 }
 
-export function getDeepSeekModels(): string[] {
-    return cachedDeepSeekModels || HARDCODED_DEEPSEEK_MODELS;
-}
-
 const sessions = new PersistentStringMap(SESSION_MAP_FILE);
 
 export function envAccount(): DeepSeekAccount | null {

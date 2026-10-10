@@ -409,29 +409,6 @@ function votePair(holes: Blob[], shapes: Blob[], maxWidth: number): { hole: Blob
   return pair;
 }
 
-export function debugStages(background: RgbaImage, piece: RgbaImage): {
-  colorHoles: Blob[];
-  colorShapes: Blob[];
-  enclosedHoles: Blob[];
-  enclosedShapes: Blob[];
-  colorPair: { hole: Blob; shape: Blob; dy: number } | null;
-  enclosedPair: { hole: Blob; shape: Blob; dy: number } | null;
-  edgeShapes: Blob[];
-  edgePair: { hole: Blob; shape: Blob; dy: number } | null;
-} {
-  const maxWidth = background.width - piece.width;
-  const colorHoles = blobs(background, brightNeutral).filter(h => h.area <= MAX_COLOR_HOLE_AREA);
-  const colorShapes = [...blobs(piece, nonGreen), ...blobs(piece, brightNeutral)];
-  const colorPair = votePair(colorHoles, colorShapes, maxWidth);
-  const enclosedHoles = enclosedBlobs(background).filter(h => h.area <= MAX_ENCLOSED_HOLE_AREA);
-  const enclosedShapes = enclosedBlobs(piece);
-  const enclosedPair = votePair(enclosedHoles, enclosedShapes, maxWidth)
-    ?? votePair(enclosedHoles, colorShapes, maxWidth);
-  const edgeShapes = edgeShapeBlobs(piece);
-  const edgePair = votePair([...colorHoles, ...enclosedHoles], edgeShapes, maxWidth);
-  return { colorHoles, colorShapes, enclosedHoles, enclosedShapes, colorPair, enclosedPair, edgeShapes, edgePair };
-}
-
 export function findGapX(background: RgbaImage, piece: RgbaImage, options: GapOptions = {}): GapResult | null {
   const threshold = options.threshold ?? DEFAULT_THRESHOLD;
   const refine = options.refine ?? DEFAULT_REFINE;

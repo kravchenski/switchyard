@@ -59,7 +59,7 @@ export type ProfileSignIn = SiteSignIn & { profile?: BrowserProfile };
 const DEFAULT_ACCOUNT = 'default';
 const GOOGLE_SIGN_IN_URL = 'https://accounts.google.com/';
 
-export const ACCOUNTS_USAGE = `Usage: bun run account <command>
+const ACCOUNTS_USAGE = `Usage: bun run account <command>
 
   (no command) [--json]                           Show every provider and whether it is connected
   init                                            Create ACCOUNTS_SECRET in the system keyring (moves it out of .env)

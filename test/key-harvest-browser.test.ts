@@ -1,6 +1,6 @@
-import { describe, expect, test, beforeEach } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 
-import { harvestOne, keyPreview, type HarvestResult, type HarvestStore, type HarvestPage } from '../src/browser/key-harvest.ts';
+import { harvestOne, type HarvestStore, type HarvestPage } from '../src/browser/key-harvest.ts';
 import type { ProviderKeyAdapter } from '../src/providers/key-adapters.ts';
 import type { ApiProviderDefinition } from '../src/providers/catalog.ts';
 import { API_KEY_PROVIDERS } from '../src/providers/catalog.ts';
