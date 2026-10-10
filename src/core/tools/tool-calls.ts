@@ -607,8 +607,19 @@ export function isToolCallFragment(text: string, tools: any = null) {
     return FRAGMENT_START.test(text) || FRAGMENT_END.test(text);
 }
 
+const TOOL_CALL_MARKUP = /<\/?tool_call>|"arguments"\s*:/;
+const TOOL_DENIAL = /\b(?:do not|don't|doesn't|does not) have (?:access to )?(?:a |an |the |any )?(?:[`"']?[\w.:-]+[`"']? )?tools?\b|\bno tools? (?:is |are )?available\b|\btool (?:named |called )?[`"']?[\w.:-]+[`"']? (?:is not available|isn't available|is unavailable)\b/i;
+
+export function isUnparsedToolCall(text: string, tools: any = null) {
+    return TOOL_CALL_MARKUP.test(text) && !parseToolCallJson(text, tools);
+}
+
+export function deniesTool(text: string) {
+    return TOOL_DENIAL.test(text);
+}
+
 export function isBrokenToolCall(text: string, tools: any = null) {
-    return hasRejectedToolCall(text) || isToolCallFragment(text, tools);
+    return hasRejectedToolCall(text) || isToolCallFragment(text, tools) || isUnparsedToolCall(text, tools) || deniesTool(text);
 }
 
 export function stripRejectedToolCalls(text: string) {

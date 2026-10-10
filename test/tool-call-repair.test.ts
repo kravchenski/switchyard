@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     extractFirstToolCallObject,
+    deniesTool,
     hasRejectedToolCall,
+    isUnparsedToolCall,
     isBrokenToolCall,
     isToolCallFragment,
     stripRejectedToolCalls,
@@ -374,5 +376,17 @@ describe('broken tool calls from web chats', () => {
         expect(isToolCallFragment('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}', [{ type: 'function', function: { name: 'bash' } }])).toBeFalse();
         expect(isToolCallFragment('All tests pass.')).toBeFalse();
         expect(isBrokenToolCall('Tool read does not exist')).toBeTrue();
+    });
+
+    test('spots the ways web chats garble a call when they fall back to their own tool format', () => {
+        const tools = [{ type: 'function', function: { name: 'bash' } }];
+        expect(isBrokenToolCall('<tool_call>\n{"command": "ls -la"}\n</tool_call>', tools)).toBeTrue();
+        expect(isBrokenToolCall('<{ \'"name": "local", "arguments": {"command": "ls -la"}}\' }>', tools)).toBeTrue();
+        expect(isBrokenToolCall('I do not have a tool named `bash`. The available tools are `web_search` and `code_interpreter`.', tools)).toBeTrue();
+        expect(isBrokenToolCall("I don't have a bash tool (or any tools) available in this conversation, so I can't run `ls -la`.", tools)).toBeTrue();
+        expect(isBrokenToolCall("I don't have access to tools here.", tools)).toBeTrue();
+        expect(deniesTool("I don't have a strong opinion on the tool you picked.")).toBeFalse();
+        expect(isBrokenToolCall('<tool_call>\n{"name": "bash", "arguments": {"command": "ls -la"}}\n</tool_call>', tools)).toBeFalse();
+        expect(isBrokenToolCall('The build passes and all 12 tests are green.', tools)).toBeFalse();
     });
 });

@@ -418,7 +418,7 @@ const EMPTY_REPLY_NUDGE = {
 
 const TOOL_FORMAT_NUDGE = {
     role: 'user',
-    content: 'Your last tool call did not reach the tools: the chat took it for one of its own tools. Call the tool again by writing the JSON {"tool_calls":[...]} exactly as described in the instructions, without <tool_call> tags.',
+    content: 'Your last tool call did not reach the tools. The tools listed in the instructions are available to you: call the one you need by writing the JSON {"tool_calls":[{"name":"<tool name>","arguments":{...}}]} exactly as described, without <tool_call> tags.',
 };
 
 function nudgeFor(content: string, tools: Array<Record<string, any>> | null) {
