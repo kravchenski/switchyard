@@ -9,6 +9,8 @@ import {
     recoverFencedShellToolCalls,
     recoverProseStyleToolCalls,
     recoverXmlStyleToolCall,
+    recoverTranscriptStyleToolCalls,
+    stripFabricatedTranscript,
     parseToolCallJson,
     normalizeToolDefinitions,
     repairEditArguments,
@@ -288,5 +290,47 @@ describe('tool call JSON repair', () => {
         expect(parseToolCallJson(shell, [{ function: { name: 'read' } }])).toBeNull();
         expect(parseToolCallJson(json, [{ function: { name: 'read' } }])).toBeNull();
         expect(parseToolCallJson(write, [{ function: { name: 'write' } }])?.[0].function.name).toBe('write');
+    });
+});
+
+describe('transcript-style tool calls from web chats', () => {
+    const bashTool = [{ function: { name: 'bash' } }, { function: { name: 'read' } }];
+    const call = (name: string, args: Record<string, unknown>) => ({ id: 'call_x', type: 'function', function: { name, arguments: JSON.stringify(args) } });
+    const reply = [
+        'Let me check the tools first.',
+        '',
+        `Assistant tool calls: ${JSON.stringify([call('bash', { command: 'python3 -V; which pip3' })])}`,
+        '',
+        'Tool result (bash): Python 3.12.13',
+        '',
+        `Assistant tool calls: ${JSON.stringify([call('bash', { command: 'echo hello' })])}`,
+    ].join('\n');
+
+    test('turns the first transcript block into a real tool call and drops the invented results', () => {
+        const calls = parseToolCallJson(reply, bashTool);
+        expect(calls).toHaveLength(1);
+        expect(calls![0].function.name).toBe('bash');
+        expect(JSON.parse(calls![0].function.arguments)).toEqual({ command: 'python3 -V; which pip3' });
+        expect(stripFabricatedTranscript(reply)).toBe('Let me check the tools first.');
+    });
+
+    test('accepts object arguments and several calls in one block', () => {
+        const line = `Assistant tool calls: [{"function":{"name":"bash","arguments":{"command":"ls -1 | head -5"}}},{"function":{"name":"read","arguments":"{\\"path\\":\\"a.ts\\"}"}}]`;
+        expect(recoverTranscriptStyleToolCalls(line)).toEqual([
+            { name: 'bash', arguments: { command: 'ls -1 | head -5' } },
+            { name: 'read', arguments: { path: 'a.ts' } },
+        ]);
+    });
+
+    test('recovers a bash command from a block with unescaped quotes', () => {
+        const line = 'Assistant tool calls: [{"id":"call_1","type":"function","function":{"name":"bash","arguments":"{"command":"echo alive; pwd"}"}}]';
+        expect(recoverTranscriptStyleToolCalls(line)).toEqual([{ name: 'bash', arguments: { command: 'echo alive; pwd' } }]);
+    });
+
+    test('rejects transcript calls to unknown tools and leaves plain answers alone', () => {
+        expect(parseToolCallJson(`Assistant tool calls: ${JSON.stringify([call('rm_all', {})])}`, bashTool)).toBeNull();
+        expect(recoverTranscriptStyleToolCalls('The tool result (bash) was empty.')).toBeNull();
+        expect(stripFabricatedTranscript('Done.\nTool result (bash): [no output]')).toBe('Done.');
+        expect(stripFabricatedTranscript('No transcript here.')).toBe('No transcript here.');
     });
 });

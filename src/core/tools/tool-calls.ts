@@ -405,6 +405,49 @@ export function recoverFencedShellToolCalls(text: string) {
     return calls.length > 0 ? calls : null;
 }
 
+const TRANSCRIPT_MARKER = /^[ \t]*(?:Assistant tool calls:|Tool result \()/m;
+
+export function hasFabricatedTranscript(text: string) {
+    return TRANSCRIPT_MARKER.test(text);
+}
+
+export function stripFabricatedTranscript(text: string) {
+    const match = TRANSCRIPT_MARKER.exec(text);
+    return match ? text.slice(0, match.index).trimEnd() : text;
+}
+
+function transcriptArguments(value: unknown) {
+    if (value && typeof value === 'object') return value as Record<string, unknown>;
+    if (typeof value !== 'string') return value === undefined ? {} : null;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+        return null;
+    }
+}
+
+export function recoverTranscriptStyleToolCalls(text: string) {
+    const marker = /^[ \t]*Assistant tool calls:[ \t]*(\[.*)$/m.exec(text);
+    const line = marker?.[1]?.trim();
+    if (!line) return null;
+    try {
+        const parsed = JSON.parse(line);
+        if (!Array.isArray(parsed) || !parsed.length) return null;
+        const calls = parsed.map(call => {
+            const fn = call?.function ?? call;
+            const args = transcriptArguments(fn?.arguments ?? fn?.args ?? fn?.input);
+            return typeof fn?.name === 'string' && args ? { name: fn.name, arguments: args } : null;
+        });
+        return calls.every(Boolean) ? calls as Array<{ name: string; arguments: Record<string, unknown> }> : null;
+    } catch {
+        const name = line.match(/"name"\s*:\s*"([\w.-]+)"/)?.[1];
+        const command = line.match(/"command"\s*:\s*\\?"([\s\S]*?)\\?"\s*\}\s*"?(?:\s*\})+\s*\]\s*$/)?.[1];
+        if (!name || !command) return null;
+        return [{ name, arguments: { command: command.replace(/\\n/g, '\n').replace(/\\"/g, '"') } }];
+    }
+}
+
 export function conversationalShellText(name: string, rawArgs: any) {
     if (name !== 'bash' && name !== 'terminal') return false;
     let args;
@@ -439,6 +482,11 @@ export function parseToolCallJson(content: unknown, tools: any = null): ParsedTo
         }).filter(([name]) => Boolean(name)))
         : null;
     const allowedNames = allowedTools ? new Set(allowedTools.keys()) : null;
+    const transcript = recoverTranscriptStyleToolCalls(content);
+    if (transcript) {
+        const calls = recoveredToolCalls(transcript, allowedNames);
+        if (calls) return calls;
+    }
     let text = content.trim();
     const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
     if (fence) text = fence[1].trim();
