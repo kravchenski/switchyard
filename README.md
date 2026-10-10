@@ -94,7 +94,7 @@ Every [release](https://github.com/kravchenski/switchyard/releases) has installe
 
 | System | File | Install |
 |---|---|---|
-| Arch, CachyOS, Manjaro (x86_64) | `switchyard-bin-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U switchyard-bin-*.pkg.tar.zst`, or build it from the release `PKGBUILD` with `makepkg -si` |
+| Arch, CachyOS, Manjaro | `switchyard-bin-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U switchyard-bin-*.pkg.tar.zst`, or with paru and updates from `paru -Syu` ([setup](packaging/aur/README.md#install-with-paru)) |
 | Debian, Ubuntu | `switchyard-<version>-linux-x64.deb`, `-linux-arm64.deb` | `sudo apt install ./switchyard-*.deb` |
 | Any Linux | `switchyard-<version>-linux-x64.AppImage`, `-linux-arm64.AppImage` | `chmod +x switchyard-*.AppImage` and run it |
 | Any Linux, by hand | `switchyard-<version>-linux-x64.tar.gz`, `-linux-arm64.tar.gz` | unpack into `/` or a prefix; the app is `usr/bin/freeapi-desktop` |

@@ -1,6 +1,28 @@
 # AUR package
 
-`PKGBUILD` here is the template for the `switchyard-bin` AUR package. Every release attaches a filled copy (version and SHA-256 sums for x86_64 and aarch64) as the `PKGBUILD` asset.
+`PKGBUILD` here builds the `switchyard-bin` package from the latest release. After every release, CI fills in the version and the SHA-256 sums for x86_64 and aarch64, attaches the file to the release as `PKGBUILD` and commits it here.
+
+## Install with paru
+
+paru reads PKGBUILDs straight from this repository, no AUR account needed. Add to `~/.config/paru/paru.conf`:
+
+```ini
+[switchyard]
+Url = https://github.com/kravchenski/switchyard
+Path = packaging/aur
+GenerateSrcinfo
+```
+
+Then:
+
+```bash
+paru -Sy --pkgbuilds
+paru -S switchyard-bin
+```
+
+`paru -Syu` picks up new releases.
+
+## Publish to the AUR
 
 To publish a release to the AUR:
 
