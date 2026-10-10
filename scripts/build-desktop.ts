@@ -3,6 +3,8 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { compileSidecars } from './compile-sidecars.ts';
+
 const root = join(import.meta.dir, '..');
 const desktop = join(root, 'desktop');
 const args = process.argv.slice(2);
@@ -60,8 +62,7 @@ async function main() {
 
   if (!skipSidecars) {
     mkdirSync(sidecars, { recursive: true });
-    await run(['bun', 'build', '--compile', `--target=${bunTarget}`, 'src/unified/server.ts', '--external', 'chromium-bidi/*', '--outfile', join(sidecars, `freeapi-gateway-${triple}${exe}`)]);
-    await run(['bun', 'build', '--compile', `--target=${bunTarget}`, 'scripts/accounts.ts', '--external', 'chromium-bidi/*', '--outfile', join(sidecars, `freeapi-accounts-${triple}${exe}`)]);
+    await compileSidecars(bunTarget, triple, sidecars);
   }
 
   await run(['cargo', 'build', '--manifest-path', join(desktop, 'Cargo.toml'), '--release', '--locked']);
