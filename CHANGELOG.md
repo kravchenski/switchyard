@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.13.0](https://github.com/kravchenski/switchyard/compare/v2.12.0...v2.13.0) (2026-10-10)
+
+
+### Features
+
+* **desktop:** package an AppImage, a tarball and an Arch package on Linux ([e201768](https://github.com/kravchenski/switchyard/commit/e2017684d57b0ffa2f7383e3ce2b6eda6b5c8a7b))
+* **packaging:** add a switchyard-bin PKGBUILD for Arch and CachyOS ([820843a](https://github.com/kravchenski/switchyard/commit/820843a69d81cd1554c289a491c6dd00cb4482d7))
+* **packaging:** ship AppImage, Arch, arm64 Linux packages and SHA256SUMS ([2ad24fd](https://github.com/kravchenski/switchyard/commit/2ad24fd7b4e2c95513edb0576af17476e4479542))
+
+
+### Documentation
+
+* list the installers for each system and how to publish to the AUR ([c8e9579](https://github.com/kravchenski/switchyard/commit/c8e95797d37e0e883ce9bf8e8380243b03d90c2e))
+
+
+### CI
+
+* **desktop:** build Linux arm64, AppImage and Arch packages and publish SHA256SUMS ([8c8435c](https://github.com/kravchenski/switchyard/commit/8c8435cfd784649b6be94b8432f8216d432a2cdc))
+
 ## [2.12.0](https://github.com/kravchenski/switchyard/compare/v2.11.0...v2.12.0) (2026-10-10)
 
 
