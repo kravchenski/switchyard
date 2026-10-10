@@ -39,7 +39,7 @@ describe('agent integration setup', () => {
         const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
         const paths = integrationPaths(home);
         const options = parseAgentSetupArgs(['--all', '--home', home]);
-        const models = ['qwen3-coder-plus', 'qwen3.7-max', 'deepseek-default', 'deepseek-reasoner'];
+        const models = ['qwen3-coder-plus', 'qwen3.7-max', 'deepseek-default', 'deepseek-reasoner', 'vision', 'qwen-chat'];
 
         try {
             await mkdir(join(home, '.pi', 'agent'), { recursive: true });
@@ -60,6 +60,12 @@ describe('agent integration setup', () => {
             expect(pi.theme).toBe('dark');
             expect(pi.providers.existing).toEqual({});
             expect(pi.providers.freeai.models.map((model: Record<string, string>) => model.id)).toEqual(models);
+            const piModelInput = (id: string) => pi.providers.freeai.models.find(
+                (model: Record<string, any>) => model.id === id
+            ).input;
+            expect(piModelInput('deepseek-default')).toEqual(['text']);
+            expect(piModelInput('vision')).toEqual(['text', 'image']);
+            expect(piModelInput('qwen-chat')).toEqual(['text', 'image']);
 
             const openCode = JSON.parse(await readFile(paths.opencode, 'utf8'));
             expect(Object.keys(openCode.provider.freeai.models)).toEqual(models);
@@ -83,7 +89,9 @@ describe('agent integration setup', () => {
             expect(await readFile(paths.codexBase, 'utf8')).not.toContain('[profiles.freeai]');
             expect(await readFile(paths.codexBase, 'utf8')).toContain('model_catalog_json = "');
             expect(await readFile(`${paths.codexBase}.freeqwenapi.bak`, 'utf8')).toContain('[profiles.freeai]');
-            expect(await readFile(paths.claude, 'utf8')).toContain('ANTHROPIC_BASE_URL');
+            const claude = JSON.parse(await readFile(paths.claude, 'utf8'));
+            expect(claude.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:3260');
+            expect(claude.env.ANTHROPIC_MODEL).toBe('qwen3-coder-plus');
             expect(await readFile(paths.codex, 'utf8')).toContain('model_context_window = 131072');
             expect(await readFile(join(home, '.codex', 'freeai-deepseek-default.config.toml'), 'utf8')).toContain(
                 'model = "deepseek-default"'
