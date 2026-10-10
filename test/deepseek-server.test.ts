@@ -62,6 +62,14 @@ describe('DeepSeek web API', () => {
     expect((await verification.json() as Record<string, any>).error.code).toBe('captcha_required');
   });
 
+  test('answers only local pages when GATEWAY_API_KEY is not set', async () => {
+    const app = createDeepSeekApp({ complete: answer('pong'), ready: () => true });
+    expect((await app.fetch(chat(ask))).status).toBe(200);
+    expect((await app.fetch(chat(ask, { origin: 'https://attacker.example' }))).status).toBe(403);
+    expect((await app.fetch(new Request('http://192.168.1.20/api/v1/models'))).status).toBe(403);
+    expect((await app.fetch(new Request('http://192.168.1.20/health'))).status).toBe(200);
+  });
+
   test('requires the bearer token when GATEWAY_API_KEY is set, except for health and the spec', async () => {
     const app = createDeepSeekApp({ apiKey: 'secret', complete: answer('pong'), ready: () => false });
     expect((await app.fetch(new Request('http://localhost/api/v1/models'))).status).toBe(401);

@@ -32,7 +32,7 @@ describe('tokenMatches edge cases', () => {
 });
 
 describe('isLocalRequest', () => {
-    const request = (headers: Record<string, string>) => isLocalRequest(new Headers(headers));
+    const request = (headers: Record<string, string>) => isLocalRequest(new Request('http://unknown.invalid/', { headers }));
 
     test('accepts loopback hosts without a foreign origin', () => {
         expect(request({ host: 'localhost:3260' })).toBeTrue();
@@ -45,6 +45,11 @@ describe('isLocalRequest', () => {
         expect(request({ host: '192.168.1.20:3260' })).toBeFalse();
         expect(request({ host: 'attacker.example:3260' })).toBeFalse();
         expect(request({})).toBeFalse();
+    });
+
+    test('falls back to the request URL when there is no Host header', () => {
+        expect(isLocalRequest(new Request('http://localhost/v1/models'))).toBeTrue();
+        expect(isLocalRequest(new Request('http://gateway.lan/v1/models'))).toBeFalse();
     });
 
     test('rejects pages from other origins', () => {

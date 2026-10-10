@@ -81,7 +81,7 @@ app.use('*', async (c, next) => {
 
 app.use('*', async (c, next) => {
     if (c.req.path === '/health') return next();
-    if (!apiKey && !isLocalRequest(c.req.raw.headers)) {
+    if (!apiKey && !isLocalRequest(c.req.raw)) {
         return c.json({ error: { message: 'Set GATEWAY_API_KEY to accept requests from other hosts or web pages', type: 'permission_error' } }, 403);
     }
     if (tokenMatches(bearerToken(c.req.header('authorization')) ?? c.req.header('x-api-key') ?? null, apiKey)) return next();

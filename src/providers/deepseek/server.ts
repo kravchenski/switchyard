@@ -3,6 +3,7 @@ import { serve } from 'bun';
 import crypto from 'crypto';
 
 import { ProviderError, toHttpError } from '../../core/providers/errors.ts';
+import { isLocalRequest } from '../../gateway/security.ts';
 import { DEEPSEEK_MODELS, deepSeekOpenApi } from './openapi.ts';
 
 import { deepSeekCompletion, isEmptyToolCallResponse, parseDeepSeekEvent } from './client.ts';
@@ -14,7 +15,7 @@ const port = Number(process.env.DEEPSEEK_PORT || 3265);
 const host = process.env.HOST || '127.0.0.1';
 const VERIFICATION = /verification|captcha|verify you are human/i;
 
-type ErrorStatus = 400 | 401 | 404 | 429 | 502 | 503;
+type ErrorStatus = 400 | 401 | 403 | 404 | 429 | 502 | 503;
 
 function apiError(c: Context, status: ErrorStatus, type: string, code: string, message: string, retryAfterSeconds?: number) {
     if (retryAfterSeconds !== undefined) c.header('Retry-After', String(retryAfterSeconds));
@@ -88,7 +89,10 @@ export function createDeepSeekApp(options: { apiKey?: string; complete?: typeof 
     const open = new Set(['/health', '/api/openapi.json', '/api/v1/openapi.json']);
 
     app.use('*', async (c, next) => {
-        if (!options.apiKey || open.has(c.req.path)) return next();
+        if (open.has(c.req.path)) return next();
+        if (!options.apiKey) {
+            return isLocalRequest(c.req.raw) ? next() : apiError(c, 403, 'permission_error', 'local_only', 'Set GATEWAY_API_KEY to accept requests from other hosts or web pages');
+        }
         if (c.req.header('authorization') !== `Bearer ${options.apiKey}`) return apiError(c, 401, 'authentication_error', 'invalid_api_key', 'Missing or wrong bearer token');
         return next();
     });

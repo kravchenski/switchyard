@@ -44,10 +44,10 @@ function isLocalHostname(hostname: string | null) {
     return hostname !== null && (LOCAL_HOSTNAMES.has(hostname) || hostname.endsWith('.localhost'));
 }
 
-export function isLocalRequest(headers: { get(name: string): string | null }) {
-    const host = headers.get('host');
-    if (!host || !isLocalHostname(hostnameOf(host))) return false;
-    const origin = headers.get('origin');
+export function isLocalRequest(request: Request) {
+    const host = request.headers.get('host') ?? new URL(request.url).host;
+    if (!isLocalHostname(hostnameOf(host))) return false;
+    const origin = request.headers.get('origin');
     return !origin || isLocalHostname(hostnameOf(origin));
 }
 
