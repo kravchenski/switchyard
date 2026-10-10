@@ -1,6 +1,7 @@
+import type dns from 'node:dns';
 import { describe, expect, test } from 'bun:test';
 
-import { assertPublicUrl, isPrivateAddress } from '../src/core/net/public-url.ts';
+import { assertPublicUrl, createPublicLookup, isPrivateAddress } from '../src/core/net/public-url.ts';
 
 describe('isPrivateAddress', () => {
   test('flags loopback, private, link-local and reserved ranges', () => {
@@ -17,21 +18,35 @@ describe('isPrivateAddress', () => {
 });
 
 describe('assertPublicUrl', () => {
-  const resolveTo = (...addresses: string[]) => async () => addresses;
-
-  test('accepts hosts that resolve only to public addresses', async () => {
-    await expect(assertPublicUrl('https://images.example/a.png', resolveTo('93.184.216.34'))).resolves.toBeUndefined();
+  test('accepts http and https hosts', () => {
+    expect(() => assertPublicUrl('https://images.example/a.png')).not.toThrow();
+    expect(() => assertPublicUrl('http://93.184.216.34/a.png')).not.toThrow();
   });
 
-  test('rejects hosts that resolve to any private address', async () => {
-    await expect(assertPublicUrl('https://rebind.example/a.png', resolveTo('93.184.216.34', '127.0.0.1'))).rejects.toThrow('private address');
-    await expect(assertPublicUrl('https://nothing.example/a.png', resolveTo())).rejects.toThrow('private address');
+  test('rejects private literals and other schemes', () => {
+    expect(() => assertPublicUrl('http://[::1]:3260/')).toThrow('private address');
+    expect(() => assertPublicUrl('http://10.0.0.1/')).toThrow('private address');
+    expect(() => assertPublicUrl('http://2130706433/')).toThrow('private address');
+    expect(() => assertPublicUrl('ftp://images.example/a.png')).toThrow('Unsupported image URL scheme');
+  });
+});
+
+describe('createPublicLookup', () => {
+  const resolveTo = (...addresses: string[]) => ((_host: string, _options: unknown, callback: (error: null, found: dns.LookupAddress[]) => void) =>
+    callback(null, addresses.map(address => ({ address, family: address.includes(':') ? 6 : 4 })))) as never;
+
+  const run = (lookup: ReturnType<typeof createPublicLookup>, all: boolean) =>
+    new Promise<{ error: Error | null; address: unknown }>(resolve =>
+      lookup('images.example', { all }, (error, address) => resolve({ error, address })));
+
+  test('passes public addresses through in both callback shapes', async () => {
+    const lookup = createPublicLookup(resolveTo('93.184.216.34'));
+    expect(await run(lookup, false)).toEqual({ error: null, address: '93.184.216.34' });
+    expect((await run(lookup, true)).address).toEqual([{ address: '93.184.216.34', family: 4 }]);
   });
 
-  test('rejects private literals and non-http schemes without resolving', async () => {
-    const resolve = async () => { throw new Error('should not resolve'); };
-    await expect(assertPublicUrl('http://[::1]:3260/', resolve)).rejects.toThrow('private address');
-    await expect(assertPublicUrl('http://10.0.0.1/', resolve)).rejects.toThrow('private address');
-    await expect(assertPublicUrl('ftp://images.example/a.png', resolve)).rejects.toThrow('Unsupported image URL scheme');
+  test('fails when any resolved address is private or none is found', async () => {
+    expect((await run(createPublicLookup(resolveTo('93.184.216.34', '127.0.0.1')), false)).error?.message).toContain('private address');
+    expect((await run(createPublicLookup(resolveTo()), false)).error?.message).toContain('private address');
   });
 });

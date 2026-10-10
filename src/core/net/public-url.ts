@@ -1,9 +1,9 @@
-import { lookup } from 'node:dns/promises';
+import dns from 'node:dns';
 import net from 'node:net';
 
-export type Resolve = (hostname: string) => Promise<string[]>;
-
-const systemResolve: Resolve = async hostname => (await lookup(hostname, { all: true, verbatim: true })).map(entry => entry.address);
+type LookupCallback = (error: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void;
+export type Lookup = (hostname: string, options: dns.LookupOptions, callback: LookupCallback) => void;
+type Resolver = (hostname: string, options: dns.LookupAllOptions, callback: (error: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void) => void;
 
 function isPrivateIpv4(address: string) {
   const [a = 0, b = 0] = address.split('.').map(Number);
@@ -40,12 +40,26 @@ export function isPrivateAddress(address: string) {
   return (value & 0xfe00) === 0xfc00 || (value & 0xffc0) === 0xfe80 || (value & 0xff00) === 0xff00;
 }
 
-export async function assertPublicUrl(value: string, resolve: Resolve = systemResolve) {
+function privateAddressError(hostname: string) {
+  return new Error(`Refusing to download from a private address: ${hostname}`);
+}
+
+export function assertPublicUrl(value: string) {
   const url = new URL(value);
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`Unsupported image URL scheme: ${url.protocol}`);
   const host = url.hostname.replace(/^\[|\]$/g, '');
-  const addresses = net.isIP(host) ? [host] : await resolve(host);
-  if (!addresses.length || addresses.some(isPrivateAddress)) {
-    throw new Error(`Refusing to download from a private address: ${url.hostname}`);
-  }
+  if (net.isIP(host) && isPrivateAddress(host)) throw privateAddressError(url.hostname);
 }
+
+export function createPublicLookup(resolve: Resolver = dns.lookup as Resolver): Lookup {
+  return (hostname, options, callback) => {
+    resolve(hostname, { ...options, all: true }, (error, addresses) => {
+      if (error) return callback(error, []);
+      if (!addresses.length || addresses.some(entry => isPrivateAddress(entry.address))) return callback(privateAddressError(hostname), []);
+      if (options.all) return callback(null, addresses);
+      callback(null, addresses[0]!.address, addresses[0]!.family);
+    });
+  };
+}
+
+export const publicLookup = createPublicLookup();
