@@ -76,6 +76,7 @@ async function downloadImage(url: string, index: number, checkUrl: (url: string)
     const response = await fetch(target, { redirect: 'manual', signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
     const location = response.headers.get('location');
     if (response.status < 300 || response.status >= 400 || !location) return response;
+    await response.body?.cancel();
     target = new URL(location, target).href;
   }
   throw new ProviderError(`Failed to download image ${index}: too many redirects`, 'invalid_request');

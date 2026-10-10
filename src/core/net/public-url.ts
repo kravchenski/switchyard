@@ -33,9 +33,10 @@ export function isPrivateAddress(address: string) {
     const v4 = mappedIpv4(ip);
     return v4 === null || isPrivateIpv4(v4);
   }
-  const first = ip.split(':')[0]!;
+  const [first = '', second = ''] = ip.split(':');
   if (first === '') return true;
   const value = Number.parseInt(first, 16);
+  if (value === 0x2002 || (value === 0x64 && Number.parseInt(second, 16) === 0xff9b)) return true;
   return (value & 0xfe00) === 0xfc00 || (value & 0xffc0) === 0xfe80 || (value & 0xff00) === 0xff00;
 }
 
