@@ -299,9 +299,11 @@ Runs the gateway on `127.0.0.1:3260` with `.env` and the `session/`, `data/` and
 <br>
 
 ```bash
-bun run dev       # watch mode
-bun run ci        # build check, strict typecheck, tests
-bun run desktop   # desktop app (cargo run)
+bun run dev               # watch mode
+bun run ci                # build check, strict typecheck, tests
+bun run desktop           # desktop app (cargo run)
+bun run build:desktop     # gateway and accounts sidecars + release app in dist/
+bun run package:desktop   # the same, plus the installer for this OS (deb, dmg or exe; needs cargo-packager)
 ```
 
 ```
