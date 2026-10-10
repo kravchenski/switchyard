@@ -201,3 +201,22 @@ jobs:
             --out release/PKGBUILD
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           gh release upload "$TAG" release/SHA256SUMS release/PKGBUILD --clobber
+
+      - name: Update the PKGBUILD on main
+        shell: bash
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
+          cp release/PKGBUILD packaging/aur/PKGBUILD
+          if git diff --quiet -- packaging/aur/PKGBUILD; then echo "The PKGBUILD is already at $VERSION"; exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packaging/aur/PKGBUILD
+          git commit -m "chore(aur): update switchyard-bin to $VERSION"
+          for attempt in 1 2 3; do
+            git push origin main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1
