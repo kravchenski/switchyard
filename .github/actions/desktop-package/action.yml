@@ -11,18 +11,22 @@ inputs:
   bun-target:
     description: Bun compile target, e.g. bun-linux-x64
     required: true
-  format:
-    description: cargo-packager format (deb, dmg, nsis)
+  formats:
+    description: Comma-separated cargo-packager formats (deb, appimage, pacman, dmg, nsis)
     required: true
+  arch-package:
+    description: Also build an Arch Linux package from the pacman tarball with makepkg
+    required: false
+    default: 'false'
   version:
     description: Release version without the leading v; empty keeps the crate version
     required: false
     default: ''
 
 outputs:
-  asset:
-    description: Path of the renamed installer
-    value: ${{ steps.rename.outputs.asset }}
+  dir:
+    description: Directory with the renamed installers
+    value: dist
 
 runs:
   using: composite
@@ -87,24 +91,45 @@ runs:
     - name: Package
       shell: bash
       working-directory: desktop
-      run: cargo packager --release --formats ${{ inputs.format }}
+      env:
+        NO_STRIP: '1'
+        APPIMAGE_EXTRACT_AND_RUN: '1'
+      run: cargo packager --release --formats ${{ inputs.formats }}
 
-    - name: Rename installer
-      id: rename
+    - name: Rename installers
       shell: bash
       env:
         TARGET: ${{ inputs.target }}
-        FORMAT: ${{ inputs.format }}
+        FORMATS: ${{ inputs.formats }}
       run: |
         version=$(perl -ne 'print $1 if /^version = "(.*)"/ && $. < 6' desktop/Cargo.toml)
-        case "$FORMAT" in
-          deb) pattern='*.deb'; suffix='.deb' ;;
-          dmg) pattern='*.dmg'; suffix='.dmg' ;;
-          nsis) pattern='*-setup.exe'; suffix='-setup.exe' ;;
-          *) echo "Unknown format $FORMAT"; exit 1 ;;
-        esac
-        source=$(find desktop/target/packages -maxdepth 1 -name "$pattern" | head -1)
-        if [ -z "$source" ]; then echo "No $FORMAT package produced"; ls -la desktop/target/packages; exit 1; fi
-        asset="switchyard-$version-$TARGET$suffix"
-        cp "$source" "$asset"
-        echo "asset=$asset" >> "$GITHUB_OUTPUT"
+        mkdir -p dist
+        for format in ${FORMATS//,/ }; do
+          case "$format" in
+            deb) pattern='*.deb'; suffix='.deb' ;;
+            appimage) pattern='*.AppImage'; suffix='.AppImage' ;;
+            pacman) pattern='*.tar.gz'; suffix='.tar.gz' ;;
+            dmg) pattern='*.dmg'; suffix='.dmg' ;;
+            nsis) pattern='*-setup.exe'; suffix='-setup.exe' ;;
+            *) echo "Unknown format $format"; exit 1 ;;
+          esac
+          source=$(find desktop/target/packages -maxdepth 1 -name "$pattern" | head -1)
+          if [ -z "$source" ]; then echo "No $format package produced"; ls -la desktop/target/packages; exit 1; fi
+          cp "$source" "dist/switchyard-$version-$TARGET$suffix"
+        done
+        ls -la dist
+
+    - name: Build Arch Linux package
+      if: inputs.arch-package == 'true'
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: |
+        version=$(perl -ne 'print $1 if /^version = "(.*)"/ && $. < 6' desktop/Cargo.toml)
+        mkdir -p arch
+        cp "dist/switchyard-$version-$TARGET.tar.gz" arch/
+        bun run scripts/pkgbuild.ts --version "$version" --x86_64 "arch/switchyard-$version-$TARGET.tar.gz" --out arch/PKGBUILD
+        docker run --rm -v "$PWD/arch:/build" archlinux:base-devel bash -c \
+          'useradd -m builder && chown -R builder /build && su builder -c "cd /build && makepkg --nodeps --noconfirm"'
+        cp arch/*.pkg.tar.zst dist/
+        ls -la dist

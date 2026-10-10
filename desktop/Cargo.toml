@@ -46,3 +46,6 @@ depends = [
   "libfreetype6",
   "libasound2t64 | libasound2",
 ]
+
+[package.metadata.packager.pacman]
+files = { "../LICENSE" = "usr/share/licenses/switchyard/LICENSE" }

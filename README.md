@@ -90,7 +90,18 @@ A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: s
   <em>Full quality: <a href="docs/images/tour-light.mp4">light</a> · <a href="docs/images/tour-dark.mp4">dark</a></em>
 </p>
 
-Installers for Linux (`.deb`), macOS (`.dmg`) and Windows (`.exe`) are attached to every [release](https://github.com/kravchenski/switchyard/releases). They bundle the gateway, so Bun is not needed; Chrome or Chromium is needed for the web chats. The installers are not code-signed yet.
+Every [release](https://github.com/kravchenski/switchyard/releases) has installers for x86_64 and arm64 Linux, macOS and Windows, plus `SHA256SUMS` to check the downloads. They bundle the gateway, so Bun is not needed; Chrome or Chromium is needed for the web chats. The installers are not code-signed yet.
+
+| System | File | Install |
+|---|---|---|
+| Arch, CachyOS, Manjaro (x86_64) | `switchyard-bin-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U switchyard-bin-*.pkg.tar.zst`, or build it from the release `PKGBUILD` with `makepkg -si` |
+| Debian, Ubuntu | `switchyard-<version>-linux-x64.deb`, `-linux-arm64.deb` | `sudo apt install ./switchyard-*.deb` |
+| Any Linux | `switchyard-<version>-linux-x64.AppImage`, `-linux-arm64.AppImage` | `chmod +x switchyard-*.AppImage` and run it |
+| Any Linux, by hand | `switchyard-<version>-linux-x64.tar.gz`, `-linux-arm64.tar.gz` | unpack into `/` or a prefix; the app is `usr/bin/freeapi-desktop` |
+| macOS | `switchyard-<version>-macos-arm64.dmg` | open and drag to Applications |
+| Windows | `switchyard-<version>-windows-x64-setup.exe` | run the installer |
+
+Check a download with `sha256sum --check --ignore-missing SHA256SUMS`. The Arch package starts the app as `switchyard`.
 
 <details>
 <summary><b>Screenshots</b></summary>
@@ -311,7 +322,7 @@ bun run dev               # watch mode
 bun run ci                # build check, strict typecheck, tests
 bun run desktop           # desktop app (cargo run)
 bun run build:desktop     # gateway and accounts sidecars + release app in dist/
-bun run package:desktop   # the same, plus the installer for this OS (deb, dmg or exe; needs cargo-packager)
+bun run package:desktop   # the same, plus the installers for this OS (Linux: deb, AppImage, tar.gz and, with makepkg, an Arch package; macOS: dmg; Windows: exe; needs cargo-packager)
 ```
 
 ```

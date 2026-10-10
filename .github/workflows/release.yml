@@ -124,17 +124,26 @@ jobs:
             target: linux-x64
             triple: x86_64-unknown-linux-gnu
             bun-target: bun-linux-x64
-            format: deb
+            formats: deb,appimage,pacman
+            arch-package: 'true'
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            triple: aarch64-unknown-linux-gnu
+            bun-target: bun-linux-arm64
+            formats: deb,appimage,pacman
+            arch-package: 'false'
           - os: macos-latest
             target: macos-arm64
             triple: aarch64-apple-darwin
             bun-target: bun-darwin-arm64
-            format: dmg
+            formats: dmg
+            arch-package: 'false'
           - os: windows-latest
             target: windows-x64
             triple: x86_64-pc-windows-msvc
             bun-target: bun-windows-x64
-            format: nsis
+            formats: nsis
+            arch-package: 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -148,11 +157,47 @@ jobs:
           target: ${{ matrix.target }}
           triple: ${{ matrix.triple }}
           bun-target: ${{ matrix.bun-target }}
-          format: ${{ matrix.format }}
+          formats: ${{ matrix.formats }}
+          arch-package: ${{ matrix.arch-package }}
           version: ${{ needs.release-please.outputs.version }}
 
       - name: Upload to release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" "${{ steps.package.outputs.asset }}" --clobber
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" ${{ steps.package.outputs.dir }}/* --clobber
+
+  checksums:
+    name: Checksums and AUR PKGBUILD
+    needs: [release-please, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Write SHA256SUMS and PKGBUILD
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          mkdir release
+          gh release download "$TAG" --dir release
+          rm -f release/SHA256SUMS release/PKGBUILD
+          bun run scripts/pkgbuild.ts --version "$VERSION" \
+            --x86_64 "release/switchyard-$VERSION-linux-x64.tar.gz" \
+            --aarch64 "release/switchyard-$VERSION-linux-arm64.tar.gz" \
+            --out release/PKGBUILD
+          (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          gh release upload "$TAG" release/SHA256SUMS release/PKGBUILD --clobber
