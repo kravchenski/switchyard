@@ -22,6 +22,7 @@ export type AgentId = typeof AGENT_IDS[number];
 
 export type AgentSetupOptions = {
     agents: AgentId[];
+    allowCommands: boolean;
     apiKey: string;
     baseUrl: string;
     bridgeUrl: string;
@@ -80,6 +81,7 @@ export function parseAgentSetupArgs(
 ): AgentSetupOptions {
     const options: AgentSetupOptions = {
         agents: [...AGENT_IDS],
+        allowCommands: false,
         apiKey: environment.FREEAI_API_KEY || DEFAULT_API_KEY,
         baseUrl: environment.FREEAI_URL || DEFAULT_BASE_URL,
         bridgeUrl: environment.FREEAI_BRIDGE_URL || DEFAULT_BRIDGE_URL,
@@ -92,6 +94,7 @@ export function parseAgentSetupArgs(
         const argument = args[index];
         if (argument === '--all') options.agents = [...AGENT_IDS];
         else if (argument === '--dry-run') options.dryRun = true;
+        else if (argument === '--allow-commands') options.allowCommands = true;
         else if (argument === '--help' || argument === '-h') options.help = true;
         else if (argument === '--agent') options.agents = parseAgentList(requireValue(args, ++index, argument));
         else if (argument.startsWith('--agent=')) options.agents = parseAgentList(argument.slice('--agent='.length));
@@ -248,6 +251,9 @@ Options:
   --bridge-url <url>    Optional LiteLLM endpoint (Claude Code and Codex connect directly)
   --api-key <key>       Local proxy or LiteLLM key
   --home <path>         Override the target home directory
+  --allow-commands      Let OpenCode run shell commands and fetch URLs without
+                        asking (by default they need your approval, because web
+                        chat answers can carry instructions from files and pages)
   --dry-run             Show planned writes without changing files
   --help                Show this help
 `;
@@ -339,7 +345,14 @@ function mergeOpenCodeConfig(current: Record<string, any>, options: AgentSetupOp
             limit: { context: 131072, output: 16384 }
         }]))
     };
+    if (!options.allowCommands) config.permission = askBeforeCommands(current.permission);
     return config;
+}
+
+function askBeforeCommands(permission: unknown) {
+    if (typeof permission === 'string') return permission;
+    const current = permission && typeof permission === 'object' ? permission as Record<string, unknown> : {};
+    return { ...current, bash: current.bash ?? 'ask', webfetch: current.webfetch ?? 'ask' };
 }
 
 function mergeContinueConfig(current: Record<string, any>, options: AgentSetupOptions, modelIds: string[]) {
