@@ -44,8 +44,16 @@ bun run setup:agents -- --base-url http://127.0.0.1:3260/api
 bun run setup:agents -- --bridge-url http://127.0.0.1:4000
 bun run setup:agents -- --api-key dummy-key
 bun run setup:agents -- --home /custom/home
+bun run setup:agents -- --allow-commands
 bun run setup:agents -- --help
 ```
+
+By default the installer adds `"permission": { "bash": "ask", "webfetch": "ask" }`
+to the OpenCode config, so OpenCode asks before it runs a shell command or fetches
+a URL. Web chat answers can repeat instructions from files and pages in the
+agent's context, and this keeps a person in the loop. Permissions you already set
+are kept. `--allow-commands` leaves the OpenCode permissions alone. pi has no
+approval prompts, so run it in a container or a throwaway checkout.
 
 The same commands work in Bash, zsh, PowerShell, and Command Prompt.
 

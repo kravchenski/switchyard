@@ -64,6 +64,14 @@ curl http://localhost:3260/v1/chat/completions \
 
 A bearer token is only required when `GATEWAY_API_KEY` is set.
 
+### Command approval
+
+Web chats answer in plain text, and Switchyard turns that text into tool calls for your agent. A file, a command output or a web page in the agent's context can carry instructions that the model repeats as a shell command, so let a person approve commands:
+
+- `bun run setup:agents` makes OpenCode ask before `bash` and `webfetch` (`"permission": { "bash": "ask", "webfetch": "ask" }`). Values you already set are kept. Pass `--allow-commands` to skip this.
+- Claude Code asks before commands and Codex runs them in its sandbox by default; keep those defaults.
+- pi has no approval prompts. Use it with Switchyard only in a container, a sandbox or a throwaway checkout.
+
 ## Providers
 
 All providers below have free tiers or work through your own signed-in web accounts.
