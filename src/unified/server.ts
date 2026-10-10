@@ -423,22 +423,6 @@ function announcesAction(content: string, tools: Array<Record<string, any>> | nu
     return last.endsWith(':') && ANNOUNCEMENT.test(last);
 }
 
-function isCodebaseActionRequest(messages: Array<Record<string, any>>) {
-    if (messages.at(-1)?.role !== 'user') return false;
-    const lastUser = [...messages].reverse().find(message => message?.role === 'user');
-    const text = typeof lastUser?.content === 'string' ? lastUser.content.toLowerCase() : '';
-    return /рефактор|исправ|измени|добав|удал|проверь|тест|review|refactor|implement|fix|change|inspect|test/.test(text);
-}
-
-function fallbackInspectionToolCall(tools: Array<Record<string, any>> | null) {
-    if (!Array.isArray(tools)) return null;
-    const names = new Set(tools.map(tool => (tool?.function || tool)?.name));
-    if (names.has('ls')) return { name: 'ls', arguments: { path: '.', description: 'List files in current directory' } };
-    if (names.has('bash')) return { name: 'bash', arguments: { command: 'ls -la', description: 'List files in current directory' } };
-    if (names.has('find')) return { name: 'find', arguments: { path: '.', pattern: '*', description: 'Find files in current directory' } };
-    return null;
-}
-
 function buildToolCallResponse(toolCalls: Array<Record<string, any>>) {
     return toolCalls.map(({ index: _index, ...call }) => call);
 }
@@ -447,7 +431,6 @@ function processToolCalls(
     content: string,
     captureToolCalls: boolean,
     combinedTools: Array<Record<string, any>> | null,
-    messages: Array<Record<string, any>>,
     nativeCalls: ToolCall[] = []
 ) {
     if (nativeCalls.length) return withRtk(content, nativeCalls.map((call, index) => ({ ...call, index })), null);
@@ -461,18 +444,7 @@ function processToolCalls(
         ? conversationalShellText(recoveredShell.name, recoveredShell.arguments)
         : null;
     if (conversationalText) content = conversationalText;
-    let toolCalls = captureToolCalls && !conversationalText ? parseToolCallJson(content, combinedTools) : null;
-    if (!toolCalls?.length && captureToolCalls && isCodebaseActionRequest(messages)) {
-        const fallback = fallbackInspectionToolCall(combinedTools);
-        if (fallback) {
-            toolCalls = [{
-                id: `call_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`,
-                type: 'function',
-                function: { name: fallback.name, arguments: JSON.stringify(fallback.arguments) },
-                index: 0
-            }];
-        }
-    }
+    const toolCalls = captureToolCalls && !conversationalText ? parseToolCallJson(content, combinedTools) : null;
     return withRtk(content, toolCalls, conversationalText);
 }
 
@@ -621,13 +593,13 @@ function handleProviderStream(
         }
         let nativeCalls = assembler.result();
 
-        if (captureToolCalls && !nativeCalls.length && sentContent === 0 && (needsNudge(content) || announcesAction(content, combinedTools)) && !isCodebaseActionRequest(messages)) {
+        if (captureToolCalls && !nativeCalls.length && sentContent === 0 && (needsNudge(content) || announcesAction(content, combinedTools))) {
             ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks((await retry()).chunks));
             sentContent = 0;
             sentReasoning = 0;
         }
 
-        const processed = processToolCalls(content, captureToolCalls, combinedTools, messages, nativeCalls);
+        const processed = processToolCalls(content, captureToolCalls, combinedTools, nativeCalls);
         const { toolCalls, conversationalText } = processed;
         content = conversationalText || processed.content;
 
@@ -816,7 +788,7 @@ app.post('/api/chat/completions', async (c) => {
         let nativeCalls: ToolCall[] = [];
         try {
             ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks(first.chunks));
-            if (captureToolCalls && !nativeCalls.length && (needsNudge(content) || announcesAction(content, combinedTools)) && !isCodebaseActionRequest(messages)) {
+            if (captureToolCalls && !nativeCalls.length && (needsNudge(content) || announcesAction(content, combinedTools))) {
                 const retried = await open(true);
                 ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks(retried.chunks));
                 responseFields = retried.responseFields;
@@ -826,7 +798,7 @@ app.post('/api/chat/completions', async (c) => {
             throw error;
         }
         finish();
-        const { toolCalls, conversationalText, rtkChanges } = processToolCalls(content, captureToolCalls, combinedTools, messages, nativeCalls);
+        const { toolCalls, conversationalText, rtkChanges } = processToolCalls(content, captureToolCalls, combinedTools, nativeCalls);
         for (const [name, value] of Object.entries(routeHeaders)) c.header(name, value);
         if (rtkChanges.length) c.header('x-gateway-rtk', String(rtkChanges.length));
         return c.json({
