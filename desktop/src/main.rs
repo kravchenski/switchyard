@@ -454,10 +454,10 @@ impl Render for Shell {
 impl Shell {
     fn health_label(&self) -> (&'static str, u32) {
         match self.health {
-            Health::Online if self.external() => ("Online (external)", GREEN),
-            Health::Online => ("Online", GREEN),
-            Health::Starting => ("Starting…", AMBER),
-            Health::Stopped => ("Stopped", GRAY),
+            Health::Online if self.external() => ("API is running outside the app", GREEN),
+            Health::Online => ("API is running", GREEN),
+            Health::Starting => ("API is starting…", AMBER),
+            Health::Stopped => ("API is stopped", MUTED),
         }
     }
 
@@ -469,55 +469,28 @@ impl Shell {
                 cx.notify();
             }))
         };
-        let gateway = card()
-            .p_3()
+        let address = self.api_url().trim_start_matches("http://").to_string();
+        let gateway = div()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_0p5()
+            .px_3()
+            .pt_3()
+            .border_t_1()
+            .border_color(col(BORDER))
+            .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(col(if self.health == Health::Stopped { MUTED } else { TEXT })).child(label))
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(div().size(px(8.)).flex_none().rounded_full().bg(col(color)))
-                    .child(label),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .font_family(assets::MONO_FAMILY)
-                            .text_size(px(12.))
-                            .text_color(col(MUTED))
-                            .child(self.api_url().trim_start_matches("http://").to_string()),
-                    )
-                    .child(
-                        div()
-                            .id("copy-url")
-                            .size(px(28.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_md()
-                            .text_size(px(14.))
-                            .text_color(col(if self.copied { PRIMARY } else { MUTED }))
-                            .cursor_pointer()
-                            .hover(|style| style.bg(col(HOVER)))
-                            .child(if self.copied { IconName::Check } else { IconName::Copy })
-                            .on_click(cx.listener(|shell, _, _, cx| {
-                                shell.copy_url(cx);
-                                cx.notify();
-                            })),
-                    ),
+                    .id("copy-url")
+                    .text_xs()
+                    .cursor_pointer()
+                    .text_color(col(if self.copied { color } else { MUTED }))
+                    .hover(|style| style.text_color(col(TEXT)))
+                    .child(if self.copied { "Copied to clipboard".to_string() } else { address })
+                    .on_click(cx.listener(|shell, _, _, cx| {
+                        shell.copy_url(cx);
+                        cx.notify();
+                    })),
             );
         div()
             .w(px(if self.compact { 212. } else { 248. }))
@@ -581,7 +554,7 @@ impl Shell {
                     }))
             })),
             )
-            .child(div().pt_3().child(gateway))
+            .child(gateway)
     }
 
     fn render_gateway_toggle(&self, cx: &mut Context<Self>) -> Stateful<Div> {
