@@ -18,7 +18,7 @@ One OpenAI- and Anthropic-compatible endpoint in front of your signed-in web cha
 
 <img src="docs/images/demo.gif" alt="Listing models, asking model=auto for a haiku, and reading the routing decision: Qwen Chat answered first" width="900">
 
-<sub>One request to <code>model=auto</code>: the router tries the web chats in your order and logs every attempt. <a href="docs/images/demo.mp4">MP4</a></sub>
+*One request to `model=auto`: the router tries the web chats in your order and logs every attempt.* [Watch as MP4](docs/images/demo.mp4)
 
 </div>
 
@@ -79,7 +79,7 @@ A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: s
     <img src="docs/images/tour-light.gif" alt="Desktop app tour: requests, a web chat provider, NVIDIA models, settings, API keys and copying the gateway URL" width="900">
   </picture>
   <br>
-  <sub>Full quality: <a href="docs/images/tour-light.mp4">light</a> · <a href="docs/images/tour-dark.mp4">dark</a></sub>
+  <em>Full quality: <a href="docs/images/tour-light.mp4">light</a> · <a href="docs/images/tour-dark.mp4">dark</a></em>
 </p>
 
 Installers for Linux (`.deb`), macOS (`.dmg`) and Windows (`.exe`) are attached to every [release](https://github.com/kravchenski/switchyard/releases). They bundle the gateway, so Bun is not needed; Chrome or Chromium is needed for the web chats. The installers are not code-signed yet.
