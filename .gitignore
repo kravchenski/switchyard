@@ -64,3 +64,6 @@ data/
 
 # Desktop app build output
 desktop/target/
+
+# Desktop installers
+dist/

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = join(import.meta.dir, '..');
@@ -19,15 +19,21 @@ const BUN_TARGETS: Record<string, string> = {
   'win32-x64': 'bun-windows-x64',
 };
 
-const FORMATS: Record<string, { format: string; pattern: RegExp }> = {
-  linux: { format: 'deb', pattern: /\.deb$/ },
-  darwin: { format: 'dmg', pattern: /\.dmg$/ },
-  win32: { format: 'nsis', pattern: /-setup\.exe$/ },
+const FORMATS: Record<string, Array<{ format: string; pattern: RegExp }>> = {
+  linux: [
+    { format: 'deb', pattern: /\.deb$/ },
+    { format: 'appimage', pattern: /\.AppImage$/ },
+    { format: 'pacman', pattern: /\.tar\.gz$/ },
+  ],
+  darwin: [{ format: 'dmg', pattern: /\.dmg$/ }],
+  win32: [{ format: 'nsis', pattern: /-setup\.exe$/ }],
 };
 
-async function run(command: string[], cwd = root) {
+const LINUX_ASSETS: Record<string, string> = { x64: 'linux-x64', arm64: 'linux-arm64' };
+
+async function run(command: string[], cwd = root, env: Record<string, string> = {}) {
   console.log(`\n$ ${command.join(' ')}`);
-  const child = Bun.spawn(command, { cwd, stdout: 'inherit', stderr: 'inherit', stdin: 'inherit' });
+  const child = Bun.spawn(command, { cwd, stdout: 'inherit', stderr: 'inherit', stdin: 'inherit', env: { ...process.env, ...env } });
   const code = await child.exited;
   if (code !== 0) throw new Error(`${command[0]} exited with code ${code}`);
 }
@@ -67,17 +73,43 @@ async function main() {
   console.log(`\nDesktop app: ${app}`);
 
   if (!packageInstaller) return;
-  const target = FORMATS[process.platform];
-  if (!target) throw new Error(`No installer format for ${process.platform}`);
+  const targets = FORMATS[process.platform];
+  if (!targets) throw new Error(`No installer format for ${process.platform}`);
   if (!await output(['cargo', 'packager', '--version'])) throw new Error('cargo-packager is missing: cargo install cargo-packager --locked');
   if (!existsSync(join(sidecars, `freeapi-gateway-${triple}${exe}`))) throw new Error('The installer needs the sidecars: run without --skip-sidecars');
-  await run(['cargo', 'packager', '--release', '--formats', target.format], desktop);
+  await run(['cargo', 'packager', '--release', '--formats', targets.map(target => target.format).join(',')], desktop, { NO_STRIP: '1' });
   const packages = join(desktop, 'target', 'packages');
-  const installer = readdirSync(packages).find(name => target.pattern.test(name));
-  if (!installer) throw new Error(`No ${target.format} installer in ${packages}`);
-  const copied = join(dist, installer);
-  copyFileSync(join(packages, installer), copied);
-  console.log(`Installer: ${copied}`);
+  const built = readdirSync(packages);
+  const copied: string[] = [];
+  for (const target of targets) {
+    const installer = built.find(name => target.pattern.test(name));
+    if (!installer) throw new Error(`No ${target.format} installer in ${packages}`);
+    copyFileSync(join(packages, installer), join(dist, installer));
+    copied.push(join(dist, installer));
+    console.log(`Installer: ${join(dist, installer)}`);
+  }
+  if (process.platform === 'linux') await archPackage(copied.find(file => file.endsWith('.tar.gz'))!, dist);
+}
+
+async function archPackage(tarball: string, dist: string) {
+  if (!await output(['makepkg', '--version'])) {
+    console.log('makepkg not found: skipping the Arch package');
+    return;
+  }
+  const version = (await Bun.file(join(root, 'package.json')).json() as { version: string }).version;
+  const asset = LINUX_ASSETS[process.arch];
+  if (!asset) throw new Error(`No Linux asset name for ${process.arch}`);
+  const arch = join(dist, 'arch');
+  rmSync(arch, { recursive: true, force: true });
+  mkdirSync(arch, { recursive: true });
+  const source = join(arch, `switchyard-${version}-${asset}.tar.gz`);
+  copyFileSync(tarball, source);
+  await run(['bun', 'run', 'scripts/pkgbuild.ts', '--version', version, `--${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}`, source, '--out', join(arch, 'PKGBUILD')]);
+  await run(['makepkg', '--force', '--noconfirm'], arch);
+  const pkg = readdirSync(arch).find(name => name.endsWith('.pkg.tar.zst'));
+  if (!pkg) throw new Error(`makepkg did not produce a package in ${arch}`);
+  copyFileSync(join(arch, pkg), join(dist, pkg));
+  console.log(`Arch package: ${join(dist, pkg)} (install: sudo pacman -U ${join(dist, pkg)})`);
 }
 
 try {
