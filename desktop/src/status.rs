@@ -202,9 +202,38 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RequestSummary {
+    pub total: usize,
+    pub success_percent: Option<u32>,
+    pub median_latency_ms: Option<i64>,
+}
+
+pub fn summarize_requests(requests: &[RequestLog]) -> RequestSummary {
+    let succeeded = requests.iter().filter(|request| request.status == "success").count();
+    let mut latencies: Vec<i64> = requests.iter().filter(|request| request.status == "success").filter_map(|request| request.latency_ms).collect();
+    latencies.sort_unstable();
+    RequestSummary {
+        total: requests.len(),
+        success_percent: (!requests.is_empty()).then(|| (succeeded * 100 / requests.len()) as u32),
+        median_latency_ms: latencies.get(latencies.len() / 2).copied(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request(status: &str, latency_ms: Option<i64>) -> RequestLog {
+        RequestLog { created_at: 0, provider: "qwen-chat".into(), model: "qwen-chat".into(), status: status.into(), latency_ms, error: None }
+    }
+
+    #[test]
+    fn summarizes_requests_for_the_stat_tiles() {
+        assert_eq!(summarize_requests(&[]), RequestSummary { total: 0, success_percent: None, median_latency_ms: None });
+        let requests = [request("success", Some(900)), request("success", Some(300)), request("error", Some(50)), request("success", Some(1200))];
+        assert_eq!(summarize_requests(&requests), RequestSummary { total: 4, success_percent: Some(75), median_latency_ms: Some(900) });
+    }
 
     #[test]
     fn parses_the_gateway_status_payload() {

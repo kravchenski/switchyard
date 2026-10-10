@@ -4,7 +4,7 @@ use gpui_kit::assets::{icon_assets, Assets};
 use gpui_kit::{AssetSource, Result, SharedString};
 
 icon_assets!(AppIcons, [
-    Zap, Plug, Users, Activity, Settings, Sun, Moon, Monitor, Play, Square, RefreshCw, LogIn, KeyRound, ExternalLink, Trash, CircleCheck, CircleAlert, ArrowUp, ArrowDown,
+    Users, Activity, Settings, Sun, Moon, Monitor, Play, Square, RefreshCw, LogIn, KeyRound, ExternalLink, Trash, CircleCheck, CircleAlert, ArrowUp, ArrowDown, Copy, Check, Route,
 ]);
 
 pub struct AppAssets;
@@ -37,6 +37,7 @@ const LOGOS: [(&str, &[u8]); 24] = [
 ];
 
 pub const FONT_FAMILY: &str = "Plus Jakarta Sans";
+pub const MONO_FAMILY: &str = "JetBrains Mono";
 
 pub fn fonts() -> Vec<Cow<'static, [u8]>> {
     vec![
@@ -44,6 +45,8 @@ pub fn fonts() -> Vec<Cow<'static, [u8]>> {
         Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-Medium.ttf")),
         Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-SemiBold.ttf")),
         Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-Bold.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-SemiBold.ttf")),
     ]
 }
 
@@ -77,7 +80,7 @@ mod tests {
 
     #[test]
     fn serves_app_icons_and_default_component_icons() {
-        for icon in [IconName::Zap, IconName::Plug, IconName::KeyRound, IconName::Trash] {
+        for icon in [IconName::Route, IconName::Copy, IconName::KeyRound, IconName::Trash] {
             let path = icon.path();
             assert!(AppAssets.load(&path).unwrap().is_some_and(|bytes| bytes.starts_with(b"<svg")), "{path}");
         }
@@ -92,6 +95,6 @@ mod tests {
             assert!(std::str::from_utf8(&bytes).unwrap().contains("width=\"64\""), "{path}");
         }
         assert_eq!(logo_path("unknown"), None);
-        assert_eq!(fonts().len(), 4);
+        assert_eq!(fonts().len(), 6);
     }
 }
