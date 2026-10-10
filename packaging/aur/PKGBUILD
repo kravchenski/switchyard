@@ -1,0 +1,22 @@
+# Maintainer: kravchenski
+pkgname=switchyard-bin
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="Local OpenAI-compatible gateway for web AI chats and free model APIs"
+arch=('x86_64' 'aarch64')
+url="https://github.com/kravchenski/switchyard"
+license=('MIT')
+depends=('alsa-lib' 'fontconfig' 'freetype2' 'gcc-libs' 'glibc' 'libxkbcommon' 'libxkbcommon-x11' 'vulkan-icd-loader' 'wayland')
+optdepends=('chromium: sign in to the web chats (Google Chrome works too)')
+provides=('switchyard')
+conflicts=('switchyard')
+options=('!strip' '!debug')
+source_x86_64=("switchyard-${pkgver}-linux-x64.tar.gz::${url}/releases/download/v${pkgver}/switchyard-${pkgver}-linux-x64.tar.gz")
+source_aarch64=("switchyard-${pkgver}-linux-arm64.tar.gz::${url}/releases/download/v${pkgver}/switchyard-${pkgver}-linux-arm64.tar.gz")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+  cp -a "${srcdir}/usr" "${pkgdir}/"
+  ln -s freeapi-desktop "${pkgdir}/usr/bin/switchyard"
+}
