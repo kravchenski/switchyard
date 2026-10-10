@@ -219,6 +219,18 @@ The headers `x-gateway-compacted`, `x-gateway-tools` and `x-gateway-rtk` show wh
 
 </details>
 
+### Jev tools on your free models
+
+[jevgrep](https://github.com/dzhng/jevgrep) and [fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) ask TypeSafe's Jev model small yes/no and choice questions. Switchyard answers the same requests at `/v1/systemone` with your free models, so both run without a TypeSafe key.
+
+| Tool | What it saves | Point it at Switchyard |
+|---|---|---|
+| **[rtk](https://github.com/rtk-ai/rtk)** | compacts shell output before the agent reads it | install it; `--rtk` (on by default) does the rest |
+| **[jevgrep](https://github.com/dzhng/jevgrep)** | the agent finds code by asking what it does instead of reading whole folders | `jg auth` → Custom endpoint, base URL `http://localhost:3260/v1`, model `auto`; then `jg skill` in your project |
+| **[fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction)** | drops tool calls and results the conversation no longer needs, keeps the rest verbatim | library: `compactMessages(transcript, { baseUrl: 'http://localhost:3260/v1/systemone', apiKey: 'local' })`; its CLI scripts: `JEV_BASE_URL=http://localhost:3260/v1/systemone`. Its Claude Code plugin always calls TypeSafe |
+
+Each Jev question costs one request to a fast API model, so the savings pay off on long agent sessions rather than short chats.
+
 ## Images
 
 **Vision.** Put images in a message (OpenAI `image_url` parts, data URLs or links) and send it to a model that can see. The web chats attach them through each site's own upload, DeepSeek through its file upload, and vision-capable API models get them directly.
@@ -304,6 +316,24 @@ desktop/              Rust + GPUI desktop app
 Versions follow [Conventional Commits](https://www.conventionalcommits.org) via release-please; every release publishes a Docker image and the desktop installers.
 
 </details>
+
+## Built on
+
+Switchyard stands on these projects:
+
+| Project | Used for |
+|---|---|
+| [Bun](https://bun.sh) | runtime, test runner, SQLite |
+| [Hono](https://hono.dev) | HTTP server |
+| [Playwright](https://playwright.dev) | driving the signed-in web chats over CDP |
+| [Zod](https://zod.dev), [ofetch](https://github.com/unjs/ofetch), [yaml](https://eemeli.org/yaml) | config validation, HTTP calls, agent configs |
+| [GPUI](https://www.gpui.rs) and [gpui-component](https://github.com/longbridge/gpui-component) | the desktop app |
+| [cargo-packager](https://github.com/crabnebula-dev/cargo-packager) | desktop installers |
+| [rtk](https://github.com/rtk-ai/rtk) | compact shell output for agents |
+| [jevgrep](https://github.com/dzhng/jevgrep), [fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) | Jev-based code search and context pruning, served by `/v1/systemone` |
+| [Lobe Icons](https://github.com/lobehub/lobe-icons), [Lucide](https://lucide.dev) | provider logos and app icons |
+| [Plus Jakarta Sans](https://github.com/tokotype/PlusJakartaSans), [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) | app and logo fonts (OFL) |
+| [release-please](https://github.com/googleapis/release-please) | versions and changelog |
 
 ## Responsible use
 
