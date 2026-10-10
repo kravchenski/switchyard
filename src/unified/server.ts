@@ -6,7 +6,7 @@ import { serve } from 'bun';
 import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
-import { conversationalShellText, parseToolCallJson, recoverBrokenBashToolCall, toolsToPrompt } from '../core/tools/tool-calls.ts';
+import { conversationalShellText, hasFabricatedTranscript, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, toolsToPrompt } from '../core/tools/tool-calls.ts';
 import { bearerToken, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
 import { ResponsesStreamTranslator } from '../gateway/responses-stream.ts';
@@ -427,6 +427,11 @@ function processToolCalls(
     nativeCalls: ToolCall[] = []
 ) {
     if (nativeCalls.length) return withRtk(content, nativeCalls.map((call, index) => ({ ...call, index })), null);
+    if (captureToolCalls && hasFabricatedTranscript(content)) {
+        const transcriptCalls = parseToolCallJson(content, combinedTools);
+        content = stripFabricatedTranscript(content);
+        if (transcriptCalls?.length) return withRtk(content, transcriptCalls, null);
+    }
     const recoveredShell = captureToolCalls ? recoverBrokenBashToolCall(content) : null;
     const conversationalText = recoveredShell
         ? conversationalShellText(recoveredShell.name, recoveredShell.arguments)
@@ -479,6 +484,7 @@ const TOOL_BLOCK_PATTERNS = [
     /<(?:bash|terminal|read|ls|find|grep)>/i,
     /\[\u8c03\u7528/,
     /^[ \t]*Tool call:/m,
+    /^[ \t]*(?:Assistant tool calls:|Tool result \()/m,
     /```(?:bash|sh|shell|zsh)/i
 ];
 
@@ -489,6 +495,8 @@ const TOOL_BLOCK_PREFIXES = [
     '[\u8c03\u7528', 'Tool call:', '```bash', '```sh', '```shell', '```zsh'
 ];
 
+const TRANSCRIPT_PREFIXES = ['Assistant tool calls:', 'Tool result ('];
+
 function toolBlockHoldLength(text: string) {
     const trimmed = text.replace(/\s+$/, '');
     const trailing = text.length - trimmed.length;
@@ -497,6 +505,15 @@ function toolBlockHoldLength(text: string) {
         const max = Math.min(prefix.length, trimmed.length);
         for (let length = max; length > hold - trailing; length--) {
             if (trimmed.endsWith(prefix.slice(0, length))) {
+                hold = length + trailing;
+                break;
+            }
+        }
+    }
+    for (const prefix of TRANSCRIPT_PREFIXES) {
+        for (let length = Math.min(prefix.length, trimmed.length); length >= 2 && length > hold - trailing; length--) {
+            const start = trimmed.length - length;
+            if (trimmed.endsWith(prefix.slice(0, length)) && /(?:^|\n)[ \t]*$/.test(trimmed.slice(0, start))) {
                 hold = length + trailing;
                 break;
             }
@@ -586,8 +603,9 @@ function handleProviderStream(
             sentReasoning = 0;
         }
 
-        const { toolCalls, conversationalText } = processToolCalls(content, captureToolCalls, combinedTools, messages, nativeCalls);
-        if (conversationalText) content = conversationalText;
+        const processed = processToolCalls(content, captureToolCalls, combinedTools, messages, nativeCalls);
+        const { toolCalls, conversationalText } = processed;
+        content = conversationalText || processed.content;
 
         if (toolCalls?.length) {
             for (const call of toolCalls) {

@@ -388,6 +388,20 @@ describe('unified server routing', () => {
     expect(deltas.at(-1).finish_reason).toBe('tool_calls');
   });
 
+  test('turns a transcript-style reply into a tool call without streaming the invented results', async () => {
+    const block = JSON.stringify([{ id: 'call_1', type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'python3 -V' }) } }]);
+    replies.push([
+      { type: 'content', text: 'Checking.\n\nAssistant tool' },
+      { type: 'content', text: ` calls: ${block}\n\nTool result (bash): Python 3.12.13\n\nAssistant tool calls: []` },
+    ]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    const deltas = sseDeltas(text);
+    const content = deltas.map(choice => choice.delta.content).filter(Boolean).join('');
+    expect(content).toBe('Checking.\n\n');
+    const calls = deltas.flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(calls.map((call: any) => [call.function.name, JSON.parse(call.function.arguments)])).toEqual([['bash', { command: 'python3 -V' }]]);
+  });
+
   test('streams reasoning and content live when tools are present but no call is made', async () => {
     replies.push([{ type: 'reasoning', text: 'think ' }, { type: 'content', text: 'A' }, { type: 'content', text: 'B' }]);
     const text = await (await chat({ tools: bashTool, stream: true })).text();

@@ -32,13 +32,59 @@ function runRtk(binary: string, command: string) {
   return { exitCode: result.exitCode, stdout: result.stdout.toString() };
 }
 
+const LINE_FILTER = /^\s*(?:head|tail)(?:\s+(?:-[a-zA-Z]+|-\d+|--[a-z][\w-]*(?:=\S+)?|\+?\d+))*\s*$/;
+
+function firstPipe(command: string) {
+  let quote = '';
+  let depth = 0;
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]!;
+    if (char === '\\' && quote !== "'") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === "'" || char === '"' || char === '`') quote = char;
+    else if (char === '$' && command[i + 1] === '(') depth++;
+    else if (char === ')' && depth) depth--;
+    else if (char === '|' && !depth) {
+      if (command[i + 1] === '|') {
+        i++;
+        continue;
+      }
+      return command[i + 1] === '&' ? -1 : i;
+    }
+  }
+  return -1;
+}
+
+export function splitLineFilters(command: string) {
+  const pipe = firstPipe(command);
+  if (pipe <= 0) return undefined;
+  const filters = command.slice(pipe + 1).split('|');
+  if (!filters.every(stage => LINE_FILTER.test(stage))) return undefined;
+  const head = command.slice(0, pipe).trimEnd();
+  return head ? { head, rest: command.slice(pipe) } : undefined;
+}
+
 export function rtkRewriter(binary = rtkPath(), run: RtkRunner = runRtk): Rewriter | undefined {
   if (!binary) return undefined;
-  return command => {
+  const rewriteOne = (command: string) => {
     const result = run(binary, command);
     if (result.exitCode !== 0 && result.exitCode !== 3) return undefined;
     const rewritten = result.stdout.trim().split('\n').at(-1)?.trim() ?? '';
     return rewritten && rewritten !== command ? rewritten : undefined;
+  };
+  return command => {
+    const direct = rewriteOne(command);
+    if (direct) return direct;
+    const split = splitLineFilters(command);
+    if (!split) return undefined;
+    const head = rewriteOne(split.head);
+    return head ? `${head} ${split.rest.trimStart()}` : undefined;
   };
 }
 
