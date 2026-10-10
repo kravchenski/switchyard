@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { ProviderError } from '../src/core/providers/errors.ts';
 import type { ChatChunk, Provider } from '../src/core/providers/provider.ts';
 import { ProviderRegistry } from '../src/core/providers/registry.ts';
-import { parseAutoModels, SmartRouter } from '../src/core/router/smart-router.ts';
+import { chainFor, parseAutoModels, SmartRouter } from '../src/core/router/smart-router.ts';
 import { collectChunks } from '../src/core/streaming/sse.ts';
 
 type Behavior = 'ok' | 'fail-open' | 'fail-first-chunk' | 'fail-mid-stream' | 'empty' | 'flaky-unavailable' | 'fail-unavailable';
@@ -152,5 +152,23 @@ describe('parseAutoModels', () => {
     const { router, open } = setup({ a: 'ok' });
     router.setChain('vision', []);
     await expect(open('vision')).rejects.toThrow('No available provider for model vision');
+  });
+});
+
+describe('chainFor', () => {
+  const ready = () => true;
+
+  test('routes every virtual model by what the request carries', () => {
+    for (const model of ['auto', 'agent', 'vision']) {
+      expect(chainFor(model, { images: true, tools: true }, ready)).toBe('vision');
+      expect(chainFor(model, { images: false, tools: true }, ready)).toBe('agent');
+      expect(chainFor(model, { images: false, tools: false }, ready)).toBe('auto');
+    }
+  });
+
+  test('keeps explicit models and skips empty chains', () => {
+    expect(chainFor('qwen-chat/qwen3.8-max', { images: true, tools: true }, ready)).toBe('qwen-chat/qwen3.8-max');
+    expect(chainFor('agent', { images: true, tools: true }, chain => chain !== 'vision')).toBe('agent');
+    expect(chainFor('vision', { images: true, tools: false }, () => false)).toBe('auto');
   });
 });

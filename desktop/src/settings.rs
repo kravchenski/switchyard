@@ -37,18 +37,25 @@ pub fn save(root: &Path, settings: &DesktopSettings) -> Result<(), String> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AutoSettings {
     pub order: Vec<String>,
+    pub models: Vec<(String, String)>,
     pub agents: Vec<(String, bool)>,
 }
 
 pub fn parse_auto(output: &str) -> Option<AutoSettings> {
     let order = output.lines().find_map(|line| line.strip_prefix("web order: "))?.split(',').map(|id| id.trim().to_string()).filter(|id| !id.is_empty()).collect();
+    let models = output
+        .lines()
+        .filter_map(|line| line.strip_prefix("web model "))
+        .filter_map(|rest| rest.split_once(": "))
+        .map(|(chat, model)| (chat.to_string(), model.trim().to_string()))
+        .collect();
     let agents = output
         .lines()
         .filter_map(|line| line.strip_prefix("agents "))
         .filter_map(|rest| rest.split_once(": "))
         .map(|(name, value)| (name.to_string(), value.trim() == "on"))
         .collect();
-    Some(AutoSettings { order, agents })
+    Some(AutoSettings { order, models, agents })
 }
 
 #[cfg(test)]
@@ -69,7 +76,9 @@ mod tests {
     #[test]
     fn parses_auto_settings_from_the_cli() {
         let output = "$ bun run scripts/accounts.ts auto\nweb order: deepseek, qwen-chat";
-        assert_eq!(parse_auto(output), Some(AutoSettings { order: vec!["deepseek".into(), "qwen-chat".into()], agents: vec![] }));
+        assert_eq!(parse_auto(output), Some(AutoSettings { order: vec!["deepseek".into(), "qwen-chat".into()], models: vec![], agents: vec![] }));
+        let with_model = format!("{output}\nweb model qwen-chat: qwen-chat/qwen3.8-max");
+        assert_eq!(parse_auto(&with_model).unwrap().models, vec![("qwen-chat".to_string(), "qwen-chat/qwen3.8-max".to_string())]);
         let with_agents = format!("{output}\nagents compact: off");
         assert_eq!(parse_auto(&with_agents).unwrap().agents, vec![("compact".to_string(), false)]);
         assert_eq!(parse_auto("nothing"), None);

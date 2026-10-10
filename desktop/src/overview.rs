@@ -73,6 +73,10 @@ pub fn detail(overview: &ProviderOverview, live: Option<&ProviderStatus>) -> Str
     }
 }
 
+pub fn needs_sign_in(overview: &ProviderOverview, live: Option<&ProviderStatus>) -> bool {
+    matches!(overview.kind.as_str(), "web" | "account") && overview.auto && activity(overview, live) == Activity::Inactive
+}
+
 pub fn display_name(id: &str) -> &str {
     match id {
         "qwen" | "qwen-chat" => "Qwen Chat",
@@ -122,6 +126,16 @@ mod tests {
 
     fn live(available: bool, reason: Option<&str>) -> ProviderStatus {
         ProviderStatus { id: "x".into(), available, reason: reason.map(Into::into) }
+    }
+
+    #[test]
+    fn asks_to_sign_in_again_only_for_signed_out_chats_in_auto() {
+        let signed_out = row("qwen-chat", "web", "not-connected", Some("bun run account open"));
+        assert!(needs_sign_in(&signed_out, None));
+        assert!(!needs_sign_in(&ProviderOverview { auto: false, ..signed_out.clone() }, None));
+        assert!(!needs_sign_in(&row("qwen-chat", "web", "connected", None), Some(&live(true, None))));
+        assert!(needs_sign_in(&row("deepseek", "account", "connected", None), Some(&live(false, Some("token expired")))));
+        assert!(!needs_sign_in(&row("nvidia", "api-key", "not-connected", None), None));
     }
 
     #[test]

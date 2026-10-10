@@ -66,6 +66,62 @@ pub struct RequestLog {
     pub status: String,
     pub latency_ms: Option<i64>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub decision_id: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Decision {
+    pub requested_model: String,
+    #[serde(default)]
+    pub skipped: Vec<SkippedRoute>,
+    #[serde(default)]
+    pub attempts: Vec<RouteAttempt>,
+    pub chosen: Option<ChosenRoute>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SkippedRoute {
+    pub model: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteAttempt {
+    pub model: String,
+    pub provider: String,
+    pub outcome: String,
+    pub latency_ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ChosenRoute {
+    pub model: String,
+    pub provider: String,
+}
+
+pub fn fetch_decision(base_url: &str, api_key: Option<&str>, id: i64) -> Result<Decision, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(3)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let mut request = agent.get(format!("{base_url}/v1/gateway/decisions/{id}"));
+    if let Some(key) = api_key {
+        request = request.header("authorization", format!("Bearer {key}"));
+    }
+    let mut response = request.call().map_err(|error| error.to_string())?;
+    if response.status() == 404 {
+        return Err("The gateway was restarted since this request, so its routing details are gone.".into());
+    }
+    if !response.status().is_success() {
+        return Err(format!("The gateway answered {}", response.status()));
+    }
+    response.body_mut().read_json::<Decision>().map_err(|error| error.to_string())
 }
 
 pub fn fetch_status(base_url: &str, api_key: Option<&str>) -> Result<GatewayStatus, String> {
@@ -225,7 +281,19 @@ mod tests {
     use super::*;
 
     fn request(status: &str, latency_ms: Option<i64>) -> RequestLog {
-        RequestLog { created_at: 0, provider: "qwen-chat".into(), model: "qwen-chat".into(), status: status.into(), latency_ms, error: None }
+        RequestLog { created_at: 0, provider: "qwen-chat".into(), model: "qwen-chat".into(), status: status.into(), latency_ms, error: None, decision_id: None }
+    }
+
+    #[test]
+    fn reads_a_routing_decision() {
+        let json = r#"{"id":7,"at":1,"requestedModel":"auto","mode":"fallback","skipped":[{"model":"glm-chat","reason":"glm-chat is off in auto"}],"attempts":[{"model":"qwen-chat","provider":"qwen-chat","outcome":"timeout","latencyMs":30000,"error":"no response"},{"model":"deepseek-reasoner","provider":"deepseek","outcome":"chosen","latencyMs":5100}],"chosen":{"model":"deepseek-reasoner","provider":"deepseek"}}"#;
+        let decision: Decision = serde_json::from_str(json).unwrap();
+        assert_eq!(decision.skipped[0].reason, "glm-chat is off in auto");
+        assert_eq!(decision.attempts[0].outcome, "timeout");
+        assert_eq!(decision.attempts[1].latency_ms, Some(5100));
+        assert_eq!(decision.chosen.unwrap().model, "deepseek-reasoner");
+        let old: RequestLog = serde_json::from_str(r#"{"createdAt":1,"provider":"p","model":"m","status":"success","latencyMs":null,"error":null}"#).unwrap();
+        assert_eq!(old.decision_id, None);
     }
 
     #[test]

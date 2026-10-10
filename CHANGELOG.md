@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.11.0](https://github.com/kravchenski/switchyard/compare/v2.10.0...v2.11.0) (2026-10-10)
+
+
+### Features
+
+* **decisions:** answer jevgrep and fast-jev-compaction at /v1/systemone ([7939841](https://github.com/kravchenski/switchyard/commit/7939841594ee77f475538a6b2f4f1aa9acb368ce))
+* **decisions:** answer jevgrep and fast-jev-compaction at /v1/systemone ([d8731f6](https://github.com/kravchenski/switchyard/commit/d8731f6b4b494db4c5ad29af5741a9e94a2d13c5))
+* **desktop:** show how a request was routed when you click it ([2519741](https://github.com/kravchenski/switchyard/commit/251974163273b6f58664fef80ab667250beb536a))
+* **desktop:** show how a request was routed when you click it ([1157a33](https://github.com/kravchenski/switchyard/commit/1157a33bb7c6e1308bb1d0f0be9ce8135cfbac89))
+* **desktop:** warn when a web chat in auto is signed out ([e9fff0d](https://github.com/kravchenski/switchyard/commit/e9fff0dcb3286f3488d68f523ae9cca9caddba9c))
+* **desktop:** warn when a web chat in auto is signed out ([cd1b4b4](https://github.com/kravchenski/switchyard/commit/cd1b4b4a4d2954b042d2325c2d9d4294d07e47e5))
+
+
+### Chores
+
+* **desktop:** build the app and its installer with one command ([d9856a5](https://github.com/kravchenski/switchyard/commit/d9856a518567abd99f8b912694100c7e1fdba019))
+* **desktop:** build the app and its installer with one command ([85c2c20](https://github.com/kravchenski/switchyard/commit/85c2c20161d077b0c2228123197d807a0551fbff))
+
+## [2.10.0](https://github.com/kravchenski/switchyard/compare/v2.9.0...v2.10.0) (2026-10-10)
+
+
+### Features
+
+* **router:** pick the model each web chat uses in auto ([bd9d5ff](https://github.com/kravchenski/switchyard/commit/bd9d5ff15a2abced989bd482700bed31920d06d9))
+* **router:** route auto, agent and vision by what the request carries and send images to Qwen first ([eac7026](https://github.com/kravchenski/switchyard/commit/eac702650d95bca887476ec9e4be35c50267000a))
+* **router:** route every virtual model by request content and send images to Qwen first ([14aad2b](https://github.com/kravchenski/switchyard/commit/14aad2bb97906ae27645775627965bcbef8ffb5a))
+
+
+### Documentation
+
+* describe the single auto model that routes by request content ([bd39fb2](https://github.com/kravchenski/switchyard/commit/bd39fb20259cbc0f284637041c00cf4e0294fd98))
+* refresh the README with a new logo, demo, app tour and screenshots ([33490d2](https://github.com/kravchenski/switchyard/commit/33490d2349051b6ef820ab9355380ea5f714f5cb))
+* refresh the README with a new logo, demo, app tour and screenshots ([25dace9](https://github.com/kravchenski/switchyard/commit/25dace931b3b1914c127907d8d0ad15938427f9e))
+* show the README screenshots in an HTML table ([0dbcbef](https://github.com/kravchenski/switchyard/commit/0dbcbef244aaf1caf968d253e8977c08bda129da))
+* use plain captions under the README demos ([9ead25b](https://github.com/kravchenski/switchyard/commit/9ead25b47e13f46a5d7715a8af2b26c7db148077))
+
+
+### Chores
+
+* rename the package to switchyard ([b724d03](https://github.com/kravchenski/switchyard/commit/b724d038351d0165ae1dab592beaaf5d651cec99))
+* rename the package to switchyard ([e38c2db](https://github.com/kravchenski/switchyard/commit/e38c2db443e90f927ff7c8ee122407a71ebb7565))
+
 ## [2.9.0](https://github.com/kravchenski/switchyard/compare/v2.8.0...v2.9.0) (2026-10-10)
 
 

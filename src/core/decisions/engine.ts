@@ -14,11 +14,12 @@ export interface DecisionRequest {
 }
 
 export type DecisionAnswer =
-  | { choice: string; confidence: number; probabilities: Record<string, number> }
-  | { noul: number; confidence: number }
-  | { boolean: boolean; probability: number };
+  | { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> }
+  | { type: 'noul'; noul: number; confidence: number }
+  | { type: 'boolean'; boolean: boolean; probability: number };
 
-const MAX_QUESTIONS = 64;
+const MAX_QUESTIONS = 256;
+const MAX_STATE_TEXT = 120_000;
 const MAX_OPTIONS = 256;
 const MAX_TEXT = 4_000;
 
@@ -63,7 +64,7 @@ export function decisionMessages(request: DecisionRequest): ChatMessage[] {
   const lines: string[] = [];
   for (const [key, value] of Object.entries(request.state)) {
     const text = typeof value === 'string' ? value : JSON.stringify(value);
-    if (text) lines.push(`${key}: ${clip(text)}`);
+    if (text) lines.push(`${key}: ${clip(text, MAX_STATE_TEXT)}`);
   }
   const questions = Object.entries(request.questions).map(([key, question]) => {
     if (question.type === 'choice') {
@@ -117,12 +118,12 @@ export function readDecisionAnswers(request: DecisionRequest, text: string): Rec
       const total = weights.reduce((sum, weight) => sum + weight, 0);
       const probabilities = Object.fromEntries(names.map((name, index) => [name, total > 0 ? weights[index]! / total : 1 / names.length]));
       const choice = names.reduce((best, name) => probabilities[name]! > probabilities[best]! ? name : best, names[0]!);
-      answers[key] = { choice, confidence: probabilities[choice]!, probabilities };
+      answers[key] = { type: 'choice', choice, confidence: probabilities[choice]!, probabilities };
     } else {
       const yes = probability(typeof raw === 'object' && raw ? raw.yes ?? raw.noul ?? raw.probability : raw) ?? 0.5;
       answers[key] = question.type === 'boolean'
-        ? { boolean: yes >= 0.5, probability: yes }
-        : { noul: yes, confidence: Math.max(yes, 1 - yes) };
+        ? { type: 'boolean', boolean: yes >= 0.5, probability: yes }
+        : { type: 'noul', noul: yes, confidence: Math.max(yes, 1 - yes) };
     }
   }
   return answers;

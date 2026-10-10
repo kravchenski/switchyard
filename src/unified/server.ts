@@ -32,7 +32,7 @@ import { collectChunks, ToolCallAssembler } from '../core/streaming/sse.ts';
 import { ProviderError, toHttpError } from '../core/providers/errors.ts';
 import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
-import { AGENT_MODEL, AUTO_MODEL, isVirtualModel, parseAutoModels, SmartRouter, VIRTUAL_MODELS, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
+import { AGENT_MODEL, AUTO_MODEL, chainFor, decisionIdOf, isVirtualModel, parseAutoModels, SmartRouter, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
 import { collectImageUrls } from '../core/providers/prompt.ts';
 import { conversationKey, SessionAffinity } from '../core/router/session-affinity.ts';
 import { listBrowserProfiles, loadGatewaySetting, loadModelStats, loadWebChatModels, saveWebChatModels, loadUnavailableModels, replaceUnavailableModels, loadProviderSetting, loadSignIn, saveGatewaySetting, saveProviderSetting, openDatabase, recordRequest, saveModelStat, saveSignIn, type RequestLog } from '../core/store/database.ts';
@@ -265,14 +265,14 @@ export const gatewaySettings = new GatewaySettings({
     save: (key, value) => saveGatewaySetting(db(), key, value),
 });
 
-const decisions = new DecisionLog();
+const decisions = new DecisionLog(undefined, Date.now());
 
 export const router = new SmartRouter(registry, parseAutoModels(config.AUTO_MODELS), Date.now, {
     onDecision: decision => decisions.add(decision),
     firstChunkTimeoutMs: config.AUTO_FIRST_CHUNK_TIMEOUT_MS,
     autoEnabled: provider => providerSettings.autoEnabled(provider),
     prepareAuto: () => {
-        if (gatewaySettings.webOrder().join(',') !== chainOrder) rebuildAutoChain();
+        if (chainSettings() !== chainOrder) rebuildAutoChain();
     },
 });
 
@@ -334,15 +334,22 @@ function syncCustomProviders() {
 }
 
 async function refreshModelLists() {
-    allModels = [...VIRTUAL_MODELS.map(id => ({ id, ownedBy: 'gateway' })), ...await registry.listModels()];
+    allModels = [{ id: AUTO_MODEL, ownedBy: 'gateway' }, ...await registry.listModels()];
     rebuildAutoChain();
 }
 
+const VISION_FIRST = 'qwen-chat';
+
 let chainOrder: string | undefined;
+
+function chainSettings() {
+    return JSON.stringify([gatewaySettings.webOrder(), gatewaySettings.webModels()]);
+}
 
 function rebuildAutoChain() {
     const webOrder = gatewaySettings.webOrder();
-    chainOrder = webOrder.join(',');
+    const webModels = gatewaySettings.webModels();
+    chainOrder = chainSettings();
     const isAvailable = (model: string) => registry.availability.isAvailable(model);
     const candidates = allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
@@ -350,8 +357,8 @@ function rebuildAutoChain() {
         const capabilities = provider.capabilities(entry.id);
         return [{ id: entry.id, provider: provider.id, fallback: provider.fallback ?? false, vision: capabilities.vision, nativeTools: capabilities.nativeTools }];
     });
-    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, webOrder));
-    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, webOrder));
+    if (!config.AUTO_MODELS) router.setAutoModels(buildAutoChain(candidates, registry.stats, isAvailable, webOrder, webModels));
+    router.setChain(VISION_MODEL, buildAutoChain(candidates.filter(candidate => candidate.vision), registry.stats, isAvailable, [VISION_FIRST, ...webOrder], webModels));
     router.setChain(AGENT_MODEL, buildAgentChain(candidates, registry.stats, router.autoChain(), isAvailable));
 }
 
@@ -643,7 +650,7 @@ app.post('/v1/gateway/refresh', async (c) => {
     forgetSavedKeys();
     await refreshModelLists();
     return c.json({
-        models: allModels.length - VIRTUAL_MODELS.length,
+        models: allModels.length - 1,
         providers: registry.list().map(provider => ({ id: provider.id, ...provider.health() })),
     });
 });
@@ -654,6 +661,7 @@ app.get('/v1/gateway/status', (c) => c.json({
     visionModels: router.autoChain(VISION_MODEL),
     agentModels: router.autoChain(AGENT_MODEL),
     webOrder: gatewaySettings.webOrder(),
+    webModels: gatewaySettings.webModels(),
     modelStats: registry.stats.list(),
     models: allModels.flatMap(entry => {
         const provider = registry.resolve(entry.id);
@@ -740,10 +748,7 @@ app.post('/api/chat/completions', async (c) => {
         const captureToolCalls = Array.isArray(combinedTools) && combinedTools.length > 0;
 
         const startedAt = Date.now();
-        const routeModel = model !== AUTO_MODEL ? model
-            : router.autoChain(VISION_MODEL).length && collectImageUrls(messages).length ? VISION_MODEL
-            : captureToolCalls && router.autoChain(AGENT_MODEL).length ? AGENT_MODEL
-            : model;
+        const routeModel = chainFor(model, { images: collectImageUrls(messages).length > 0, tools: captureToolCalls }, chain => router.autoChain(chain).length > 0);
         const sessionKey = isVirtualModel(routeModel) ? conversationId ?? conversationKey(messages) : undefined;
         const sessions = sessionKey ? affinity() : undefined;
         const pinned = sessionKey ? sessions?.get(sessionKey, routeModel) : undefined;
@@ -759,7 +764,7 @@ app.post('/api/chat/completions', async (c) => {
         };
         const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details)
             .catch(error => {
-                logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error) });
+                logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error), decisionId: decisionIdOf(error) });
                 throw error;
             });
         const { provider, model: routedModel } = first.route;
@@ -770,6 +775,7 @@ app.post('/api/chat/completions', async (c) => {
             status: error === undefined ? 'success' : 'error',
             latencyMs: Date.now() - startedAt,
             ...(error === undefined ? {} : { error: errorText(error) }),
+            decisionId: first.decisionId,
         });
         const open = (nudge = false) => provider.stream(requestFor(first.route, nudge));
         const routeHeaders: Record<string, string> = {
@@ -838,7 +844,7 @@ const imageProviders: ImageProvider[] = [
     createPollinationsImages(),
 ];
 
-const DECISION_TIMEOUT_MS = 15_000;
+const DECISION_TIMEOUT_MS = 30_000;
 const DECISION_CANDIDATES = 3;
 const QUICK_DECISION_MS = 8_000;
 
@@ -896,6 +902,11 @@ async function handleDecision(c: Context) {
 
 app.post('/v1/decisions', handleDecision);
 app.post('/v1/systemone', handleDecision);
+
+app.get('/v1/gateway/decisions/:id', (c) => {
+    const decision = decisions.get(Number(c.req.param('id')));
+    return decision ? c.json(decision) : c.json({ error: { message: 'No such decision; the gateway keeps the last 200', type: 'not_found' } }, 404);
+});
 
 app.get('/v1/gateway/decisions', (c) => {
     const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 50) || 50, 1), 200);

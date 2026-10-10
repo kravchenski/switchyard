@@ -17,8 +17,8 @@ use gpui_kit::*;
 use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount};
 use settings::{AutoSettings, DesktopSettings, ThemeChoice};
 use gateway::{check_health, open_in_browser, stop_external, Gateway, GatewayConfig};
-use overview::{activity, detail, display_name, kind_label, Activity, ProviderOverview};
-use status::{check_models, fetch_status, now_ms, read_api_key, refresh_models, relative_time, summarize_requests, GatewayStatus, ProviderStatus};
+use overview::{activity, detail, display_name, kind_label, needs_sign_in, Activity, ProviderOverview};
+use status::{check_models, fetch_decision, fetch_status, now_ms, read_api_key, refresh_models, relative_time, summarize_requests, Decision, GatewayStatus, ProviderStatus, RequestLog};
 use ui::*;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -83,6 +83,10 @@ struct Shell {
     key_provider: Option<String>,
     request_filter: Option<String>,
     selected_provider: Option<String>,
+    expanded_chat: Option<String>,
+    open_request: Option<(i64, String)>,
+    dismissed_alerts: Vec<String>,
+    request_decision: Option<Result<Decision, String>>,
     theme: ThemeChoice,
     applied_dark: Option<bool>,
     auto_settings: Option<AutoSettings>,
@@ -158,6 +162,10 @@ impl Shell {
             key_provider: None,
             request_filter: None,
             selected_provider: None,
+            expanded_chat: None,
+            open_request: None,
+            dismissed_alerts: Vec::new(),
+            request_decision: None,
             theme: settings::load(&config_root).theme,
             applied_dark: None,
             auto_settings: None,
@@ -385,6 +393,70 @@ impl Shell {
         );
     }
 
+    fn toggle_request(&mut self, request: &RequestLog, cx: &mut Context<Self>) {
+        let key = (request.created_at, request.model.clone());
+        if self.open_request.as_ref() == Some(&key) {
+            self.open_request = None;
+            return;
+        }
+        self.open_request = Some(key.clone());
+        self.request_decision = None;
+        let Some(id) = request.decision_id else {
+            self.request_decision = Some(Err("This request was logged before routing details were kept.".into()));
+            return;
+        };
+        let base_url = self.gateway.config.base_url();
+        let api_key = read_api_key(&self.gateway.config.root);
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { fetch_decision(&base_url, api_key.as_deref(), id) }).await;
+            let _ = this.update(cx, |shell, cx| {
+                if shell.open_request.as_ref() == Some(&key) {
+                    shell.request_decision = Some(result);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn render_decision(&self) -> Div {
+        let panel = div().flex().flex_col().gap_2().px_5().py_4().bg(col(CANVAS)).border_b_1().border_color(col(BORDER)).text_sm();
+        let decision = match &self.request_decision {
+            None => return panel.child(muted("Loading the routing details…").text_xs()),
+            Some(Err(error)) => return panel.child(muted(error.clone()).text_xs()),
+            Some(Ok(decision)) => decision,
+        };
+        let attempts = decision.attempts.iter().map(|attempt| {
+            let (state, label) = match attempt.outcome.as_str() {
+                "chosen" => (Activity::Active, "Answered"),
+                "timeout" => (Activity::Degraded, "No answer in time"),
+                _ => (Activity::Inactive, "Failed"),
+            };
+            div()
+                .flex()
+                .items_start()
+                .gap_3()
+                .child(div().w(px(150.)).flex_none().flex().child(labeled_badge(state, label)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(div().flex().items_center().gap_2().child(provider_mark(&attempt.provider, 18.)).child(attempt.model.clone()))
+                        .children(attempt.error.clone().map(|error| div().text_xs().text_color(col(RED)).child(error.chars().take(300).collect::<String>()))),
+                )
+                .child(div().flex_none().text_xs().text_color(col(MUTED)).child(attempt.latency_ms.map(|ms| format!("{:.1} s", ms as f64 / 1000.)).unwrap_or_default()))
+        });
+        let skipped = decision.skipped.iter().map(|route| div().text_xs().text_color(col(MUTED)).child(format!("Skipped {}: {}", route.model, route.reason)));
+        panel
+            .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(col(MUTED)).child(format!("Asked for {}", decision.requested_model)))
+            .children(skipped)
+            .children(attempts)
+            .children(decision.attempts.is_empty().then(|| muted(decision.error.clone().unwrap_or_else(|| "No model was tried.".into())).text_xs()))
+    }
+
     fn open_link(&mut self, url: &str) {
         self.message = match open_in_browser(url) {
             Ok(()) => Some((true, format!("Opened {url} in your browser. Create a key there and paste it here."))),
@@ -422,6 +494,13 @@ fn agent_option_text(name: &str) -> (String, &'static str) {
         "rtk" => ("Run shell commands through rtk".into(), "Rewrites the agent's shell commands with the installed rtk (git status -> rtk git status) so their output reaches the model already compact. Needs rtk on this machine."),
         other => (other.to_string(), ""),
     }
+}
+
+fn model_label(chat: &str, model: &str) -> String {
+    if model == chat {
+        return "Default".into();
+    }
+    model.strip_prefix(&format!("{chat}/")).unwrap_or(model).to_string()
 }
 
 fn last_line(text: &str, fallback: &str) -> String {
@@ -466,6 +545,7 @@ impl Render for Shell {
                             .flex()
                             .flex_col()
                             .gap_5()
+                            .children(self.render_sign_in_alerts(cx))
                             .children(self.render_message())
                             .child(match self.page {
                                 Page::Accounts => self.render_accounts(cx, false),
@@ -632,6 +712,48 @@ impl Shell {
                     .child(muted(self.page.subtitle())),
             )
             .child(self.render_gateway_toggle(cx))
+    }
+
+    fn signed_out_chats(&self) -> Vec<&ProviderOverview> {
+        self.overview
+            .iter()
+            .filter(|row| !self.dismissed_alerts.contains(&row.id) && needs_sign_in(row, self.live(&row.id)))
+            .collect()
+    }
+
+    fn render_sign_in_alerts(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let chats = self.signed_out_chats();
+        if chats.is_empty() {
+            return None;
+        }
+        let rows = chats.into_iter().map(|row| {
+            let open_id = row.id.clone();
+            let dismiss_id = row.id.clone();
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(provider_mark(&row.id, 26.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(format!("{} is signed out", self.name_of(&row.id))))
+                        .child(muted(format!("model=auto skips it until you sign in again. {}", row.detail)).text_xs()),
+                )
+                .child(button(SharedString::from(format!("alert-open-{}", row.id)), "Sign in", Some(IconName::LogIn), Tone::Primary, true).on_click(cx.listener(move |shell, _, _, cx| {
+                    shell.selected_provider = Some(open_id.clone());
+                    shell.page = Page::Provider;
+                    cx.notify();
+                })))
+                .child(button(SharedString::from(format!("alert-dismiss-{}", row.id)), "Dismiss", None, Tone::Outline, true).on_click(cx.listener(move |shell, _, _, cx| {
+                    shell.dismissed_alerts.push(dismiss_id.clone());
+                    cx.notify();
+                })))
+        });
+        Some(card().p_4().flex().flex_col().gap_3().bg(col(WARNING_SOFT)).children(rows))
     }
 
     fn render_message(&self) -> Option<Div> {
@@ -894,6 +1016,17 @@ impl Shell {
         self.run_command(cx, move |cli| cli.set_web_order(&order));
     }
 
+    fn choose_web_model(&mut self, chat: String, model: Option<String>, cx: &mut Context<Self>) {
+        if let Some(auto) = self.auto_settings.as_mut() {
+            auto.models.retain(|(id, _)| *id != chat);
+            if let Some(model) = &model {
+                auto.models.push((chat.clone(), model.clone()));
+            }
+        }
+        let value = model.unwrap_or_else(|| "fastest".into());
+        self.run_command(cx, move |cli| cli.set_web_model(&chat, &value));
+    }
+
     fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {
         let section = |title: &'static str, hint: &'static str| {
             card().p_5().flex().flex_col().gap_3().child(div().flex().flex_col().gap_1().child(section_title(title)).child(muted(hint).text_xs()))
@@ -931,19 +1064,57 @@ impl Shell {
                         }))
                     })
             };
-            div()
+            let chosen = auto.as_ref().and_then(|auto| auto.models.iter().find(|(chat, _)| chat == id).map(|(_, model)| model.clone()));
+            let expanded = self.expanded_chat.as_deref() == Some(id.as_str());
+            let toggle_id = id.clone();
+            let header = div()
                 .flex()
                 .items_center()
                 .gap_3()
-                .px_3()
-                .py_2()
-                .rounded_xl()
-                .bg(col(CANVAS))
                 .child(div().w(px(18.)).text_sm().font_weight(FontWeight::SEMIBOLD).text_color(col(MUTED)).child((index + 1).to_string()))
                 .child(provider_mark(id, 26.))
-                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).child(self.name_of(id).to_string()))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("chat-models-{id}")))
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .cursor_pointer()
+                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(self.name_of(id)))
+                        .child(div().min_w_0().overflow_hidden().text_xs().text_color(col(MUTED)).child(chosen.as_deref().map(|model| model_label(id, model)).unwrap_or_else(|| "Fastest".into())))
+                        .child(div().text_size(px(14.)).text_color(col(MUTED)).child(if expanded { IconName::ChevronUp } else { IconName::ChevronDown }))
+                        .on_click(cx.listener(move |shell, _, _, cx| {
+                            shell.expanded_chat = if shell.expanded_chat.as_deref() == Some(toggle_id.as_str()) { None } else { Some(toggle_id.clone()) };
+                            cx.notify();
+                        })),
+                )
                 .child(arrow("up", IconName::ArrowUp, index.checked_sub(1), cx))
-                .child(arrow("down", IconName::ArrowDown, (index < last).then_some(index + 1), cx))
+                .child(arrow("down", IconName::ArrowDown, (index < last).then_some(index + 1), cx));
+            let models: Vec<String> = self.status.as_ref().map(|status| status.models.iter().filter(|model| model.provider == *id).map(|model| model.id.clone()).collect()).unwrap_or_default();
+            let choices = expanded.then(|| {
+                let options = std::iter::once(None).chain(models.iter().cloned().map(Some)).map(|model| {
+                    let active = model == chosen;
+                    let label = model.as_deref().map(|model| model_label(id, model)).unwrap_or_else(|| "Fastest".into());
+                    let chat = id.clone();
+                    let key = model.clone().unwrap_or_else(|| "fastest".into());
+                    chip(SharedString::from(format!("pick-{id}-{key}")), active).child(label).when(!self.busy, |this| {
+                        this.on_click(cx.listener(move |shell, _, _, cx| {
+                            shell.choose_web_model(chat.clone(), model.clone(), cx);
+                            cx.notify();
+                        }))
+                    })
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .pl(px(56.))
+                    .child(div().flex().flex_wrap().gap_1().children(options))
+                    .children(models.is_empty().then(|| muted("Run the API to list this chat's models.").text_xs()))
+            });
+            div().flex().flex_col().gap_2().px_3().py_2().rounded_xl().bg(col(CANVAS)).child(header).children(choices)
         }).collect();
         let agent_rows: Vec<Div> = auto.as_ref().map(|auto| auto.agents.clone()).unwrap_or_default().into_iter().map(|(name, on)| {
             let (title, description) = agent_option_text(&name);
@@ -966,7 +1137,7 @@ impl Shell {
             .flex_col()
             .gap_4()
             .child(section("Theme", "Light, dark, or follow the system appearance.").child(theme_row))
-            .child(section("Web chat order", "model=auto tries the web chats from top to bottom, then the API models. Applies within about 30 seconds.").child(div().flex().flex_col().gap_2().children(order_rows).children(order.is_empty().then(|| muted("Loading…")))))
+            .child(section("Web chat order", "model=auto tries the web chats from top to bottom, then the API models. Click a chat to pick the model it uses. Applies within about 30 seconds.").child(div().flex().flex_col().gap_2().children(order_rows).children(order.is_empty().then(|| muted("Loading…")))))
             .child(section("Coding agents", "Applied to requests from Claude Code, Codex, pi, OpenCode and other agents that send tools.").children(agent_rows))
             .into_any_element()
     }
@@ -1346,9 +1517,19 @@ impl Shell {
         } else {
             vec![("Time", 110.), ("Provider", 150.), ("Model", 0.), ("Latency", 100.), ("Status", 130.)]
         };
-        let rows = visible.iter().map(|request| {
+        let rows = visible.iter().flat_map(|request| {
             let ok = request.status == "success";
-            table_row()
+            let open = self.open_request.as_ref().is_some_and(|(at, model)| *at == request.created_at && *model == request.model);
+            let clicked = (*request).clone();
+            let row = table_row()
+                .id(SharedString::from(format!("request-{}-{}", request.created_at, request.model)))
+                .cursor_pointer()
+                .hover(|style| style.bg(col(HOVER)))
+                .when(open, |this| this.bg(col(CANVAS)))
+                .on_click(cx.listener(move |shell, _, _, cx| {
+                    shell.toggle_request(&clicked, cx);
+                    cx.notify();
+                }))
                 .child(cell(if compact { 90. } else { 110. }).text_color(col(MUTED)).child(relative_time(request.created_at, now)))
                 .when(!compact, |this| {
                     this.child(cell(150.).flex().items_center().gap_2().child(provider_mark(&request.provider, 20.)).child(self.name_of(&request.provider).to_string()))
@@ -1370,7 +1551,8 @@ impl Shell {
                 .when(!compact, |this| {
                     this.child(cell(100.).text_color(col(MUTED)).child(request.latency_ms.map(|latency| format!("{latency} ms")).unwrap_or_else(|| "—".into())))
                 })
-                .child(cell(if compact { 120. } else { 130. }).flex().child(labeled_badge(if ok { Activity::Active } else { Activity::Inactive }, if ok { "Success" } else { "Failed" })))
+                .child(cell(if compact { 120. } else { 130. }).flex().child(labeled_badge(if ok { Activity::Active } else { Activity::Inactive }, if ok { "Success" } else { "Failed" })));
+            std::iter::once(row.into_any_element()).chain(open.then(|| self.render_decision().into_any_element()))
         });
         div()
             .flex()

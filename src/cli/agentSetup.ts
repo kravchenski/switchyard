@@ -41,11 +41,9 @@ export type InstallResult = {
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3260/api';
 const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:4000';
 const DEFAULT_API_KEY = 'dummy-key';
-const DEFAULT_MODEL = 'agent';
+const DEFAULT_MODEL = 'auto';
 const FALLBACK_MODELS = [
     'auto',
-    'agent',
-    'vision',
     'deepseek-default',
     'deepseek-reasoner',
     'deepseek-expert',
@@ -292,7 +290,7 @@ function preferredModel(modelIds: string[]) {
 }
 
 function acceptsImages(id: string) {
-    if (id === 'auto' || id === 'vision' || id.endsWith('-chat')) return true;
+    if (id === 'auto' || id.endsWith('-chat')) return true;
     return looksVisionCapable(id);
 }
 

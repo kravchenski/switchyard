@@ -186,6 +186,10 @@ impl AccountsCli {
         self.run(&["auto"], None).and_then(|output| crate::settings::parse_auto(&output).ok_or_else(|| "Unexpected auto settings output".to_string()))
     }
 
+    pub fn set_web_model(&self, chat: &str, model: &str) -> Result<String, String> {
+        self.run(&["auto", "--model", &format!("{chat}={model}")], None)
+    }
+
     pub fn set_web_order(&self, order: &[String]) -> Result<String, String> {
         self.run(&["auto", "--order", &order.join(",")], None)
     }
@@ -265,6 +269,7 @@ mod tests {
         assert_eq!(cli.remove_custom("my-lab").unwrap(), "args:custom remove my-lab");
         assert!(cli.add_custom("", "https://llm.example.com", "x").is_err());
         assert!(cli.add_custom("lab", " ", "Lab").is_err());
+        assert_eq!(cli.set_web_model("qwen-chat", "qwen-chat/qwen3.8-max").unwrap(), "args:auto --model qwen-chat=qwen-chat/qwen3.8-max");
         assert_eq!(cli.set_web_order(&["deepseek".into(), "qwen-chat".into()]).unwrap(), "args:auto --order deepseek,qwen-chat");
         assert_eq!(cli.add_profile(" "), Err("Enter a name for the account".into()));
         assert_eq!(cli.set_auto("nvidia", false).unwrap(), "args:provider nvidia --auto off");

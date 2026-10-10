@@ -20,11 +20,16 @@ export function buildAutoChain(
   stats: Pick<ModelStats, 'get'>,
   isAvailable: (model: string) => boolean = () => true,
   webOrder: readonly string[] = [],
+  webModels: Readonly<Record<string, string>> = {},
 ) {
   const usable = candidates.filter(candidate => isAvailable(candidate.id));
   const primary = [...new Set(usable.filter(candidate => !candidate.fallback).map(candidate => candidate.provider))]
     .sort((a, b) => webRank(webOrder, a) - webRank(webOrder, b))
-    .map(provider => rankModels(usable.filter(candidate => candidate.provider === provider).map(candidate => candidate.id), stats)[0]!);
+    .map(provider => {
+      const models = usable.filter(candidate => candidate.provider === provider).map(candidate => candidate.id);
+      const chosen = webModels[provider];
+      return chosen && models.includes(chosen) ? chosen : rankModels(models, stats)[0]!;
+    });
   const fallback = rankModels(usable.filter(candidate => candidate.fallback).map(candidate => candidate.id), stats)
     .slice(0, MAX_FALLBACK_MODELS);
   return [...primary, ...fallback];
