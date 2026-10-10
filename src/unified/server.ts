@@ -868,7 +868,7 @@ const imageProviders: ImageProvider[] = [
     createPollinationsImages(),
 ];
 
-const DECISION_TIMEOUT_MS = 15_000;
+const DECISION_TIMEOUT_MS = 30_000;
 const DECISION_CANDIDATES = 3;
 const QUICK_DECISION_MS = 8_000;
 
