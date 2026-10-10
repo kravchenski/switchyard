@@ -2,10 +2,10 @@ import { Hono } from 'hono';
 import { serve } from 'bun';
 import { streamSSE } from 'hono/streaming';
 
-const app = new Hono();
+export const app = new Hono();
 
 const port = Number(process.env.UI_PORT || 3000);
-const host = process.env.HOST || '0.0.0.0';
+const host = process.env.HOST || '127.0.0.1';
 const API_ENDPOINT = process.env.AGENT_API_URL || 'http://localhost:3260/api';
 
 app.get('/', (c) => {
@@ -255,7 +255,7 @@ app.get('/', (c) => {
           }
           response.innerHTML = formatHTML(html) + '<div class="done">Done</div>';
         } catch (err) {
-          response.innerHTML = '<span style="color:#f87171;">Error: ' + err.message + '</span>';
+          response.innerHTML = '<span style="color:#f87171;">Error: ' + escapeHtml(err.message) + '</span>';
         }
       }
     });
@@ -277,11 +277,15 @@ app.get('/', (c) => {
 
     document.getElementById('mode-toggle').addEventListener('click', toggleMode);
 
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+    }
+
     function formatHTML(text) {
-      return text
-        .replace(/\`\`\`(\w+)?\n([\s\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>')
+      return escapeHtml(text)
+        .replace(/\`\`\`(\\w+)?\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>')
         .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
         .replace(/\\n/g, '<br>');
     }
 
