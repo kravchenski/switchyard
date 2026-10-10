@@ -37,5 +37,5 @@ export function buildAgentChain(
   const ranked = rankModels(native, stats, preference)
     .sort((a, b) => modelStrength(a) - modelStrength(b))
     .slice(0, MAX_AGENT_MODELS);
-  return [...ranked, ...fallback.filter(model => !ranked.includes(model))];
+  return [...fallback, ...ranked.filter(model => !fallback.includes(model))];
 }

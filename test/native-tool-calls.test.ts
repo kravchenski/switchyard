@@ -84,19 +84,11 @@ describe('auto for agent requests', () => {
     stream: async request => ({ chunks: (async function* (): AsyncGenerator<ChatChunk> { yield { type: 'content', text: request.model }; })() }),
   });
 
-  test('tries models with native tool calling before web chats, and keeps the order for plain chat', async () => {
+  test('keeps the listed order for agent requests so web chats stay ahead of API models', async () => {
     const registry = new ProviderRegistry().register(provider('web', false)).register(provider('api', true));
     const router = new SmartRouter(registry, ['web-model', 'api-model']);
     const build = (route: { model: string }) => ({ model: route.model, messages: [] });
-    expect((await router.open('auto', build, undefined, undefined, { nativeToolsFirst: true })).route.model).toBe('api-model');
     expect((await router.open('auto', build)).route.model).toBe('web-model');
-    expect((await router.open('web-model', build, undefined, undefined, { nativeToolsFirst: true })).route.model).toBe('web-model');
-  });
-
-  test('puts strong models ahead of small ones for agent requests', async () => {
-    const registry = new ProviderRegistry().register(provider('tiny-mini', true)).register(provider('qwen3-coder', true));
-    const router = new SmartRouter(registry, ['tiny-mini-model', 'qwen3-coder-model']);
-    const build = (route: { model: string }) => ({ model: route.model, messages: [] });
-    expect((await router.open('auto', build, undefined, undefined, { nativeToolsFirst: true })).route.model).toBe('qwen3-coder-model');
+    expect((await router.open('web-model', build)).route.model).toBe('web-model');
   });
 });

@@ -50,6 +50,7 @@ beforeAll(async () => {
   key = process.env.GATEWAY_API_KEY ||= 'test-key';
   process.env.DATA_DIR ||= mkdtempSync(join(tmpdir(), 'gateway-test-'));
   server = await import('../src/unified/server.ts');
+  server.gatewaySettings.setAgentOption('rtk', 'off');
   server.registry.register(fakeProvider);
   server.registry.register(lateProvider);
 });
@@ -358,6 +359,54 @@ describe('unified server routing', () => {
       expect(text).toContain('git status');
       expect(text).toContain('tool_calls');
     }
+  });
+
+  const bashTool = [{ type: 'function', function: { name: 'bash', description: 'Run a shell command', parameters: { type: 'object', properties: { command: { type: 'string' } } } } }];
+  const sseDeltas = (text: string) => text.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)).choices[0]);
+
+  test('streams text live with tools and keeps the tool block out of content', async () => {
+    replies.push([
+      { type: 'content', text: 'Checking the repo.' },
+      { type: 'content', text: '{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}' },
+    ]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    const deltas = sseDeltas(text);
+    expect(deltas.map(choice => choice.delta.content).filter(Boolean)).toEqual(['Checking the repo.']);
+    const calls = deltas.flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'ls' });
+    expect(deltas.at(-1).finish_reason).toBe('tool_calls');
+  });
+
+  test('never leaks a tool block that arrives character by character', async () => {
+    const json = '{"tool_calls":[{"name":"bash","arguments":{"command":"pwd"}}]}';
+    replies.push([{ type: 'content', text: 'On it. ' }, ...[...json].map(text => ({ type: 'content' as const, text }))]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    const deltas = sseDeltas(text);
+    expect(deltas.map(choice => choice.delta.content).filter(Boolean).join('')).toBe('On it. ');
+    const calls = deltas.flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'pwd' });
+    expect(deltas.at(-1).finish_reason).toBe('tool_calls');
+  });
+
+  test('streams reasoning and content live when tools are present but no call is made', async () => {
+    replies.push([{ type: 'reasoning', text: 'think ' }, { type: 'content', text: 'A' }, { type: 'content', text: 'B' }]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    const deltas = sseDeltas(text);
+    expect(deltas.map(choice => choice.delta.reasoning_content).filter(Boolean)).toEqual(['think ']);
+    expect(deltas.map(choice => choice.delta.content).filter(Boolean)).toEqual(['A', 'B']);
+    expect(deltas.at(-1).finish_reason).toBe('stop');
+  });
+
+  test('retries with a nudge in streaming mode when nothing was streamed', async () => {
+    replies.push([]);
+    replies.push([{ type: 'content', text: '{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}' }]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.at(-1)!.content).toContain('Your last reply was empty');
+    const deltas = sseDeltas(text);
+    const calls = deltas.flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'ls' });
+    expect(deltas.at(-1).finish_reason).toBe('tool_calls');
   });
 
   test('validates image generation requests', async () => {

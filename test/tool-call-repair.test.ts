@@ -97,6 +97,17 @@ describe('tool call JSON repair', () => {
         expect(prompt).toContain('Tool call: read (path)');
     });
 
+    test('forbids install commands and extra verification for informational questions', () => {
+        const prompt = toolsToPrompt([
+            { function: { name: 'bash', parameters: { type: 'object' } } },
+            { function: { name: 'web_search', parameters: { type: 'object' } } }
+        ]);
+
+        expect(prompt).toContain('For purely informational questions answer from search results or knowledge');
+        expect(prompt).toContain('Never run installation, download, or setup commands');
+        expect(prompt).toContain('Keep prose replies concise');
+    });
+
     test('repairs common missing backticks in JavaScript edits', () => {
         const repaired = repairEditArguments({
             edits: [{

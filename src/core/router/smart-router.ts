@@ -4,7 +4,6 @@ import type { ProviderRegistry } from '../providers/registry.ts';
 import { primeChunks } from '../streaming/sse.ts';
 import type { RouteAttempt, RoutingDecision, SkippedRoute } from './decisions.ts';
 import type { AutoMode } from './focus.ts';
-import { modelStrength } from '../models/strength.ts';
 
 export const AUTO_MODEL = 'auto';
 export const VISION_MODEL = 'vision';
@@ -158,18 +157,10 @@ export class SmartRouter {
     });
   }
 
-  async open(model: string, build: (route: Route) => ChatRequest, preferredModel?: string, details?: Record<string, unknown>, options: { nativeToolsFirst?: boolean } = {}): Promise<RoutedStream> {
+  async open(model: string, build: (route: Route) => ChatRequest, preferredModel?: string, details?: Record<string, unknown>): Promise<RoutedStream> {
     const skipped: SkippedRoute[] = [];
     let routes = this.routes(model, preferredModel, skipped);
     const virtual = isVirtualModel(model);
-    if (virtual && options.nativeToolsFirst) {
-      const native = routes
-        .filter(route => route.provider.capabilities(route.model).nativeTools)
-        .map((route, order) => ({ route, order, strength: modelStrength(route.model) }))
-        .sort((a, b) => a.strength - b.strength || a.order - b.order)
-        .map(entry => entry.route);
-      routes = [...native, ...routes.filter(route => !native.includes(route))];
-    }
     const autoMode = virtual && routes.length > 1 ? this.options.autoMode?.() : undefined;
     const mode: RoutingDecision['mode'] = !virtual ? 'direct'
       : autoMode === 'race' ? 'race'
