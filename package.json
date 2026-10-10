@@ -1,6 +1,6 @@
 {
     "name": "switchyard",
-    "version": "2.10.0",
+    "version": "2.11.0",
     "description": "Local OpenAI-compatible gateway for web AI chats and free model APIs",
     "author": "kravchenski",
     "license": "MIT",
@@ -47,8 +47,6 @@
         "account": "bun run scripts/accounts.ts",
         "desktop": "cargo run --manifest-path desktop/Cargo.toml",
         "desktop:test": "cargo test --manifest-path desktop/Cargo.toml",
-        "build:desktop": "bun run scripts/build-desktop.ts",
-        "package:desktop": "bun run scripts/build-desktop.ts --package",
         "setup:agents": "bun run scripts/setup-agents.ts",
         "setup:pi": "bun run scripts/setup-pi.ts",
         "smoke": "bun run scripts/smoke_test.ts",
