@@ -1,7 +1,11 @@
+import http from 'node:http';
+import https from 'node:https';
+
 import type { Locator, Page } from 'playwright-core';
 
 import type { AutoLoginResult, SiteLoginOptions } from './auto-login.ts';
 import { autoSolveCaptcha, type CaptchaHints } from './captcha/index.ts';
+import { assertPublicUrl, publicLookup, type Lookup } from '../core/net/public-url.ts';
 import { ProviderError } from '../core/providers/errors.ts';
 import { launchCdpBrowser, type CdpBrowser, type LaunchOptions } from './cdp.ts';
 import { googleProfileDir } from './google-profile.ts';
@@ -52,7 +56,73 @@ const MIME_EXTENSIONS: Record<string, string> = {
   'image/svg+xml': 'svg',
 };
 
-export async function toAttachFiles(urls: string[]): Promise<AttachFile[]> {
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_IMAGE_REDIRECTS = 3;
+const IMAGE_TIMEOUT_MS = 30_000;
+
+export interface AttachOptions {
+  checkUrl?: (url: string) => void;
+  lookup?: Lookup;
+}
+
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function requestImage(url: string, lookup: Lookup) {
+  return new Promise<http.IncomingMessage>((resolve, reject) => {
+    const client = url.startsWith('https:') ? https : http;
+    const request = client.get(url, { lookup: lookup as never, timeout: IMAGE_TIMEOUT_MS }, resolve);
+    request.on('timeout', () => request.destroy(new Error('timed out')));
+    request.on('error', reject);
+  });
+}
+
+async function downloadImage(url: string, index: number, checkUrl: (url: string) => void, lookup: Lookup) {
+  let target = url;
+  for (let hop = 0; hop <= MAX_IMAGE_REDIRECTS; hop += 1) {
+    try {
+      checkUrl(target);
+    } catch (error) {
+      throw new ProviderError(`Failed to download image ${index}: ${errorText(error)}`, 'invalid_request');
+    }
+    let response: http.IncomingMessage;
+    try {
+      response = await requestImage(target, lookup);
+    } catch (error) {
+      const kind = /private address/.test(errorText(error)) ? 'invalid_request' : 'unavailable';
+      throw new ProviderError(`Failed to download image ${index}: ${errorText(error)}`, kind);
+    }
+    const status = response.statusCode ?? 0;
+    const location = response.headers.location;
+    if (status < 300 || status >= 400 || !location) return response;
+    response.destroy();
+    target = new URL(location, target).href;
+  }
+  throw new ProviderError(`Failed to download image ${index}: too many redirects`, 'invalid_request');
+}
+
+async function readImage(response: http.IncomingMessage) {
+  if (Number(response.headers['content-length'] ?? 0) > MAX_IMAGE_BYTES) {
+    response.destroy();
+    throw new Error('image is larger than 20 MB');
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of response) {
+    size += chunk.length;
+    if (size > MAX_IMAGE_BYTES) {
+      response.destroy();
+      throw new Error('image is larger than 20 MB');
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function toAttachFiles(urls: string[], options: AttachOptions = {}): Promise<AttachFile[]> {
+  const checkUrl = options.checkUrl ?? assertPublicUrl;
+  const lookup = options.lookup ?? publicLookup;
   const files: AttachFile[] = [];
   let index = 0;
   for (const url of urls) {
@@ -67,15 +137,20 @@ export async function toAttachFiles(urls: string[]): Promise<AttachFile[]> {
       files.push({ name: `image-${index}.${MIME_EXTENSIONS[mimeType] ?? 'png'}`, mimeType, buffer });
       continue;
     }
-    let response: Response;
-    try {
-      response = await fetch(url);
-    } catch (error) {
-      throw new ProviderError(`Failed to download image ${index}: ${error instanceof Error ? error.message : String(error)}`, 'unavailable');
+    const response = await downloadImage(url, index, checkUrl, lookup);
+    const status = response.statusCode ?? 0;
+    if (status < 200 || status >= 300) {
+      response.destroy();
+      throw new ProviderError(`Failed to download image ${index}: HTTP ${status}`, 'unavailable');
     }
-    if (!response.ok) throw new ProviderError(`Failed to download image ${index}: HTTP ${response.status}`, 'unavailable');
-    const mimeType = (response.headers.get('content-type') ?? '').split(';')[0] || 'image/png';
-    files.push({ name: `image-${index}.${MIME_EXTENSIONS[mimeType] ?? 'png'}`, mimeType, buffer: Buffer.from(await response.arrayBuffer()) });
+    const mimeType = (response.headers['content-type'] ?? '').split(';')[0] || 'image/png';
+    let buffer: Buffer;
+    try {
+      buffer = await readImage(response);
+    } catch (error) {
+      throw new ProviderError(`Failed to download image ${index}: ${errorText(error)}`, 'invalid_request');
+    }
+    files.push({ name: `image-${index}.${MIME_EXTENSIONS[mimeType] ?? 'png'}`, mimeType, buffer });
   }
   return files;
 }

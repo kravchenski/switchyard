@@ -20,6 +20,14 @@ try {
         const detail = result.detail ? ` (${result.detail})` : '';
         console.log(`- ${result.agent}: ${result.status} ${result.path}${detail}`);
     }
+    if (options.agents.includes('opencode')) {
+        console.log(options.allowCommands
+            ? '\nOpenCode runs shell commands without asking (--allow-commands).'
+            : '\nOpenCode asks before shell commands and URL fetches. Pass --allow-commands to turn that off.');
+    }
+    if (options.agents.includes('pi')) {
+        console.log('pi does not ask before running commands; use it with the gateway only in a sandbox or a throwaway checkout.');
+    }
     console.log('\nCodex and Claude Code connect directly to the gateway (Responses and Anthropic Messages). See ~/.freeqwenapi/README.md.');
 } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

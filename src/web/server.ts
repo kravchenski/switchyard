@@ -2,11 +2,23 @@ import { Hono } from 'hono';
 import { serve } from 'bun';
 import { streamSSE } from 'hono/streaming';
 
-const app = new Hono();
+import { isLocalRequest } from '../gateway/security.ts';
+
+export const app = new Hono();
 
 const port = Number(process.env.UI_PORT || 3000);
-const host = process.env.HOST || '0.0.0.0';
+const host = process.env.HOST || '127.0.0.1';
 const API_ENDPOINT = process.env.AGENT_API_URL || 'http://localhost:3260/api';
+const GATEWAY_API_KEY = process.env.GATEWAY_API_KEY;
+
+function gatewayHeaders(): Record<string, string> {
+  return GATEWAY_API_KEY ? { 'Content-Type': 'application/json', Authorization: `Bearer ${GATEWAY_API_KEY}` } : { 'Content-Type': 'application/json' };
+}
+
+app.use('/api/*', async (c, next) => {
+  if (isLocalRequest(c.req.raw)) return next();
+  return c.json({ error: 'The web UI only answers pages opened from localhost' }, 403);
+});
 
 app.get('/', (c) => {
   return c.html(`<!DOCTYPE html>
@@ -255,7 +267,7 @@ app.get('/', (c) => {
           }
           response.innerHTML = formatHTML(html) + '<div class="done">Done</div>';
         } catch (err) {
-          response.innerHTML = '<span style="color:#f87171;">Error: ' + err.message + '</span>';
+          response.innerHTML = '<span style="color:#f87171;">Error: ' + escapeHtml(err.message) + '</span>';
         }
       }
     });
@@ -277,11 +289,15 @@ app.get('/', (c) => {
 
     document.getElementById('mode-toggle').addEventListener('click', toggleMode);
 
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+    }
+
     function formatHTML(text) {
-      return text
-        .replace(/\`\`\`(\w+)?\n([\s\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>')
+      return escapeHtml(text)
+        .replace(/\`\`\`(\\w+)?\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>')
         .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
         .replace(/\\n/g, '<br>');
     }
 
@@ -300,7 +316,7 @@ app.post('/api/chat', async (c) => {
         const ep = API_ENDPOINT.replace(/\/?api\/?$/, '');
         const res = await fetch(`${ep}/v1/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: gatewayHeaders(),
           body: JSON.stringify({ model, messages: [{ role: 'user', content: message }], stream: true })
         });
 
@@ -335,7 +351,7 @@ app.post('/api/chat', async (c) => {
     const ep = API_ENDPOINT.replace(/\/?api\/?$/, '');
     const res = await fetch(`${ep}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: gatewayHeaders(),
       body: JSON.stringify({ model, messages: [{ role: 'user', content: message }], stream: false })
     });
     return c.json(await res.json());

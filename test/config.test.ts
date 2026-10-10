@@ -5,7 +5,7 @@ describe('parseEnv', () => {
     test('applies defaults for missing and blank values', () => {
         expect(parseEnv({ UNIFIED_PORT: '', GATEWAY_API_KEY: '  ' })).toEqual({
             UNIFIED_PORT: 3260,
-            HOST: '0.0.0.0',
+            HOST: '127.0.0.1',
             SESSION_DIR: 'session',
             GATEWAY_API_KEY: undefined,
             AUTO_MODELS: undefined,

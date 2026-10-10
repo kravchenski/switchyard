@@ -2,11 +2,15 @@ import { describe, expect, test } from 'bun:test';
 
 import { collectImageUrls, messagesToPrompt, stripImages } from '../src/core/providers/prompt.ts';
 import { createBrowserChatProvider } from '../src/providers/browser-chat-provider.ts';
+import dns from 'node:dns';
+
 import { toAttachFiles } from '../src/browser/browser-chat.ts';
+import { createPublicLookup, type Lookup } from '../src/core/net/public-url.ts';
 import type { ChatSite } from '../src/browser/browser-chat.ts';
 import type { ChatChunk } from '../src/core/providers/provider.ts';
 
 const DATA_URL = 'data:image/png;base64,QUJD';
+const openNetwork = { checkUrl: () => {}, lookup: dns.lookup as unknown as Lookup };
 
 function imageMessage() {
   return [{
@@ -66,7 +70,7 @@ describe('toAttachFiles', () => {
       fetch: () => new Response(Uint8Array.from([1, 2, 3]), { headers: { 'content-type': 'image/webp' } }),
     });
     try {
-      const files = await toAttachFiles([`http://127.0.0.1:${server.port}/chart`]);
+      const files = await toAttachFiles([`http://127.0.0.1:${server.port}/chart`], openNetwork);
       expect(files[0]).toMatchObject({ name: 'image-1.webp', mimeType: 'image/webp' });
       expect([...files[0]!.buffer]).toEqual([1, 2, 3]);
     } finally {
@@ -77,7 +81,55 @@ describe('toAttachFiles', () => {
   test('reports failed downloads as provider errors', async () => {
     const server = Bun.serve({ port: 0, fetch: () => new Response('gone', { status: 404 }) });
     try {
-      await expect(toAttachFiles([`http://127.0.0.1:${server.port}/chart`])).rejects.toThrow('Failed to download image 1: HTTP 404');
+      await expect(toAttachFiles([`http://127.0.0.1:${server.port}/chart`], openNetwork)).rejects.toThrow('Failed to download image 1: HTTP 404');
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe('toAttachFiles address checks', () => {
+  test('refuses private addresses by default', async () => {
+    await expect(toAttachFiles(['http://127.0.0.1:9/secret'])).rejects.toThrow('private address');
+    await expect(toAttachFiles(['http://169.254.169.254/latest/meta-data'])).rejects.toThrow('private address');
+    await expect(toAttachFiles(['file:///etc/passwd'])).rejects.toThrow('Unsupported image URL scheme');
+  });
+
+  test('checks every redirect target', async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => new URL(request.url).pathname === '/start'
+        ? new Response(null, { status: 302, headers: { location: '/internal' } })
+        : new Response(Uint8Array.from([1])),
+    });
+    const checked: string[] = [];
+    const checkUrl = (url: string) => {
+      checked.push(new URL(url).pathname);
+      if (url.endsWith('/internal')) throw new Error('Refusing to download from a private address: internal');
+    };
+    try {
+      await expect(toAttachFiles([`http://127.0.0.1:${server.port}/start`], { ...openNetwork, checkUrl })).rejects.toThrow('private address');
+      expect(checked).toEqual(['/start', '/internal']);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('checks the address it connects to, so a host cannot rebind to a private address', async () => {
+    const server = Bun.serve({ port: 0, fetch: () => new Response('internal secret') });
+    const rebound = createPublicLookup(((_host: string, _options: unknown, callback: (error: null, addresses: dns.LookupAddress[]) => void) =>
+      callback(null, [{ address: '127.0.0.1', family: 4 }])) as never);
+    try {
+      await expect(toAttachFiles([`http://images.example:${server.port}/chart`], { lookup: rebound })).rejects.toThrow('private address');
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('refuses images larger than 20 MB', async () => {
+    const server = Bun.serve({ port: 0, fetch: () => new Response(new Uint8Array(21 * 1024 * 1024)) });
+    try {
+      await expect(toAttachFiles([`http://127.0.0.1:${server.port}/big`], openNetwork)).rejects.toThrow('larger than 20 MB');
     } finally {
       server.stop(true);
     }

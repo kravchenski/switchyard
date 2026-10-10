@@ -3,6 +3,7 @@ import { serve } from 'bun';
 import crypto from 'crypto';
 
 import { ProviderError, toHttpError } from '../../core/providers/errors.ts';
+import { bearerToken, isLocalRequest, tokenMatches } from '../../gateway/security.ts';
 import { DEEPSEEK_MODELS, deepSeekOpenApi } from './openapi.ts';
 
 import { deepSeekCompletion, isEmptyToolCallResponse, parseDeepSeekEvent } from './client.ts';
@@ -11,10 +12,10 @@ import { hasValidDeepSeekAccounts } from './accounts.ts';
 import { runDeepSeekAccountMenu } from './auth.ts';
 
 const port = Number(process.env.DEEPSEEK_PORT || 3265);
-const host = process.env.HOST || '0.0.0.0';
+const host = process.env.HOST || '127.0.0.1';
 const VERIFICATION = /verification|captcha|verify you are human/i;
 
-type ErrorStatus = 400 | 401 | 404 | 429 | 502 | 503;
+type ErrorStatus = 400 | 401 | 403 | 404 | 429 | 502 | 503;
 
 function apiError(c: Context, status: ErrorStatus, type: string, code: string, message: string, retryAfterSeconds?: number) {
     if (retryAfterSeconds !== undefined) c.header('Retry-After', String(retryAfterSeconds));
@@ -30,21 +31,6 @@ function upstreamFailure(c: Context, error: unknown) {
 
 function modelList() {
     return { object: 'list', data: DEEPSEEK_MODELS.map(id => ({ id, object: 'model', created: 0, owned_by: 'deepseek-web' })) };
-}
-
-function isCodebaseActionRequest(messages: Array<Record<string, any>>) {
-    const lastUser = [...messages].reverse().find(message => message?.role === 'user');
-    const text = typeof lastUser?.content === 'string' ? lastUser.content.toLowerCase() : '';
-    return /рефактор|исправ|измени|добав|удал|проверь|тест|review|refactor|implement|fix|change|inspect|test/.test(text);
-}
-
-function fallbackInspectionToolCall(tools: Array<Record<string, any>> | null) {
-    if (!Array.isArray(tools)) return null;
-    const names = new Set(tools.map(tool => (tool?.function || tool)?.name));
-    if (names.has('ls')) return { name: 'ls', arguments: { path: '.' } };
-    if (names.has('bash')) return { name: 'bash', arguments: { command: 'ls -la' } };
-    if (names.has('find')) return { name: 'find', arguments: { path: '.', pattern: '*' } };
-    return null;
 }
 
 async function collectResponse(response: Response, onEvent?: (event: Record<string, any>) => void) {
@@ -88,8 +74,11 @@ export function createDeepSeekApp(options: { apiKey?: string; complete?: typeof 
     const open = new Set(['/health', '/api/openapi.json', '/api/v1/openapi.json']);
 
     app.use('*', async (c, next) => {
-        if (!options.apiKey || open.has(c.req.path)) return next();
-        if (c.req.header('authorization') !== `Bearer ${options.apiKey}`) return apiError(c, 401, 'authentication_error', 'invalid_api_key', 'Missing or wrong bearer token');
+        if (open.has(c.req.path)) return next();
+        if (!options.apiKey) {
+            return isLocalRequest(c.req.raw) ? next() : apiError(c, 403, 'permission_error', 'local_only', 'Set GATEWAY_API_KEY to accept requests from other hosts or web pages');
+        }
+        if (!tokenMatches(bearerToken(c.req.header('authorization')), options.apiKey)) return apiError(c, 401, 'authentication_error', 'invalid_api_key', 'Missing or wrong bearer token');
         return next();
     });
 
@@ -138,18 +127,14 @@ export function createDeepSeekApp(options: { apiKey?: string; complete?: typeof 
                             if (!captureToolCalls && event.content) controller.enqueue(encoder.encode(streamChunk(id, created, model, { content: event.content })));
                             if (!captureToolCalls && event.reasoning) controller.enqueue(encoder.encode(streamChunk(id, created, model, { reasoning_content: event.reasoning })));
                         });
-                        if (captureToolCalls && isEmptyToolCallResponse(content) && !isCodebaseActionRequest(messages)) {
+                        if (captureToolCalls && isEmptyToolCallResponse(content)) {
                             const retry = await complete({ messages, model, conversationId });
                             ({ content, reasoning } = await collectResponse(retry.response));
                         }
                         const recoveredShell = captureToolCalls ? recoverBrokenBashToolCall(content) : null;
                         const conversationalText = recoveredShell ? conversationalShellText(recoveredShell.name, recoveredShell.arguments) : null;
                         if (conversationalText) content = conversationalText;
-                        let toolCalls = captureToolCalls && !conversationalText ? parseToolCallJson(content, combinedTools) : null;
-                        if (!toolCalls?.length && captureToolCalls && isCodebaseActionRequest(messages)) {
-                            const fallback = fallbackInspectionToolCall(combinedTools);
-                            if (fallback) toolCalls = [{ id: `call_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`, type: 'function', function: { name: fallback.name, arguments: JSON.stringify(fallback.arguments) }, index: 0 }];
-                        }
+                        const toolCalls = captureToolCalls && !conversationalText ? parseToolCallJson(content, combinedTools) : null;
                         if (toolCalls?.length) {
                             for (const call of toolCalls) controller.enqueue(encoder.encode(streamChunk(id, created, model, { tool_calls: [{ index: call.index, id: call.id, type: call.type, function: call.function }] })));
                             controller.enqueue(encoder.encode(streamChunk(id, created, model, {}, 'tool_calls')));
@@ -166,18 +151,14 @@ export function createDeepSeekApp(options: { apiKey?: string; complete?: typeof 
             }
 
             let { content, reasoning } = await collectResponse(response);
-            if (captureToolCalls && isEmptyToolCallResponse(content) && !isCodebaseActionRequest(messages)) {
+            if (captureToolCalls && isEmptyToolCallResponse(content)) {
                 const retry = await complete({ messages, model, conversationId });
                 ({ content, reasoning } = await collectResponse(retry.response));
             }
             const recoveredShell = captureToolCalls ? recoverBrokenBashToolCall(content) : null;
             const conversationalText = recoveredShell ? conversationalShellText(recoveredShell.name, recoveredShell.arguments) : null;
             if (conversationalText) content = conversationalText;
-            let toolCalls = captureToolCalls && !conversationalText ? parseToolCallJson(content, combinedTools) : null;
-            if (!toolCalls?.length && captureToolCalls && isCodebaseActionRequest(messages)) {
-                const fallback = fallbackInspectionToolCall(combinedTools);
-                if (fallback) toolCalls = [{ id: `call_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`, type: 'function', function: { name: fallback.name, arguments: JSON.stringify(fallback.arguments) }, index: 0 }];
-            }
+            const toolCalls = captureToolCalls && !conversationalText ? parseToolCallJson(content, combinedTools) : null;
 
             return c.json({
                 id, object: 'chat.completion', created, model,

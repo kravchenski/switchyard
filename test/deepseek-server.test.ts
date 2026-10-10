@@ -62,6 +62,24 @@ describe('DeepSeek web API', () => {
     expect((await verification.json() as Record<string, any>).error.code).toBe('captcha_required');
   });
 
+  test('never invents a shell call the model did not make', async () => {
+    const app = createDeepSeekApp({ complete: answer('The tests look fine.'), ready: () => true });
+    const tools = [{ type: 'function', function: { name: 'bash', parameters: { type: 'object', properties: { command: { type: 'string' } } } } }];
+    const response = await app.fetch(chat({ ...ask, messages: [{ role: 'user', content: 'fix the failing test' }], tools }));
+    const body = await response.json() as Record<string, any>;
+    expect(body.choices[0].finish_reason).toBe('stop');
+    expect(body.choices[0].message.tool_calls).toBeUndefined();
+    expect(body.choices[0].message.content).toBe('The tests look fine.');
+  });
+
+  test('answers only local pages when GATEWAY_API_KEY is not set', async () => {
+    const app = createDeepSeekApp({ complete: answer('pong'), ready: () => true });
+    expect((await app.fetch(chat(ask))).status).toBe(200);
+    expect((await app.fetch(chat(ask, { origin: 'https://attacker.example' }))).status).toBe(403);
+    expect((await app.fetch(new Request('http://192.168.1.20/api/v1/models'))).status).toBe(403);
+    expect((await app.fetch(new Request('http://192.168.1.20/health'))).status).toBe(200);
+  });
+
   test('requires the bearer token when GATEWAY_API_KEY is set, except for health and the spec', async () => {
     const app = createDeepSeekApp({ apiKey: 'secret', complete: answer('pong'), ready: () => false });
     expect((await app.fetch(new Request('http://localhost/api/v1/models'))).status).toBe(401);

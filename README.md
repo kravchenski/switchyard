@@ -69,6 +69,14 @@ curl http://localhost:3260/v1/chat/completions \
 
 A bearer token is only required when `GATEWAY_API_KEY` is set.
 
+### Command approval
+
+Web chats answer in plain text, and Switchyard turns that text into tool calls for your agent. A file, a command output or a web page in the agent's context can carry instructions that the model repeats as a shell command, so let a person approve commands:
+
+- `bun run setup:agents` makes OpenCode ask before `bash` and `webfetch` (`"permission": { "bash": "ask", "webfetch": "ask" }`). Values you already set are kept. Pass `--allow-commands` to skip this.
+- Claude Code asks before commands and Codex runs them in its sandbox by default; keep those defaults.
+- pi has no approval prompts. Use it with Switchyard only in a container, a sandbox or a throwaway checkout.
+
 ## Desktop app
 
 A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click a request to see how it was routed: which models were skipped and why, each attempt with its error and time, and who answered. When a web chat loses its sign-in, a banner says so and takes you to its sign-in. Click the address in the sidebar to copy the base URL.
@@ -273,7 +281,7 @@ DeepSeek also runs as a standalone OpenAI-compatible service: `bun run start:dee
 | Variable | Default | Description |
 |---|---|---|
 | `UNIFIED_PORT` | `3260` | Server port |
-| `HOST` | `0.0.0.0` | Bind address |
+| `HOST` | `127.0.0.1` | Bind address; without `GATEWAY_API_KEY` only requests to `localhost` from local pages are accepted |
 | `GATEWAY_API_KEY` | — | Require this bearer token on every request except `/health` |
 | `<PROVIDER>_API_KEY` | — | One key or a list per provider (see `.env.example`) |
 | `AUTO_MODELS` | — | Fixed `auto` chain instead of the measured one |

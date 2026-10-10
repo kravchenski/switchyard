@@ -14,6 +14,31 @@ import {
 } from '../src/cli/agentSetup.ts';
 
 describe('agent integration setup', () => {
+    test('makes OpenCode ask before commands unless --allow-commands is passed', async () => {
+        const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
+        const paths = integrationPaths(home);
+        const readOpenCode = async () => JSON.parse(await readFile(paths.opencode, 'utf8'));
+        try {
+            expect(parseAgentSetupArgs([]).allowCommands).toBeFalse();
+            expect(parseAgentSetupArgs(['--allow-commands']).allowCommands).toBeTrue();
+
+            await mkdir(join(home, '.config', 'opencode'), { recursive: true });
+            await writeFile(paths.opencode, JSON.stringify({ permission: { edit: 'deny', bash: 'allow' } }));
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'opencode', '--home', home]), ['auto']);
+            expect((await readOpenCode()).permission).toEqual({ edit: 'deny', bash: 'allow', webfetch: 'ask' });
+
+            await writeFile(paths.opencode, JSON.stringify({ permission: 'allow' }));
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'opencode', '--home', home]), ['auto']);
+            expect((await readOpenCode()).permission).toBe('allow');
+
+            await writeFile(paths.opencode, '{}');
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'opencode', '--home', home, '--allow-commands']), ['auto']);
+            expect((await readOpenCode()).permission).toBeUndefined();
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    });
+
     test('parses cross-platform setup options', () => {
         const options = parseAgentSetupArgs([
             '--agent=pi,opencode',
@@ -69,6 +94,7 @@ describe('agent integration setup', () => {
             const openCode = JSON.parse(await readFile(paths.opencode, 'utf8'));
             expect(Object.keys(openCode.provider.freeai.models)).toEqual(models);
             expect(openCode.provider.freeai.options.baseURL).toBe('http://127.0.0.1:3260/api');
+            expect(openCode.permission).toEqual({ bash: 'ask', webfetch: 'ask' });
 
             const continueConfig = parseYaml(await readFile(paths.continue, 'utf8'));
             expect(continueConfig.rules).toEqual(['Keep this']);

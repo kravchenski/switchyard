@@ -12,7 +12,7 @@ const optionalText = z.preprocess(blankToUndefined, z.string().optional());
 
 const envSchema = z.object({
     UNIFIED_PORT: port(3260),
-    HOST: text('0.0.0.0'),
+    HOST: text('127.0.0.1'),
     SESSION_DIR: text('session'),
     GATEWAY_API_KEY: optionalText,
     AUTO_MODELS: optionalText,
