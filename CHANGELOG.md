@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.11.0](https://github.com/kravchenski/switchyard/compare/v2.10.0...v2.11.0) (2026-10-10)
+
+
+### Features
+
+* **decisions:** answer jevgrep and fast-jev-compaction at /v1/systemone ([7939841](https://github.com/kravchenski/switchyard/commit/7939841594ee77f475538a6b2f4f1aa9acb368ce))
+* **decisions:** answer jevgrep and fast-jev-compaction at /v1/systemone ([d8731f6](https://github.com/kravchenski/switchyard/commit/d8731f6b4b494db4c5ad29af5741a9e94a2d13c5))
+* **desktop:** show how a request was routed when you click it ([2519741](https://github.com/kravchenski/switchyard/commit/251974163273b6f58664fef80ab667250beb536a))
+* **desktop:** show how a request was routed when you click it ([1157a33](https://github.com/kravchenski/switchyard/commit/1157a33bb7c6e1308bb1d0f0be9ce8135cfbac89))
+* **desktop:** warn when a web chat in auto is signed out ([e9fff0d](https://github.com/kravchenski/switchyard/commit/e9fff0dcb3286f3488d68f523ae9cca9caddba9c))
+* **desktop:** warn when a web chat in auto is signed out ([cd1b4b4](https://github.com/kravchenski/switchyard/commit/cd1b4b4a4d2954b042d2325c2d9d4294d07e47e5))
+
+
+### Chores
+
+* **desktop:** build the app and its installer with one command ([d9856a5](https://github.com/kravchenski/switchyard/commit/d9856a518567abd99f8b912694100c7e1fdba019))
+* **desktop:** build the app and its installer with one command ([85c2c20](https://github.com/kravchenski/switchyard/commit/85c2c20161d077b0c2228123197d807a0551fbff))
+
 ## [2.10.0](https://github.com/kravchenski/switchyard/compare/v2.9.0...v2.10.0) (2026-10-10)
 
 
