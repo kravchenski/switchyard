@@ -5,7 +5,7 @@ import { ProviderError } from '../../core/providers/errors.ts';
 import type { ChatChunk } from '../../core/providers/provider.ts';
 import { bytesToLines } from '../browser-chat-provider.ts';
 
-export const QWEN_CHAT_URL = 'https://chat.qwen.ai/';
+const QWEN_CHAT_URL = 'https://chat.qwen.ai/';
 
 export const QWEN_CHAT_SITE: ChatSite = {
   id: 'qwen-chat',

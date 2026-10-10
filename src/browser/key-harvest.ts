@@ -10,7 +10,7 @@ export interface HarvestResult {
   keyPreview?: string;
 }
 
-export interface HarvestLocator {
+interface HarvestLocator {
   count(): Promise<number>;
   first(): HarvestLocator;
   click(options?: { timeout?: number }): Promise<void>;
@@ -28,7 +28,7 @@ export interface HarvestPage {
   evaluate<T, A>(fn: (arg: A) => T | Promise<T>, arg: A): Promise<T>;
 }
 
-export interface HarvestStoreEntry {
+interface HarvestStoreEntry {
   id: string;
   provider: string;
   email: string;
@@ -429,7 +429,7 @@ export async function harvestOne(adapter: ProviderKeyAdapter, page: HarvestPage,
   }
 }
 
-export interface HarvestContext {
+interface HarvestContext {
   newPage(): Promise<HarvestPage & { close(): Promise<void> }>;
 }
 

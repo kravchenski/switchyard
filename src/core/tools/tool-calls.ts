@@ -266,7 +266,7 @@ function unbalancedQuotes(text: string) {
 
 const DSML = '[\\uff5c|]+\\s*DSML\\s*[\\uff5c|]+\\s*';
 
-export function recoverDsmlToolCalls(text: string) {
+function recoverDsmlToolCalls(text: string) {
     const invoke = new RegExp(`<${DSML}invoke\\s+name="([^"]+)"\\s*>([\\s\\S]*?)</${DSML}invoke>`, 'g');
     const parameter = new RegExp(`<${DSML}parameter\\s+name="([^"]+)"([^>]*)>([\\s\\S]*?)</${DSML}parameter>`, 'g');
     const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];

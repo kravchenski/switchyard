@@ -4,7 +4,7 @@ import type { Credential } from '../core/accounts/credential-store.ts';
 import { parseKeyList } from '../core/accounts/key-pool.ts';
 import type { SignInRecord } from '../core/accounts/sign-in-status.ts';
 
-export type ConnectionState = 'connected' | 'degraded' | 'not-connected' | 'unknown';
+type ConnectionState = 'connected' | 'degraded' | 'not-connected' | 'unknown';
 
 export interface ProviderOverview {
   id: string;

@@ -17,7 +17,7 @@ export interface ProfileStore {
   remove(id: string): boolean;
 }
 
-export const DEFAULT_PROFILE_LABEL = 'Main';
+const DEFAULT_PROFILE_LABEL = 'Main';
 const PROFILE_ID = /^acct-[0-9a-f]{6}$/;
 
 function profilesRoot(env: Record<string, string | undefined>) {

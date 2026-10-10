@@ -3,7 +3,7 @@ import type { Provider } from '../providers/provider.ts';
 import type { ModelAvailability } from './availability.ts';
 import type { ModelStats } from './stats.ts';
 
-export interface ModelCheckResult {
+interface ModelCheckResult {
   model: string;
   ok: boolean;
   hidden?: boolean;

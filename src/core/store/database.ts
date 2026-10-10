@@ -116,7 +116,7 @@ const MIGRATIONS = [
   )`,
 ];
 
-export function defaultDatabaseFile() {
+function defaultDatabaseFile() {
   return path.resolve(process.env.DATA_DIR || 'data', 'gateway.db');
 }
 
