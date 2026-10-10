@@ -593,3 +593,24 @@ export function parseToolCallJson(content: unknown, tools: any = null): ParsedTo
     return null;
 }
 
+
+const REJECTED_TOOL_CALL = /Tool [\w.:-]+ does not exists?\.?/;
+const FRAGMENT_START = /^\s*[,}\]]/;
+const FRAGMENT_END = /\}\s*\}\s*\]\s*\}\s*$/;
+
+export function hasRejectedToolCall(text: string) {
+    return REJECTED_TOOL_CALL.test(text);
+}
+
+export function isToolCallFragment(text: string, tools: any = null) {
+    if (!text.trim() || parseToolCallJson(text, tools)) return false;
+    return FRAGMENT_START.test(text) || FRAGMENT_END.test(text);
+}
+
+export function isBrokenToolCall(text: string, tools: any = null) {
+    return hasRejectedToolCall(text) || isToolCallFragment(text, tools);
+}
+
+export function stripRejectedToolCalls(text: string) {
+    return text.replace(new RegExp(REJECTED_TOOL_CALL.source, 'g'), '').replace(/\n{3,}/g, '\n\n').trim();
+}

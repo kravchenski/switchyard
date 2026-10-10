@@ -2,6 +2,10 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     extractFirstToolCallObject,
+    hasRejectedToolCall,
+    isBrokenToolCall,
+    isToolCallFragment,
+    stripRejectedToolCalls,
     hasObviouslyBrokenEditArguments,
     recoverSimpleToolCalls,
     recoverBrokenBashToolCall,
@@ -354,5 +358,21 @@ describe('transcript-style tool calls from web chats', () => {
         expect(recoverTranscriptStyleToolCalls('The tool result (bash) was empty.')).toBeNull();
         expect(stripFabricatedTranscript('Done.\nTool result (bash): [no output]')).toBe('Done.');
         expect(stripFabricatedTranscript('No transcript here.')).toBe('No transcript here.');
+    });
+});
+
+describe('broken tool calls from web chats', () => {
+    test('spots the rejection a chat writes when it swallows a tool call', () => {
+        expect(hasRejectedToolCall('Done.\n\nTool bash does not exists.More text')).toBeTrue();
+        expect(hasRejectedToolCall('The tool does not exist yet, so I wrote it.')).toBeFalse();
+        expect(stripRejectedToolCalls('Done.\n\nTool bash does not exists.\n\n\nNext')).toBe('Done.\n\nNext');
+    });
+
+    test('spots the tail of a tool call whose start went missing', () => {
+        expect(isToolCallFragment(', "out.md")\\n    print(1)"}}]}')).toBeTrue();
+        expect(isToolCallFragment('print(1)"}}]}')).toBeTrue();
+        expect(isToolCallFragment('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}', [{ type: 'function', function: { name: 'bash' } }])).toBeFalse();
+        expect(isToolCallFragment('All tests pass.')).toBeFalse();
+        expect(isBrokenToolCall('Tool read does not exist')).toBeTrue();
     });
 });

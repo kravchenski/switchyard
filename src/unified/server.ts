@@ -6,7 +6,7 @@ import { serve } from 'bun';
 import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
-import { conversationalShellText, hasFabricatedTranscript, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, toolsToPrompt } from '../core/tools/tool-calls.ts';
+import { conversationalShellText, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
 import { bearerToken, isLocalRequest, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
 import { ResponsesStreamTranslator } from '../gateway/responses-stream.ts';
@@ -416,6 +416,17 @@ const EMPTY_REPLY_NUDGE = {
     content: 'Your last reply was empty. Continue the task now: call the next tool you need, or give the final answer.',
 };
 
+const TOOL_FORMAT_NUDGE = {
+    role: 'user',
+    content: 'Your last tool call did not reach the tools: the chat took it for one of its own tools. Call the tool again by writing the JSON {"tool_calls":[...]} exactly as described in the instructions, without <tool_call> tags.',
+};
+
+function nudgeFor(content: string, tools: Array<Record<string, any>> | null) {
+    if (isBrokenToolCall(content, tools)) return TOOL_FORMAT_NUDGE;
+    if (needsNudge(content) || announcesAction(content, tools)) return EMPTY_REPLY_NUDGE;
+    return undefined;
+}
+
 function needsNudge(content: string) {
     return !content.trim() || isEmptyToolCallResponse(content);
 }
@@ -488,7 +499,8 @@ const TOOL_BLOCK_PATTERNS = [
     /\[\u8c03\u7528/,
     /^[ \t]*Tool call:/m,
     /^[ \t]*(?:Assistant tool calls:|Tool result \()/m,
-    /```(?:bash|sh|shell|zsh)/i
+    /```(?:bash|sh|shell|zsh)/i,
+    /Tool [\w.:-]+ does not exist/
 ];
 
 const TOOL_BLOCK_PREFIXES = [
@@ -535,6 +547,7 @@ function toolBlockIndex(text: string) {
 }
 
 function safeStreamLength(text: string) {
+    if (/^\s*[,}\]]/.test(text)) return 0;
     const boundary = text.length - toolBlockHoldLength(text);
     const block = toolBlockIndex(text);
     return block >= 0 ? Math.min(boundary, block) : boundary;
@@ -548,7 +561,7 @@ function handleProviderStream(
     combinedTools: Array<Record<string, any>> | null,
     messages: Array<Record<string, any>>,
     first: ProviderStream,
-    retry: () => Promise<ProviderStream>,
+    retry: (nudge: ChatMessage) => Promise<ProviderStream>,
     extraHeaders: Record<string, string> = {},
     onFinish: (error?: unknown) => void = () => {}
 ) {
@@ -600,11 +613,13 @@ function handleProviderStream(
         }
         let nativeCalls = assembler.result();
 
-        if (captureToolCalls && !nativeCalls.length && sentContent === 0 && (needsNudge(content) || announcesAction(content, combinedTools))) {
-            ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks((await retry()).chunks));
+        const nudge = captureToolCalls && !nativeCalls.length ? nudgeFor(content, combinedTools) : undefined;
+        if (nudge && (sentContent === 0 || nudge === TOOL_FORMAT_NUDGE)) {
+            ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks((await retry(nudge)).chunks));
             sentContent = 0;
             sentReasoning = 0;
         }
+        if (captureToolCalls) content = stripRejectedToolCalls(content);
 
         const processed = processToolCalls(content, captureToolCalls, combinedTools, nativeCalls);
         const { toolCalls, conversationalText } = processed;
@@ -752,12 +767,12 @@ app.post('/api/chat/completions', async (c) => {
         const sessionKey = isVirtualModel(routeModel) ? conversationId ?? conversationKey(messages) : undefined;
         const sessions = sessionKey ? affinity() : undefined;
         const pinned = sessionKey ? sessions?.get(sessionKey, routeModel) : undefined;
-        const requestFor = (route: Route, nudge = false): ChatRequest => {
+        const requestFor = (route: Route, nudge?: ChatMessage): ChatRequest => {
             const native = captureToolCalls && route.provider.capabilities(route.model).nativeTools;
             const base = native ? agentMessages : upstreamMessages;
             return {
                 model: route.model,
-                messages: nudge ? [...base, EMPTY_REPLY_NUDGE] : base,
+                messages: nudge ? [...base, nudge] : base,
                 conversationId,
                 ...(native ? { tools: promptTools as ChatMessage[] } : {}),
             };
@@ -777,7 +792,7 @@ app.post('/api/chat/completions', async (c) => {
             ...(error === undefined ? {} : { error: errorText(error) }),
             decisionId: first.decisionId,
         });
-        const open = (nudge = false) => provider.stream(requestFor(first.route, nudge));
+        const open = (nudge?: ChatMessage) => provider.stream(requestFor(first.route, nudge));
         const routeHeaders: Record<string, string> = {
             'x-gateway-route': `${provider.id}/${routedModel}`,
             ...(compaction?.stats.results ? { 'x-gateway-compacted': `${compaction.stats.charsBefore}->${compaction.stats.charsAfter}` } : {}),
@@ -785,7 +800,7 @@ app.post('/api/chat/completions', async (c) => {
         };
 
         if (stream) {
-            return handleProviderStream(id, created, routedModel, captureToolCalls, combinedTools, messages, first, () => open(true), routeHeaders, finish);
+            return handleProviderStream(id, created, routedModel, captureToolCalls, combinedTools, messages, first, nudge => open(nudge), routeHeaders, finish);
         }
 
         let content: string;
@@ -794,11 +809,13 @@ app.post('/api/chat/completions', async (c) => {
         let nativeCalls: ToolCall[] = [];
         try {
             ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks(first.chunks));
-            if (captureToolCalls && !nativeCalls.length && (needsNudge(content) || announcesAction(content, combinedTools))) {
-                const retried = await open(true);
+            const nudge = captureToolCalls && !nativeCalls.length ? nudgeFor(content, combinedTools) : undefined;
+            if (nudge) {
+                const retried = await open(nudge);
                 ({ content, reasoning, toolCalls: nativeCalls } = await collectChunks(retried.chunks));
                 responseFields = retried.responseFields;
             }
+            if (captureToolCalls) content = stripRejectedToolCalls(content);
         } catch (error) {
             finish(error);
             throw error;
