@@ -44,6 +44,20 @@ function lastUserText(messages: ChatMessage[]) {
   return Array.isArray(content) ? content.map(part => (typeof part?.text === 'string' ? part.text : '')).join('\n') : '';
 }
 
+function mcpServer(name: string) {
+  return /^mcp__(.+?)__/.exec(name)?.[1];
+}
+
+export function mentionedTools(request: string, tools: Tool[]) {
+  const text = request.toLowerCase();
+  return tools.filter(tool => {
+    const name = toolName(tool).toLowerCase();
+    const server = mcpServer(name);
+    const words = server ? [server, server.replace(/[-_]+/g, ' ')] : [name, name.replace(/[-_.]+/g, ' ')];
+    return words.some(word => word.length >= 4 && text.includes(word));
+  });
+}
+
 export type ToolJudge = (request: string, questions: Record<string, DecisionQuestion>) => Promise<Record<string, DecisionAnswer>>;
 
 export class ToolSelector {
@@ -62,7 +76,9 @@ export class ToolSelector {
     let wanted = this.cache.get(key);
     const cached = Boolean(wanted);
     if (!wanted) {
-      wanted = await this.ask(request, optional);
+      const mentioned = mentionedTools(request, optional);
+      wanted = await this.ask(request, optional.filter(tool => !mentioned.includes(tool)));
+      for (const tool of mentioned) wanted.add(toolName(tool));
       this.cache.set(key, wanted);
       if (this.cache.size > CACHE_SIZE) this.cache.delete(this.cache.keys().next().value!);
     }
