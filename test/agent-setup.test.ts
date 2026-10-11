@@ -7,6 +7,7 @@ import { TOML } from 'bun';
 
 import {
     loadAvailableModelIds,
+    agentModelIds,
     AGENT_IDS,
     installAgentIntegrations,
     integrationPaths,
@@ -15,6 +16,24 @@ import {
 } from '../src/cli/agentSetup.ts';
 
 describe('agent integration setup', () => {
+    test('lists auto and the web chats for agents unless --all-models is passed', async () => {
+        const served = ['auto', 'vision', 'agent', 'deepseek-default', 'qwen-chat', 'qwen-chat/qwen3.7-plus', 'glm-chat/glm-5', 'arena-chat', 'arena-chat/gpt-6', 'nvidia/llama-4', 'openrouter/qwen3-coder'];
+        expect(agentModelIds(served)).toEqual(['auto', 'deepseek-default', 'qwen-chat', 'qwen-chat/qwen3.7-plus', 'glm-chat/glm-5', 'arena-chat']);
+        expect(agentModelIds(['nvidia/llama-4'])).toEqual(['nvidia/llama-4']);
+        expect(parseAgentSetupArgs([]).allModels).toBeFalse();
+
+        const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
+        const piModels = async () => JSON.parse(await readFile(integrationPaths(home).pi, 'utf8')).providers.freeai.models.map((model: { id: string }) => model.id);
+        try {
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'pi', '--home', home]), served);
+            expect(await piModels()).toEqual(agentModelIds(served));
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'pi', '--home', home, '--all-models']), served);
+            expect(await piModels()).toEqual(served);
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    });
+
     test('makes OpenCode ask before commands unless --allow-commands is passed', async () => {
         const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
         const paths = integrationPaths(home);

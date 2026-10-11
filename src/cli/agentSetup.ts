@@ -22,6 +22,7 @@ export type AgentId = typeof AGENT_IDS[number];
 
 export type AgentSetupOptions = {
     agents: AgentId[];
+    allModels: boolean;
     allowCommands: boolean;
     apiKey: string;
     /** Register the Switchyard extension's browser tools (MCP at /mcp) with agents that support it. */
@@ -82,6 +83,7 @@ export function parseAgentSetupArgs(
 ): AgentSetupOptions {
     const options: AgentSetupOptions = {
         agents: [...AGENT_IDS],
+        allModels: false,
         allowCommands: false,
         apiKey: environment.FREEAI_API_KEY || DEFAULT_API_KEY,
         browserTools: false,
@@ -98,6 +100,7 @@ export function parseAgentSetupArgs(
         else if (argument === '--dry-run') options.dryRun = true;
         else if (argument === '--allow-commands') options.allowCommands = true;
         else if (argument === '--browser-tools') options.browserTools = true;
+        else if (argument === '--all-models') options.allModels = true;
         else if (argument === '--help' || argument === '-h') options.help = true;
         else if (argument === '--agent') options.agents = parseAgentList(requireValue(args, ++index, argument));
         else if (argument.startsWith('--agent=')) options.agents = parseAgentList(argument.slice('--agent='.length));
@@ -136,10 +139,20 @@ export async function loadAvailableModelIds(baseUrl: string, apiKey?: string): P
     return FALLBACK_MODELS;
 }
 
+const ALIAS_MODELS = new Set(['vision', 'agent']);
+const LISTED_WEB_CHATS = ['qwen-chat/', 'glm-chat/', 'kimi-chat/'];
+
+export function agentModelIds(modelIds: string[]) {
+    const listed = modelIds.filter(id => !ALIAS_MODELS.has(id)
+        && (!id.includes('/') || LISTED_WEB_CHATS.some(prefix => id.startsWith(prefix))));
+    return listed.length ? listed : modelIds;
+}
+
 export async function installAgentIntegrations(
     options: AgentSetupOptions,
-    modelIds: string[]
+    available: string[]
 ): Promise<InstallResult[]> {
+    const modelIds = options.allModels ? available : agentModelIds(available);
     const results: InstallResult[] = [];
     const paths = integrationPaths(options.home);
 
@@ -265,6 +278,9 @@ Options:
   --home <path>         Override the target home directory
   --browser-tools       Add the Switchyard extension's browser tools (MCP at
                         <gateway>/mcp) to Claude Code, OpenCode and Codex
+  --all-models          List every model the gateway serves; by default agents
+                        get auto, the web chats and their models, and auto
+                        still reaches the API models as fallback
   --allow-commands      Let OpenCode run shell commands and fetch URLs without
                         asking (by default they need your approval, because web
                         chat answers can carry instructions from files and pages)
