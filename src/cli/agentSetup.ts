@@ -521,7 +521,8 @@ function mergeManagedBlock(existing: string, content: string) {
         const suffixStart = end + MANAGED_BLOCK_END.length;
         return `${existing.slice(0, start)}${block}${existing.slice(suffixStart).replace(/^\n+/, '')}`;
     }
-    return existing.trim() ? `${existing.trimEnd()}\n\n${block}` : block;
+    // Top-level keys only stay top-level before the first [table] header, so a new block goes first.
+    return existing.trim() ? `${block}\n${existing.trimStart()}` : block;
 }
 
 function removeManagedBlock(existing: string) {
