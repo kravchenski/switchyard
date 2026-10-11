@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.16.5](https://github.com/kravchenski/switchyard/compare/v2.16.4...v2.16.5) (2026-10-11)
+
+
+### Bug Fixes
+
+* **agents:** keep named tool groups when the client prefixes tool names ([5b6a922](https://github.com/kravchenski/switchyard/commit/5b6a922bd0fd57d8efcd95653cd4c506fbecf95d))
+* **agents:** keep named tool groups when the client prefixes tool names ([67ba7cd](https://github.com/kravchenski/switchyard/commit/67ba7cd36bb46dcc32091ffdabd6b0bc66ada663))
+* **browser:** stop losing the answer stream behind a pre-check response ([2724c58](https://github.com/kravchenski/switchyard/commit/2724c588f23c449d0811fc2abd03f404e93536ef))
+* **browser:** stop losing the answer stream behind a pre-check response ([0f29e7b](https://github.com/kravchenski/switchyard/commit/0f29e7bb26061b68054600daea63927197ef2e46))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.16.4 ([b5a62cf](https://github.com/kravchenski/switchyard/commit/b5a62cfbd66c619c7839744f47c0fb1bf9cecc49))
+
 ## [2.16.4](https://github.com/kravchenski/switchyard/compare/v2.16.3...v2.16.4) (2026-10-11)
 
 
