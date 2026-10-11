@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     extractFirstToolCallObject,
+    hasFabricatedTranscript,
     deniesTool,
     hasRejectedToolCall,
     isUnparsedToolCall,
@@ -360,6 +361,38 @@ describe('transcript-style tool calls from web chats', () => {
         expect(recoverTranscriptStyleToolCalls('The tool result (bash) was empty.')).toBeNull();
         expect(stripFabricatedTranscript('Done.\nTool result (bash): [no output]')).toBe('Done.');
         expect(stripFabricatedTranscript('No transcript here.')).toBe('No transcript here.');
+    });
+
+    test('recovers "Tool calls:" blocks without the Assistant prefix', () => {
+        const line = `Tool calls: [{"id":"call_02a47814723a39c53473b8","type":"function","function":{"name":"bash","arguments":"{\\"command\\":\\"ls\\"}"}}]`;
+        expect(recoverTranscriptStyleToolCalls(line)).toEqual([{ name: 'bash', arguments: { command: 'ls' } }]);
+        expect(stripFabricatedTranscript(`Let me look.\n${line}`)).toBe('Let me look.');
+    });
+
+    test('recovers named "Tool calls: <tool>" blocks followed by their JSON arguments', () => {
+        const reply = [
+            'Ok, building a static site instead.',
+            '',
+            'Tool calls: bash',
+            '',
+            '{"command":"cd /tmp/report && pandoc report.md -t html5 -o frag.html && grep -o \'<h1[^>]*>\' frag.html | head -20"}',
+            '',
+            'Tool calls: read',
+            '',
+            '{"path":"/tmp/report/build_site.py"}',
+        ].join('\n');
+        expect(parseToolCallJson(reply, bashTool)!.map(call => [call.function.name, JSON.parse(call.function.arguments)])).toEqual([
+            ['bash', { command: "cd /tmp/report && pandoc report.md -t html5 -o frag.html && grep -o '<h1[^>]*>' frag.html | head -20" }],
+            ['read', { path: '/tmp/report/build_site.py' }],
+        ]);
+        expect(stripFabricatedTranscript(reply)).toBe('Ok, building a static site instead.');
+    });
+
+    test('never leaks a named block whose arguments are cut off', () => {
+        const reply = 'Writing the script.\n\nTool calls: write\n\n{"path":"/tmp/a.py","content":"import re\\n';
+        expect(recoverTranscriptStyleToolCalls(reply)).toBeNull();
+        expect(hasFabricatedTranscript(reply)).toBeTrue();
+        expect(stripFabricatedTranscript(reply)).toBe('Writing the script.');
     });
 });
 

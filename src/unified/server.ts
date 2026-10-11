@@ -498,7 +498,7 @@ const TOOL_BLOCK_PATTERNS = [
     /<(?:bash|terminal|read|ls|find|grep)>/i,
     /\[\u8c03\u7528/,
     /^[ \t]*Tool call:/m,
-    /^[ \t]*(?:Assistant tool calls:|Tool result \()/m,
+    /^[ \t]*(?:(?:Assistant )?tool calls:|Tool result \()/im,
     /```(?:bash|sh|shell|zsh)/i,
     /Tool [\w.:-]+ does not exist/
 ];
@@ -510,7 +510,7 @@ const TOOL_BLOCK_PREFIXES = [
     '[\u8c03\u7528', 'Tool call:', '```bash', '```sh', '```shell', '```zsh'
 ];
 
-const TRANSCRIPT_PREFIXES = ['Assistant tool calls:', 'Tool result ('];
+const TRANSCRIPT_PREFIXES = ['Assistant tool calls:', 'Tool calls:', 'Tool result ('];
 
 function toolBlockHoldLength(text: string) {
     const trimmed = text.replace(/\s+$/, '');

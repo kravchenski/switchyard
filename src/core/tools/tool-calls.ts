@@ -155,7 +155,10 @@ export function repairToolCallJsonKeys(text: string) {
 
 export function extractFirstToolCallObject(text: string) {
     const start = text.indexOf('{"tool_calls"');
-    if (start < 0) return null;
+    return start < 0 ? null : balancedObjectAt(text, start);
+}
+
+function balancedObjectAt(text: string, start: number) {
     let depth = 0;
     let inString = false;
     let escaped = false;
@@ -425,7 +428,8 @@ export function recoverFencedShellToolCalls(text: string) {
     return calls.length > 0 ? calls : null;
 }
 
-const TRANSCRIPT_MARKER = /^[ \t]*(?:Assistant tool calls:|Tool result \()/m;
+const TRANSCRIPT_MARKER = /^[ \t]*(?:(?:Assistant )?tool calls:|Tool result \()/im;
+const NAMED_CALL_MARKER = /^[ \t]*(?:Assistant )?tool calls:[ \t]*([A-Za-z_][\w.-]*)[ \t]*$/gim;
 
 export function hasFabricatedTranscript(text: string) {
     return TRANSCRIPT_MARKER.test(text);
@@ -447,8 +451,26 @@ function transcriptArguments(value: unknown) {
     }
 }
 
+function recoverNamedToolCalls(text: string) {
+    const markers = [...text.matchAll(NAMED_CALL_MARKER)];
+    if (!markers.length) return null;
+    const calls = markers.map((marker, index) => {
+        const bodyStart = marker.index! + marker[0].length;
+        const bodyEnd = markers[index + 1]?.index ?? text.length;
+        const body = text.slice(bodyStart, bodyEnd);
+        const open = body.indexOf('{');
+        if (open < 0 || body.slice(0, open).trim()) return null;
+        const json = balancedObjectAt(body, open);
+        const args = json ? transcriptArguments(json) : null;
+        return args ? { name: marker[1]!, arguments: args } : null;
+    });
+    return calls.every(Boolean) ? calls as Array<{ name: string; arguments: Record<string, unknown> }> : null;
+}
+
 export function recoverTranscriptStyleToolCalls(text: string) {
-    const marker = /^[ \t]*Assistant tool calls:[ \t]*(\[.*)$/m.exec(text);
+    const named = recoverNamedToolCalls(text);
+    if (named) return named;
+    const marker = /^[ \t]*(?:Assistant )?tool calls:[ \t]*(\[.*)$/im.exec(text);
     const line = marker?.[1]?.trim();
     if (!line) return null;
     try {
