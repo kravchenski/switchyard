@@ -25,6 +25,8 @@ document.getElementById('box').addEventListener('keydown', async event => {
 
 const precheckPage = chatPage.replace("const response = await fetch('/api/stream'", "await (await fetch('/api/stream?precheck=1', { method: 'POST' })).text();\n  const response = await fetch('/api/stream'");
 
+const lingeringPrecheckPage = chatPage.replace("const response = await fetch('/api/stream'", "const precheck = (await fetch('/api/stream?precheck=linger', { method: 'POST' })).body.getReader();\n  await precheck.read();\n  precheck.read();\n  const response = await fetch('/api/stream'");
+
 const jsonPage = chatPage.replace("body: event.target.value", "body: JSON.stringify({ model: 'site-default', messages: [{ models: ['site-default'], content: event.target.value }] })");
 const framedPage = chatPage.replace("body: event.target.value", "body: (() => { const json = new TextEncoder().encode(JSON.stringify({ options: { model: 'site-default' } })); const out = new Uint8Array(5 + json.length); new DataView(out.buffer).setUint32(1, json.length); out.set(json, 5); return out; })()");
 
@@ -52,6 +54,15 @@ beforeAll(() => {
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
+      if (url.pathname === '/api/stream' && url.searchParams.get('precheck') === 'linger') {
+        return new Response(new ReadableStream({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode(JSON.stringify({ code: 0, sig: 'from bx' })));
+            await Bun.sleep(400);
+            controller.close();
+          },
+        }));
+      }
       if (url.pathname === '/api/stream' && url.searchParams.has('precheck')) {
         return Response.json({ code: 0, sig: 'from bx' });
       }
@@ -77,6 +88,7 @@ beforeAll(() => {
       const html = url.pathname === '/verify' ? verifyPage
         : url.pathname === '/slow-send' ? slowSendPage
         : url.pathname === '/precheck' ? precheckPage
+        : url.pathname === '/lingering-precheck' ? lingeringPrecheckPage
         : url.pathname === '/replay' ? replayPage
         : url.pathname === '/json' ? jsonPage
         : url.pathname === '/framed' ? framedPage
@@ -264,6 +276,16 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
     try {
       const text = await collect(await session.send({ ...site('/precheck'), ignoredResponse: /"sig":"from bx"/ }, 'real one'));
       expect(text).toBe('data: first\n\ndata: echo real one\n\ndata: [DONE]\n\n');
+    } finally {
+      await session.close();
+    }
+  }, 60_000);
+
+  test('streams the answer that starts before a pre-check response has ended', async () => {
+    const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true, firstChunkTimeoutMs: 15_000 });
+    try {
+      const text = await collect(await session.send({ ...site('/lingering-precheck'), ignoredResponse: /"sig":"from bx"/ }, 'late answer'));
+      expect(text).toBe('data: first\n\ndata: echo late answer\n\ndata: [DONE]\n\n');
     } finally {
       await session.close();
     }

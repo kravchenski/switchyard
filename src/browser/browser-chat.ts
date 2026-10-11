@@ -332,36 +332,50 @@ async function drainResponse(queue: ChunkQueue) {
 }
 
 class ChunkQueue {
-  private readonly items: Array<Uint8Array | null> = [];
-  private readonly ignored = new Set<number>();
-  private owner?: number;
+  private readonly streams = new Map<number, Array<Uint8Array | null>>();
+  private readonly order: number[] = [];
   private waiter?: () => void;
 
-  pushFrom(stream: number, item: Uint8Array | null) {
-    if (this.ignored.has(stream)) return;
-    this.owner ??= stream;
-    if (stream !== this.owner) {
-      this.ignored.add(stream);
-      return;
-    }
-    if (item === null) this.owner = undefined;
-    this.push(item);
-  }
+  constructor(private readonly skipUpTo = 0) {}
 
-  push(item: Uint8Array | null) {
-    this.items.push(item);
+  pushFrom(stream: number, item: Uint8Array | null) {
+    if (stream <= this.skipUpTo) return;
+    let items = this.streams.get(stream);
+    if (!items) {
+      items = [];
+      this.streams.set(stream, items);
+      this.order.push(stream);
+    }
+    items.push(item);
     this.waiter?.();
   }
 
   async next(timeoutMs?: number): Promise<Uint8Array | null | 'timeout'> {
-    if (!this.items.length) {
+    const deadline = timeoutMs === undefined ? Infinity : Date.now() + timeoutMs;
+    for (;;) {
+      const item = this.take();
+      if (item !== undefined) return item;
+      const left = deadline - Date.now();
+      if (left <= 0) return 'timeout';
       await new Promise<void>(resolve => {
         this.waiter = resolve;
-        if (timeoutMs !== undefined) setTimeout(resolve, timeoutMs);
+        if (left !== Infinity) setTimeout(resolve, left);
       });
       this.waiter = undefined;
     }
-    return this.items.length ? this.items.shift()! : 'timeout';
+  }
+
+  private take(): Uint8Array | null | undefined {
+    const current = this.order[0];
+    if (current === undefined) return undefined;
+    const items = this.streams.get(current)!;
+    if (!items.length) return undefined;
+    const item = items.shift()!;
+    if (item === null) {
+      this.order.shift();
+      this.streams.delete(current);
+    }
+    return item;
   }
 }
 
@@ -371,6 +385,7 @@ export class BrowserChatSession {
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly lastSent = new Map<string, number>();
   private readonly pageQueues = new Map<Page, ChunkQueue>();
+  private readonly lastStreams = new WeakMap<Page, number>();
   private readonly threads = new Map<string, ChatThread[]>();
 
   constructor(private readonly options: BrowserChatOptions = {}) {}
@@ -601,7 +616,7 @@ export class BrowserChatSession {
     if (thread.page.isClosed() || !conversation.toPrompt) {
       throw new Error(`${site.id} thread cannot continue`);
     }
-    const queue = new ChunkQueue();
+    const queue = new ChunkQueue(this.lastStreams.get(thread.page));
     this.pageQueues.set(thread.page, queue);
     thread.sent = messages.slice();
     thread.lastUsed = Date.now();
@@ -652,6 +667,7 @@ export class BrowserChatSession {
     const queue = new ChunkQueue();
     this.pageQueues.set(page, queue);
     await page.exposeFunction(BINDING, (stream: number, chunk: string | null) => {
+      this.lastStreams.set(page, Math.max(stream, this.lastStreams.get(page) ?? 0));
       this.pageQueues.get(page)?.pushFrom(stream, chunk === null ? null : Buffer.from(chunk, 'base64'));
     });
     const fields = model && site.modelFields ? site.modelFields(model) : undefined;
