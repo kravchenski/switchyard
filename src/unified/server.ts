@@ -7,7 +7,7 @@ import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
 import { conversationalShellText, stripEmptyFences, stripLeadingCallTail, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
-import { bearerToken, isLocalRequest, tokenMatches } from '../gateway/security.ts';
+import { bearerToken, isLocalRequest, parseOrigins, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
 import { ResponsesStreamTranslator } from '../gateway/responses-stream.ts';
 import { anthropicError, anthropicToChatRequest, chatToAnthropicMessage, estimateInputTokens } from '../api/anthropic/messages.ts';
@@ -63,6 +63,7 @@ const config = loadConfig();
 const port = config.UNIFIED_PORT;
 const host = config.HOST;
 const apiKey = config.GATEWAY_API_KEY;
+const trustedOrigins = parseOrigins(config.EXTENSION_ORIGINS);
 const maxBodyBytes = 25 * 1024 * 1024;
 
 const requestIds = new WeakMap<Request, string>();
@@ -81,7 +82,7 @@ app.use('*', async (c, next) => {
 
 app.use('*', async (c, next) => {
     if (c.req.path === '/health') return next();
-    if (!apiKey && !isLocalRequest(c.req.raw)) {
+    if (!apiKey && !isLocalRequest(c.req.raw, trustedOrigins)) {
         return c.json({ error: { message: 'Set GATEWAY_API_KEY to accept requests from other hosts or web pages', type: 'permission_error' } }, 403);
     }
     if (tokenMatches(bearerToken(c.req.header('authorization')) ?? c.req.header('x-api-key') ?? null, apiKey)) return next();

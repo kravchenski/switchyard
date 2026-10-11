@@ -44,11 +44,18 @@ function isLocalHostname(hostname: string | null) {
     return hostname !== null && (LOCAL_HOSTNAMES.has(hostname) || hostname.endsWith('.localhost'));
 }
 
-export function isLocalRequest(request: Request) {
+/** Parses a comma-separated origin list; "none" turns it off. */
+export function parseOrigins(value: string | undefined): ReadonlySet<string> {
+    const origins = (value ?? '').split(',').map(origin => origin.trim().toLowerCase().replace(/\/+$/, '')).filter(Boolean);
+    return new Set(origins.filter(origin => origin !== 'none'));
+}
+
+/** Local requests are sent to localhost from a local page, a trusted origin (such as the browser extension) or no page at all. */
+export function isLocalRequest(request: Request, trustedOrigins: ReadonlySet<string> = new Set()) {
     const host = request.headers.get('host') ?? new URL(request.url).host;
     if (!isLocalHostname(hostnameOf(host))) return false;
     const origin = request.headers.get('origin');
-    return !origin || isLocalHostname(hostnameOf(origin));
+    return !origin || isLocalHostname(hostnameOf(origin)) || trustedOrigins.has(origin.toLowerCase());
 }
 
 export function isForwardableResponseHeader(name: string) {
