@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.16.0](https://github.com/kravchenski/switchyard/compare/v2.15.0...v2.16.0) (2026-10-11)
+
+
+### Features
+
+* **desktop:** show the app version and offer new releases ([9ca348e](https://github.com/kravchenski/switchyard/commit/9ca348e15b748d31d5ef471770242b2c35ef3da6))
+* **desktop:** show the app version and offer new releases ([8775872](https://github.com/kravchenski/switchyard/commit/8775872e45a8ca288eb77f061af0318d8faf01e5))
+* **web-chat:** warm web chats up at startup and cool timed out chats down for 2 minutes ([fa22fd4](https://github.com/kravchenski/switchyard/commit/fa22fd493c6f2a93c0b1fac6104f273f6dbc5def))
+* **web-chat:** warm web chats up at startup and cool timed out chats down for 2 minutes ([f5e7b21](https://github.com/kravchenski/switchyard/commit/f5e7b21588639fa819caa5edc3488eccf9b2a47b))
+
+
+### Bug Fixes
+
+* **tools:** keep json fences around tool calls out of replies and retry cut-off calls ([c9ab69d](https://github.com/kravchenski/switchyard/commit/c9ab69d218eb19d49503f12124d303fb09bc7bd2))
+* **tools:** keep json fences around tool calls out of replies and retry cut-off calls ([b47376f](https://github.com/kravchenski/switchyard/commit/b47376fea43f7f8a9cc128b6fe126ac2da2b97c5))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.15.0 ([cd7a20e](https://github.com/kravchenski/switchyard/commit/cd7a20e9c35cab41a88a4866507f755a189dd5b6))
+
 ## [2.15.0](https://github.com/kravchenski/switchyard/compare/v2.14.0...v2.15.0) (2026-10-11)
 
 
