@@ -5,6 +5,7 @@ mod overview;
 mod settings;
 mod status;
 mod ui;
+mod update;
 
 use std::time::Duration;
 
@@ -22,6 +23,7 @@ use status::{check_models, fetch_decision, fetch_status, now_ms, read_api_key, r
 use ui::*;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const OVERVIEW_EVERY_POLLS: u32 = 10;
 const COMPACT_WIDTH: f32 = 1100.;
 const COPIED_FOR: Duration = Duration::from_secs(2);
@@ -87,6 +89,8 @@ struct Shell {
     expanded_chat: Option<String>,
     open_request: Option<(i64, String)>,
     dismissed_alerts: Vec<String>,
+    update: Option<update::Release>,
+    update_dismissed: bool,
     request_decision: Option<Result<Decision, String>>,
     theme: ThemeChoice,
     applied_dark: Option<bool>,
@@ -166,6 +170,8 @@ impl Shell {
             expanded_chat: None,
             open_request: None,
             dismissed_alerts: Vec::new(),
+            update: None,
+            update_dismissed: false,
             request_decision: None,
             theme: settings::load(&config_root).theme,
             applied_dark: None,
@@ -178,6 +184,21 @@ impl Shell {
             copied: false,
         };
         shell.refresh(cx);
+        if let Some(current) = update::app_version() {
+            cx.spawn(async move |this, cx| loop {
+                let release = cx.background_executor().spawn(async move { update::available_update(current) }).await;
+                if this.update(cx, |shell, cx| {
+                    if release.is_some() {
+                        shell.update = release;
+                        cx.notify();
+                    }
+                }).is_err() {
+                    break;
+                }
+                cx.background_executor().timer(UPDATE_CHECK_INTERVAL).await;
+            })
+            .detach();
+        }
         shell
     }
 
@@ -546,6 +567,7 @@ impl Render for Shell {
                             .flex()
                             .flex_col()
                             .gap_5()
+                            .children(self.render_update_banner(cx))
                             .children(self.render_sign_in_alerts(cx))
                             .children(self.render_message())
                             .child(match self.page {
@@ -621,7 +643,13 @@ impl Shell {
                     .px_2()
                     .pb_5()
                     .child(img("logos/switchyard.svg").size(px(30.)).flex_none())
-                    .child(div().font_family(assets::MONO_FAMILY).text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child("switchyard")),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(div().font_family(assets::MONO_FAMILY).text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child("switchyard"))
+                            .child(div().font_family(assets::MONO_FAMILY).text_xs().text_color(col(MUTED)).child(update::app_version().map(|version| format!("v{version}")).unwrap_or_else(|| "dev build".into()))),
+                    ),
             )
             .child(
                 div()
@@ -720,6 +748,40 @@ impl Shell {
             .iter()
             .filter(|row| !self.dismissed_alerts.contains(&row.id) && needs_sign_in(row, self.live(&row.id)))
             .collect()
+    }
+
+    fn render_update_banner(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let release = self.update.clone().filter(|_| !self.update_dismissed)?;
+        let current = update::app_version().unwrap_or_default();
+        let url = release.html_url.clone();
+        Some(
+            card()
+                .p_4()
+                .flex()
+                .items_center()
+                .gap_3()
+                .bg(col(PRIMARY_SOFT))
+                .child(img("logos/switchyard.svg").size(px(26.)).flex_none())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(format!("Switchyard {} is available", release.version())))
+                        .child(muted(format!("You have {current}. Download the new version from the release page.")).text_xs()),
+                )
+                .child(button("update-download", "Download", Some(IconName::ExternalLink), Tone::Primary, true).on_click(cx.listener(move |shell, _, _, cx| {
+                    if let Err(error) = open_in_browser(&url) {
+                        shell.message = Some((false, error));
+                    }
+                    cx.notify();
+                })))
+                .child(button("update-dismiss", "Later", None, Tone::Outline, true).on_click(cx.listener(|shell, _, _, cx| {
+                    shell.update_dismissed = true;
+                    cx.notify();
+                }))),
+        )
     }
 
     fn render_sign_in_alerts(&self, cx: &mut Context<Self>) -> Option<Div> {

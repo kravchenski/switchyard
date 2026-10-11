@@ -98,6 +98,8 @@ runs:
 
     - name: Build desktop app
       shell: bash
+      env:
+        SWITCHYARD_VERSION: ${{ inputs.version }}
       run: cargo build --manifest-path desktop/Cargo.toml --release --locked
 
     - name: Set package version
