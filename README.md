@@ -85,6 +85,8 @@ With the [Switchyard extension](https://github.com/kravchenski/switchyard-extens
 claude mcp add --transport http switchyard-browser http://localhost:3260/mcp
 ```
 
+`bun run setup:agents -- --browser-tools` registers it for Claude Code, OpenCode and Codex instead.
+
 With `GATEWAY_API_KEY` set, add `--header "Authorization: Bearer <GATEWAY_API_KEY>"` and enter the same key in the extension settings. The tool list is remembered, so agents started before Chrome still see the tools; calls fail with a clear message until the extension connects. `GET /v1/gateway/browser` shows whether it is connected.
 
 ## Desktop app

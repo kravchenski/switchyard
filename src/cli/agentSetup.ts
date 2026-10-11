@@ -24,6 +24,8 @@ export type AgentSetupOptions = {
     agents: AgentId[];
     allowCommands: boolean;
     apiKey: string;
+    /** Register the Switchyard extension's browser tools (MCP at /mcp) with agents that support it. */
+    browserTools: boolean;
     baseUrl: string;
     bridgeUrl: string;
     dryRun: boolean;
@@ -42,6 +44,7 @@ const DEFAULT_BASE_URL = 'http://127.0.0.1:3260/api';
 const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:4000';
 const DEFAULT_API_KEY = 'dummy-key';
 const DEFAULT_MODEL = 'auto';
+const BROWSER_MCP_SERVER = 'switchyard-browser';
 const FALLBACK_MODELS = [
     'auto',
     'deepseek-default',
@@ -81,6 +84,7 @@ export function parseAgentSetupArgs(
         agents: [...AGENT_IDS],
         allowCommands: false,
         apiKey: environment.FREEAI_API_KEY || DEFAULT_API_KEY,
+        browserTools: false,
         baseUrl: environment.FREEAI_URL || DEFAULT_BASE_URL,
         bridgeUrl: environment.FREEAI_BRIDGE_URL || DEFAULT_BRIDGE_URL,
         dryRun: false,
@@ -93,6 +97,7 @@ export function parseAgentSetupArgs(
         if (argument === '--all') options.agents = [...AGENT_IDS];
         else if (argument === '--dry-run') options.dryRun = true;
         else if (argument === '--allow-commands') options.allowCommands = true;
+        else if (argument === '--browser-tools') options.browserTools = true;
         else if (argument === '--help' || argument === '-h') options.help = true;
         else if (argument === '--agent') options.agents = parseAgentList(requireValue(args, ++index, argument));
         else if (argument.startsWith('--agent=')) options.agents = parseAgentList(argument.slice('--agent='.length));
@@ -182,6 +187,14 @@ export async function installAgentIntegrations(
             options,
             'claude'
         ));
+        if (options.browserTools) {
+            results.push(await writeGeneratedFile(
+                paths.claudeMcp,
+                `${JSON.stringify(claudeMcpConfig(options), null, 2)}\n`,
+                options,
+                'claude'
+            ));
+        }
     }
     if (options.agents.includes('cline')) {
         results.push(await writeGeneratedFile(
@@ -218,6 +231,7 @@ export function integrationPaths(home: string) {
     return {
         aider: join(home, '.aider.freeqwenapi.yml'),
         claude: join(home, '.claude', 'freeai-settings.json'),
+        claudeMcp: join(home, '.claude', 'freeai-mcp.json'),
         cline: join(bundle, 'cline-auth.txt'),
         codex: join(home, '.codex', 'freeai.config.toml'),
         codexBase: join(home, '.codex', 'config.toml'),
@@ -249,6 +263,8 @@ Options:
   --bridge-url <url>    Optional LiteLLM endpoint (Claude Code and Codex connect directly)
   --api-key <key>       Local proxy or LiteLLM key
   --home <path>         Override the target home directory
+  --browser-tools       Add the Switchyard extension's browser tools (MCP at
+                        <gateway>/mcp) to Claude Code, OpenCode and Codex
   --allow-commands      Let OpenCode run shell commands and fetch URLs without
                         asking (by default they need your approval, because web
                         chat answers can carry instructions from files and pages)
@@ -344,7 +360,37 @@ function mergeOpenCodeConfig(current: Record<string, any>, options: AgentSetupOp
         }]))
     };
     if (!options.allowCommands) config.permission = askBeforeCommands(current.permission);
+    if (options.browserTools) {
+        config.mcp = {
+            ...(current.mcp || {}),
+            [BROWSER_MCP_SERVER]: { type: 'remote', url: browserMcpUrl(options), enabled: true, headers: browserMcpHeaders(options) }
+        };
+    }
     return config;
+}
+
+function browserMcpUrl(options: AgentSetupOptions) {
+    return `${gatewayOrigin(options.baseUrl)}/mcp`;
+}
+
+function browserMcpHeaders(options: AgentSetupOptions) {
+    return { Authorization: `Bearer ${options.apiKey}` };
+}
+
+function claudeMcpConfig(options: AgentSetupOptions) {
+    return {
+        mcpServers: {
+            [BROWSER_MCP_SERVER]: { type: 'http', url: browserMcpUrl(options), headers: browserMcpHeaders(options) }
+        }
+    };
+}
+
+// Codex reads MCP servers only from the top level of config.toml, not from profiles. Dotted keys
+// keep the managed block free of [table] headers, which would capture the user's top-level keys after it.
+function codexBrowserMcp(options: AgentSetupOptions) {
+    const server = `mcp_servers.${BROWSER_MCP_SERVER}`;
+    return `${server}.url = "${escapeDoubleQuoted(browserMcpUrl(options))}"
+${server}.http_headers = { "Authorization" = "Bearer ${escapeDoubleQuoted(options.apiKey)}" }`;
 }
 
 function askBeforeCommands(permission: unknown) {
@@ -493,9 +539,10 @@ async function installCodexProfiles(
 
     const results: InstallResult[] = [];
     const baseCatalogConfig = `model_catalog_json = "${escapeDoubleQuoted(paths.codexModels)}"`;
+    const managed = options.browserTools ? `${baseCatalogConfig}\n${codexBrowserMcp(options)}` : baseCatalogConfig;
     results.push(await writeGeneratedFile(
         paths.codexBase,
-        mergeManagedBlock(removeManagedBlock(baseConfig), baseCatalogConfig),
+        mergeManagedBlock(removeManagedBlock(baseConfig), managed),
         options,
         'codex'
     ));
@@ -615,8 +662,14 @@ Optional LiteLLM bridge: \`${options.bridgeUrl}\`
 - Hermes: \`hermes chat --provider custom:freeai --model ${model}\`
 - Aider: \`aider --config "${paths.aider}"\`
 - Cline: follow \`${paths.cline}\`
-- Claude Code: \`claude --settings "${paths.claude}" --model ${model}\`
+- Claude Code: \`claude --settings "${paths.claude}"${options.browserTools ? ` --mcp-config "${paths.claudeMcp}"` : ''} --model ${model}\`
+${options.browserTools ? `
+## Browser tools
 
+The Switchyard extension's browser tools are registered as the \`${BROWSER_MCP_SERVER}\` MCP
+server at \`${browserMcpUrl(options)}\` for Claude Code (\`--mcp-config\` above), OpenCode and
+Codex. Install the extension in Chrome and keep the gateway running.
+` : ''}
 ## Responses integrations
 
 Codex uses the native FreeQwenApi Responses bridge, which preserves MCP tool

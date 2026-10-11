@@ -45,6 +45,7 @@ bun run setup:agents -- --bridge-url http://127.0.0.1:4000
 bun run setup:agents -- --api-key dummy-key
 bun run setup:agents -- --home /custom/home
 bun run setup:agents -- --allow-commands
+bun run setup:agents -- --browser-tools
 bun run setup:agents -- --help
 ```
 

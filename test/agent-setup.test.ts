@@ -56,6 +56,42 @@ describe('agent integration setup', () => {
         }
     });
 
+    test('registers the browser tools MCP server only with --browser-tools', async () => {
+        const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
+        const paths = integrationPaths(home);
+        try {
+            expect(parseAgentSetupArgs([]).browserTools).toBeFalse();
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'claude,opencode,codex', '--home', home]), ['auto']);
+            expect(await readFile(paths.codexBase, 'utf8')).not.toContain('mcp_servers');
+            expect(JSON.parse(await readFile(paths.opencode, 'utf8')).mcp).toBeUndefined();
+            await expect(readFile(paths.claudeMcp, 'utf8')).rejects.toThrow();
+
+            await writeFile(paths.opencode, JSON.stringify({ mcp: { mine: { type: 'local', command: ['x'] } } }));
+            await writeFile(paths.codexBase, 'approval_policy = "never"\n\n[profiles.mine]\nmodel = "x"\n');
+            const options = parseAgentSetupArgs(['--agent', 'claude,opencode,codex', '--home', home, '--browser-tools', '--api-key', 'k']);
+            await installAgentIntegrations(options, ['auto']);
+
+            expect(JSON.parse(await readFile(paths.claudeMcp, 'utf8'))).toEqual({
+                mcpServers: { 'switchyard-browser': { type: 'http', url: 'http://127.0.0.1:3260/mcp', headers: { Authorization: 'Bearer k' } } }
+            });
+            expect(JSON.parse(await readFile(paths.opencode, 'utf8')).mcp).toEqual({
+                mine: { type: 'local', command: ['x'] },
+                'switchyard-browser': { type: 'remote', url: 'http://127.0.0.1:3260/mcp', enabled: true, headers: { Authorization: 'Bearer k' } }
+            });
+            const codex = TOML.parse(await readFile(paths.codexBase, 'utf8')) as Record<string, any>;
+            expect(codex.mcp_servers['switchyard-browser']).toEqual({ url: 'http://127.0.0.1:3260/mcp', http_headers: { Authorization: 'Bearer k' } });
+            expect(codex.model_catalog_json).toBe(paths.codexModels);
+            expect(codex.approval_policy).toBe('never');
+            expect(codex.profiles.mine).toEqual({ model: 'x' });
+            expect(await readFile(paths.readme, 'utf8')).toContain(`--mcp-config "${paths.claudeMcp}"`);
+
+            const again = await installAgentIntegrations(options, ['auto']);
+            expect(again.every(result => result.status === 'unchanged')).toBeTrue();
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    });
+
     test('parses cross-platform setup options', () => {
         const options = parseAgentSetupArgs([
             '--agent=pi,opencode',
