@@ -27,6 +27,7 @@ const MODEL_TIMEOUT_COOLDOWN_MS = 10 * 60_000;
 
 export interface SmartRouterOptions {
   firstChunkTimeoutMs?: number;
+  webFirstChunkTimeoutMs?: number;
   autoEnabled?: (providerId: string) => boolean;
   prepareAuto?: () => void;
   onDecision?: (decision: Omit<RoutingDecision, 'id'>) => number | void;
@@ -193,6 +194,10 @@ export class SmartRouter {
     return fail(new ProviderError(`All routes failed for model ${model}: ${failures.join('; ')}`, 'unavailable'));
   }
 
+  private firstChunkTimeout(route: Route) {
+    return route.provider.fallback ? this.options.firstChunkTimeoutMs : this.options.webFirstChunkTimeoutMs ?? this.options.firstChunkTimeoutMs;
+  }
+
   private async sequential(routes: Route[], build: (route: Route) => ChatRequest, attempts: RouteAttempt[], failures: string[], only: boolean) {
     for (const route of routes) {
       // A direct (single-route) open gets one extra chance: browser chats
@@ -202,7 +207,7 @@ export class SmartRouter {
       for (let tryIndex = 1; ; tryIndex++) {
         const startedAt = this.now();
         try {
-          const { stream, chunks, latencyMs } = await this.attempt(route, build, new AbortController(), only ? undefined : this.options.firstChunkTimeoutMs);
+          const { stream, chunks, latencyMs } = await this.attempt(route, build, new AbortController(), only ? undefined : this.firstChunkTimeout(route));
           this.succeeded(route, latencyMs);
           attempts.push({ model: route.model, provider: route.provider.id, outcome: 'chosen', latencyMs });
           return { stream, chunks, route };

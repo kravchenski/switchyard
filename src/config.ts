@@ -18,6 +18,7 @@ const envSchema = z.object({
     AUTO_MODELS: optionalText,
     WEB_CHAT_MIN_INTERVAL_MS: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(600_000).default(10_000)),
     AUTO_FIRST_CHUNK_TIMEOUT_MS: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(600_000).default(60_000)),
+    WEB_FIRST_CHUNK_TIMEOUT_MS: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(600_000).default(150_000)),
     MODEL_REFRESH_MINUTES: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(10_080).default(360)),
 });
 

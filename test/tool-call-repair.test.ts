@@ -2,6 +2,13 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     extractFirstToolCallObject,
+    hasFabricatedTranscript,
+    deniesTool,
+    hasRejectedToolCall,
+    isUnparsedToolCall,
+    isBrokenToolCall,
+    isToolCallFragment,
+    stripRejectedToolCalls,
     hasObviouslyBrokenEditArguments,
     recoverSimpleToolCalls,
     recoverBrokenBashToolCall,
@@ -355,4 +362,111 @@ describe('transcript-style tool calls from web chats', () => {
         expect(stripFabricatedTranscript('Done.\nTool result (bash): [no output]')).toBe('Done.');
         expect(stripFabricatedTranscript('No transcript here.')).toBe('No transcript here.');
     });
+
+    test('recovers "Tool calls:" blocks without the Assistant prefix', () => {
+        const line = `Tool calls: [{"id":"call_02a47814723a39c53473b8","type":"function","function":{"name":"bash","arguments":"{\\"command\\":\\"ls\\"}"}}]`;
+        expect(recoverTranscriptStyleToolCalls(line)).toEqual([{ name: 'bash', arguments: { command: 'ls' } }]);
+        expect(stripFabricatedTranscript(`Let me look.\n${line}`)).toBe('Let me look.');
+    });
+
+    test('recovers named "Tool calls: <tool>" blocks followed by their JSON arguments', () => {
+        const reply = [
+            'Ok, building a static site instead.',
+            '',
+            'Tool calls: bash',
+            '',
+            '{"command":"cd /tmp/report && pandoc report.md -t html5 -o frag.html && grep -o \'<h1[^>]*>\' frag.html | head -20"}',
+            '',
+            'Tool calls: read',
+            '',
+            '{"path":"/tmp/report/build_site.py"}',
+        ].join('\n');
+        expect(parseToolCallJson(reply, bashTool)!.map(call => [call.function.name, JSON.parse(call.function.arguments)])).toEqual([
+            ['bash', { command: "cd /tmp/report && pandoc report.md -t html5 -o frag.html && grep -o '<h1[^>]*>' frag.html | head -20" }],
+            ['read', { path: '/tmp/report/build_site.py' }],
+        ]);
+        expect(stripFabricatedTranscript(reply)).toBe('Ok, building a static site instead.');
+    });
+
+    test('repairs unescaped quotes, stops at invented prose and skips repeated calls', () => {
+        const reply = [
+            'Tool calls: bash',
+            '',
+            '{"command":"cd /tmp/report && python3 build_site.py; echo "exit=$?\\"; ls -la site"}',
+            '',
+            'Tool calls: read',
+            '',
+            '{"path":"/tmp/report/build_site.py"}',
+            '',
+            'Tool calls: read',
+            '',
+            '{"path":"/tmp/report/build_site.py"}',
+            '',
+            'The previous calls returned nothing, running it again.',
+            '',
+            'Tool calls: bash',
+            '',
+            '{"command":"rm -rf site"}',
+        ].join('\n');
+        expect(recoverTranscriptStyleToolCalls(reply)).toEqual([
+            { name: 'bash', arguments: { command: 'cd /tmp/report && python3 build_site.py; echo "exit=$?"; ls -la site' } },
+            { name: 'read', arguments: { path: '/tmp/report/build_site.py' } },
+        ]);
+    });
+
+    test('never leaks a named block whose arguments are cut off', () => {
+        const reply = 'Writing the script.\n\nTool calls: write\n\n{"path":"/tmp/a.py","content":"import re\\n';
+        expect(recoverTranscriptStyleToolCalls(reply)).toBeNull();
+        expect(hasFabricatedTranscript(reply)).toBeTrue();
+        expect(stripFabricatedTranscript(reply)).toBe('Writing the script.');
+    });
+});
+
+describe('broken tool calls from web chats', () => {
+    test('spots the rejection a chat writes when it swallows a tool call', () => {
+        expect(hasRejectedToolCall('Done.\n\nTool bash does not exists.More text')).toBeTrue();
+        expect(hasRejectedToolCall('The tool does not exist yet, so I wrote it.')).toBeFalse();
+        expect(stripRejectedToolCalls('Done.\n\nTool bash does not exists.\n\n\nNext')).toBe('Done.\n\nNext');
+    });
+
+    test('spots the tail of a tool call whose start went missing', () => {
+        expect(isToolCallFragment(', "out.md")\\n    print(1)"}}]}')).toBeTrue();
+        expect(isToolCallFragment('print(1)"}}]}')).toBeTrue();
+        expect(isToolCallFragment('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}', [{ type: 'function', function: { name: 'bash' } }])).toBeFalse();
+        expect(isToolCallFragment('All tests pass.')).toBeFalse();
+        expect(isBrokenToolCall('Tool read does not exist')).toBeTrue();
+    });
+
+    test('spots the ways web chats garble a call when they fall back to their own tool format', () => {
+        const tools = [{ type: 'function', function: { name: 'bash' } }];
+        expect(isBrokenToolCall('<tool_call>\n{"command": "ls -la"}\n</tool_call>', tools)).toBeTrue();
+        expect(isBrokenToolCall('<{ \'"name": "local", "arguments": {"command": "ls -la"}}\' }>', tools)).toBeTrue();
+        expect(isBrokenToolCall('I do not have a tool named `bash`. The available tools are `web_search` and `code_interpreter`.', tools)).toBeTrue();
+        expect(isBrokenToolCall("I don't have a bash tool (or any tools) available in this conversation, so I can't run `ls -la`.", tools)).toBeTrue();
+        expect(isBrokenToolCall("I don't have access to tools here.", tools)).toBeTrue();
+        expect(deniesTool("I don't have a strong opinion on the tool you picked.")).toBeFalse();
+        expect(isBrokenToolCall('<tool_call>\n{"name": "bash", "arguments": {"command": "ls -la"}}\n</tool_call>', tools)).toBeFalse();
+        expect(isBrokenToolCall('The build passes and all 12 tests are green.', tools)).toBeFalse();
+    });
+});
+
+describe('tool call formats used by web chats and open models', () => {
+    const tools = ['bash', 'read'].map(name => ({ type: 'function', function: { name } }));
+    const calls = (text: string) => parseToolCallJson(text, tools)?.map(call => [call.function.name, JSON.parse(call.function.arguments)]) ?? null;
+    const ls = [['bash', { command: 'ls' }]];
+    const cases: Array<[string, string, unknown]> = [
+        ['name with parameters', '{"name":"bash","parameters":{"command":"ls"}}', ls],
+        ['two hermes tool_call tags', '<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call>\n<tool_call>{"name":"read","arguments":{"path":"a.ts"}}</tool_call>', [['bash', { command: 'ls' }], ['read', { path: 'a.ts' }]]],
+        ['qwen-coder xml inside tool_call', '<tool_call>\n<function=read>\n<parameter=path>\na.ts\n</parameter>\n</function>\n</tool_call>', [['read', { path: 'a.ts' }]]],
+        ['singular Tool call with a json block', 'Tool call: bash\n{"command":"ls"}', ls],
+        ['Tool calls with a fenced json block', 'Tool calls: bash\n\n```json\n{"command":"ls"}\n```', ls],
+        ['kimi functions prefix', 'functions.bash:0 {"command":"ls"}', ls],
+        ['kimi special tokens', '<|tool_calls_section_begin|><|tool_call_begin|>functions.bash:0<|tool_call_argument_begin|>{"command":"ls"}<|tool_call_end|><|tool_calls_section_end|>', ls],
+        ['react action', 'Thought: I need files.\nAction: bash\nAction Input: {"command":"ls"}', ls],
+        ['a fenced shell block stays text', '```bash\nls -la\n```', null],
+        ['a plain answer stays text', 'Action items are done. These functions: none. Nothing else to do.', null],
+    ];
+    for (const [name, text, expected] of cases) {
+        test(name, () => expect(calls(text)).toEqual(expected as any));
+    }
 });

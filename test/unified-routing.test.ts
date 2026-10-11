@@ -411,6 +411,41 @@ describe('unified server routing', () => {
     expect(deltas.at(-1).finish_reason).toBe('stop');
   });
 
+  test('retries a tool call the web chat swallowed and never streams its rejection', async () => {
+    replies.push([
+      { type: 'content', text: 'Now I will build the slides with python-pptx.\n\n' },
+      { type: 'content', text: 'Tool bash does not exists.' },
+      { type: 'content', text: 'The data is ready.' },
+    ]);
+    replies.push([{ type: 'content', text: '{"tool_calls":[{"name":"bash","arguments":{"command":"python3 make_slides.py"}}]}' }]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    expect(text).not.toContain('does not exist');
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.at(-1)!.content).toContain('did not reach the tools');
+    const deltas = sseDeltas(text);
+    expect(deltas.map(choice => choice.delta.content).filter(Boolean).join('')).toBe('Now I will build the slides with python-pptx.\n\n');
+    const calls = deltas.flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'python3 make_slides.py' });
+    expect(deltas.at(-1).finish_reason).toBe('tool_calls');
+  });
+
+  test('holds back and retries the tail of a tool call whose start the web chat swallowed', async () => {
+    replies.push([{ type: 'content', text: ', "slides.md")\\n    print(\\"done\\")"}}]}' }]);
+    replies.push([{ type: 'content', text: '{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}' }]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    expect(text).not.toContain('slides.md');
+    expect(requests).toHaveLength(2);
+    const calls = sseDeltas(text).flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'ls' });
+  });
+
+  test('drops the rejection text when the retried reply is plain text', async () => {
+    replies.push([{ type: 'content', text: 'Tool bash does not exists.' }]);
+    replies.push([{ type: 'content', text: 'Tool bash does not exists. The slides are in slides.md.' }]);
+    const body = await (await chat({ tools: bashTool })).json();
+    expect(body.choices[0].message.content).toBe('The slides are in slides.md.');
+  });
+
   test('retries with a nudge in streaming mode when nothing was streamed', async () => {
     replies.push([]);
     replies.push([{ type: 'content', text: '{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}' }]);
