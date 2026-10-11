@@ -34,7 +34,7 @@ import { ProviderError, toHttpError } from '../core/providers/errors.ts';
 import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
 import { AGENT_MODEL, AUTO_MODEL, chainFor, decisionIdOf, isVirtualModel, parseAutoModels, SmartRouter, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
-import { collectImageUrls } from '../core/providers/prompt.ts';
+import { collectImageUrls, stripImages } from '../core/providers/prompt.ts';
 import { conversationKey, SessionAffinity } from '../core/router/session-affinity.ts';
 import { listBrowserProfiles, loadGatewaySetting, loadModelStats, loadWebChatModels, saveWebChatModels, loadUnavailableModels, replaceUnavailableModels, loadProviderSetting, loadSignIn, saveGatewaySetting, saveProviderSetting, openDatabase, recordRequest, saveModelStat, saveSignIn, type RequestLog } from '../core/store/database.ts';
 import { WebSignInStatus } from '../core/accounts/sign-in-status.ts';
@@ -832,8 +832,10 @@ app.post('/api/chat/completions', async (c) => {
         const sessions = sessionKey ? affinity() : undefined;
         const pinned = sessionKey ? sessions?.get(sessionKey, routeModel) : undefined;
         const requestFor = (route: Route, nudge?: ChatMessage): ChatRequest => {
-            const native = captureToolCalls && route.provider.capabilities(route.model).nativeTools;
-            const base = native ? agentMessages : upstreamMessages;
+            const capabilities = route.provider.capabilities(route.model);
+            const native = captureToolCalls && capabilities.nativeTools;
+            const sent = native ? agentMessages : upstreamMessages;
+            const base = routeModel === VISION_MODEL && !capabilities.vision ? stripImages(sent, false) : sent;
             return {
                 model: route.model,
                 messages: nudge ? [...base, nudge] : base,

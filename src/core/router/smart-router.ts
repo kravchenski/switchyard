@@ -89,6 +89,12 @@ export class SmartRouter {
     return this.chains.get(model) ?? [];
   }
 
+  private visionWithFallback() {
+    const vision = this.autoChain(VISION_MODEL);
+    const text = [...this.autoChain(AGENT_MODEL), ...this.autoChain(AUTO_MODEL)];
+    return [...new Set([...vision, ...text])];
+  }
+
   knows(model: string) {
     return isVirtualModel(model) || Boolean(this.registry.resolve(model));
   }
@@ -100,7 +106,7 @@ export class SmartRouter {
     }
     this.options.prepareAuto?.();
     const now = this.now();
-    const chain = this.autoChain(model);
+    const chain = model === VISION_MODEL ? this.visionWithFallback() : this.autoChain(model);
     const candidates = preferredModel && chain.includes(preferredModel)
       ? [preferredModel, ...chain.filter(candidate => candidate !== preferredModel)]
       : chain;
