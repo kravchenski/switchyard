@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.15.0](https://github.com/kravchenski/switchyard/compare/v2.14.0...v2.15.0) (2026-10-11)
+
+
+### Features
+
+* add .pem to .gitignore ([62c291b](https://github.com/kravchenski/switchyard/commit/62c291b582cc5a1b6775ab58372b62a9fb8ef2f2))
+
+
+### Bug Fixes
+
+* **agents:** catch the garbled calls of every web chat, not only Qwen's rejection ([c2f86b6](https://github.com/kravchenski/switchyard/commit/c2f86b6633dfe7329c9a1bdb5496bfe1deb9cb0b))
+* **agents:** retry tool calls a web chat swallows instead of passing on its rejection ([b27f857](https://github.com/kravchenski/switchyard/commit/b27f857a68fd490e8b76fa0428b3fd3498f75c96))
+* **router:** give web chats a longer first-chunk timeout than API models ([d2c9086](https://github.com/kravchenski/switchyard/commit/d2c9086ede0117ee6f3757c86e4e9b5763623219))
+* **tools:** read tool calls in Hermes, Qwen-Coder, Kimi and ReAct formats ([0796a9d](https://github.com/kravchenski/switchyard/commit/0796a9d6691c530eb842ad8a6670b8fa389498c9))
+* **tools:** repair named tool call blocks and stop at invented follow-ups ([c241ce5](https://github.com/kravchenski/switchyard/commit/c241ce5bfc68aadc1468f2d4b7dff060831f821a))
+* **tools:** turn "Tool calls:" transcripts from web chats into real tool calls ([6e9e868](https://github.com/kravchenski/switchyard/commit/6e9e868d510e807fc9657d41badcda80aa74490c))
+* **tools:** turn "Tool calls:" transcripts from web chats into real tool calls ([7fd0455](https://github.com/kravchenski/switchyard/commit/7fd045543d513945ce098e62f45c8d1880547453))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.14.0 ([0afb3cd](https://github.com/kravchenski/switchyard/commit/0afb3cdf5c624bce4945ebd3c6d5789b427b6d87))
+
 ## [2.14.0](https://github.com/kravchenski/switchyard/compare/v2.13.1...v2.14.0) (2026-10-10)
 
 
