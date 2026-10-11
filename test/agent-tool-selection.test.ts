@@ -46,6 +46,21 @@ describe('tool selection', () => {
     expect(decide.calls).toHaveLength(1);
   });
 
+  test('keeps every tool of an MCP server the user names, without asking about them', async () => {
+    const decide = judge(() => false);
+    const selector = new ToolSelector(decide);
+    const playwright = ['browser_navigate', 'browser_snapshot', 'browser_click'].map(name => tool(`mcp__playwright__${name}`));
+    const chrome = tool('mcp__claude-in-chrome__navigate');
+    const tools = [...core, ...extra, ...playwright, chrome];
+    const viaPlaywright = await selector.select(tools, [{ role: 'user', content: 'open https://www.kali.org/tools/ through Playwright MCP' }]);
+    expect(viaPlaywright.tools.map(toolName)).toEqual([...core.map(toolName), ...playwright.map(toolName)]);
+    expect(Object.values(decide.calls[0]!).some(question => question.instructions.includes('playwright'))).toBeFalse();
+    const viaChrome = await selector.select(tools, [{ role: 'user', content: 'check it in claude in chrome' }]);
+    expect(viaChrome.tools.map(toolName)).toContain('mcp__claude-in-chrome__navigate');
+    const unnamed = await selector.select(tools, [{ role: 'user', content: 'fix the failing test' }]);
+    expect(unnamed.tools.map(toolName)).toEqual(core.map(toolName));
+  });
+
   test('keeps a tool the decision model did not answer about', async () => {
     const selector = new ToolSelector(async () => ({}));
     const selection = await selector.select([...core, ...extra], [{ role: 'user', content: 'x' }]);
