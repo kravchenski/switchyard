@@ -5,7 +5,7 @@ export const TOOL_SELECTION_THRESHOLD = 15;
 const KEEP_PROBABILITY = 0.35;
 const QUESTIONS_PER_REQUEST = 60;
 const CACHE_SIZE = 200;
-const CORE_TOOLS = /^(?:read|write|edit|multiedit|bash|shell|local_shell|exec_command|write_stdin|apply_patch|glob|grep|ls|list|find|view|str_replace_based_edit_tool|todowrite|todo_write|update_plan|task|agent)$/i;
+const CORE_TOOLS = /^(?:read|write|edit|multiedit|bash|shell|local_shell|exec_command|write_stdin|apply_patch|glob|grep|ls|list|find|view|str_replace_based_edit_tool|todowrite|todo_write|update_plan|task|agent|webfetch|web_fetch|websearch|web_search)$/i;
 
 export type Tool = Record<string, any>;
 
@@ -44,16 +44,26 @@ function lastUserText(messages: ChatMessage[]) {
   return Array.isArray(content) ? content.map(part => (typeof part?.text === 'string' ? part.text : '')).join('\n') : '';
 }
 
-function mcpServer(name: string) {
-  return /^mcp__(.+?)__/.exec(name)?.[1];
+function toolServer(name: string, prefixes: Map<string, number>) {
+  const mcp = /^mcp__(.+?)__/.exec(name)?.[1];
+  if (mcp) return mcp;
+  const prefix = /^([a-z][a-z0-9-]*)_/.exec(name)?.[1];
+  return prefix && (prefixes.get(prefix) ?? 0) > 1 ? prefix : undefined;
 }
 
 export function mentionedTools(request: string, tools: Tool[]) {
   const text = request.toLowerCase();
-  return tools.filter(tool => {
-    const name = toolName(tool).toLowerCase();
-    const server = mcpServer(name);
-    const words = server ? [server, server.replace(/[-_]+/g, ' ')] : [name, name.replace(/[-_.]+/g, ' ')];
+  const names = tools.map(tool => toolName(tool).toLowerCase());
+  const prefixes = new Map<string, number>();
+  for (const name of names) {
+    const prefix = /^([a-z][a-z0-9-]*)_/.exec(name)?.[1];
+    if (prefix) prefixes.set(prefix, (prefixes.get(prefix) ?? 0) + 1);
+  }
+  return tools.filter((_, index) => {
+    const name = names[index]!;
+    const server = toolServer(name, prefixes);
+    const base = server ?? name;
+    const words = [base, base.replace(/[-_.]+/g, ' '), base.replace(/\d+$/, '')];
     return words.some(word => word.length >= 4 && text.includes(word));
   });
 }
