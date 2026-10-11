@@ -67,3 +67,4 @@ desktop/target/
 
 # Desktop installers
 dist/
+*.pem
