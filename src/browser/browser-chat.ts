@@ -212,6 +212,14 @@ interface ChatThread {
   lastUsed: number;
 }
 
+function conversationTurns(messages: ChatMessage[] = []) {
+  return messages.filter(message => message.role !== 'system');
+}
+
+function systemMessages(messages: ChatMessage[] = []) {
+  return messages.filter(message => message.role === 'system');
+}
+
 function isHistoryPrefix(sent: ChatMessage[], incoming?: ChatMessage[]) {
   if (!incoming || !sent.length || sent.length > incoming.length) return false;
   for (let index = 0; index < sent.length; index++) {
@@ -516,7 +524,7 @@ export class BrowserChatSession {
       alive.push(thread);
       const modelMatches = thread.model === model;
       const conversationIdMatches = !thread.conversationId || !hasConversationId || thread.conversationId === conversation?.conversationId;
-      const historyMatches = isHistoryPrefix(thread.sent, conversation?.messages);
+      const historyMatches = isHistoryPrefix(conversationTurns(thread.sent), conversationTurns(conversation?.messages));
       if (!matched && modelMatches && conversationIdMatches && historyMatches) {
         matched = thread;
       }
@@ -557,11 +565,22 @@ export class BrowserChatSession {
 
   private async resumeThread(thread: ChatThread, site: ChatSite, conversation: SendContext) {
     const messages = conversation.messages!;
-    let delta = isHistoryPrefix(thread.sent, messages) ? messages.slice(thread.sent.length) : messages;
-    if (!delta.length) {
-      const last = messages[messages.length - 1];
-      if (!last || last.role !== 'user') throw new Error(`${site.id} thread cannot continue`);
-      delta = [last];
+    const sentTurns = conversationTurns(thread.sent);
+    const turns = conversationTurns(messages);
+    let delta: ChatMessage[];
+    if (isHistoryPrefix(sentTurns, turns)) {
+      delta = turns.slice(sentTurns.length);
+      if (!delta.length) {
+        const last = messages[messages.length - 1];
+        if (!last || last.role !== 'user') throw new Error(`${site.id} thread cannot continue`);
+        delta = [last];
+      }
+      const system = systemMessages(messages);
+      if (JSON.stringify(system) !== JSON.stringify(systemMessages(thread.sent))) delta = [...system, ...delta];
+    } else if (turns.length <= 1) {
+      delta = messages;
+    } else {
+      throw new Error(`${site.id} thread history differs; opening a new chat`);
     }
     if (thread.page.isClosed() || !conversation.toPrompt) {
       throw new Error(`${site.id} thread cannot continue`);

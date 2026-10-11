@@ -140,12 +140,23 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       expect(resumed).not.toContain('hello there');
       expect(await pageCount()).toBe(base + 1);
 
+      const withSystem = [{ role: 'system', content: 'tools: read, bash' }, ...second, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'third turn' }];
+      const changedSystem = await collect(await session.send(site(), 'stale full prompt', undefined, { messages: withSystem, toPrompt }));
+      expect(changedSystem).toContain('system: tools: read, bash');
+      expect(changedSystem).toContain('user: third turn');
+      expect(changedSystem).not.toContain('second turn');
+      expect(await pageCount()).toBe(base + 1);
+
       const diverged = [{ role: 'user', content: 'different thread' }];
       expect(await collect(await session.send(site(), 'fresh full', undefined, { messages: diverged, toPrompt }))).toContain('echo user: different thread');
       expect(await pageCount()).toBe(base + 1);
 
       const other = [{ role: 'user', content: 'separate conversation' }];
       expect(await collect(await session.send(site(), 'separate conversation', undefined, { conversationId: 'other', messages: other, toPrompt }))).toContain('echo separate conversation');
+      expect(await pageCount()).toBe(base + 2);
+
+      const rewritten = [{ role: 'user', content: 'hello there' }, { role: 'assistant', content: 'edited by the agent' }, { role: 'user', content: 'go on' }];
+      expect(await collect(await session.send(site(), 'whole rewritten history', undefined, { messages: rewritten, toPrompt }))).toContain('echo whole rewritten history');
       expect(await pageCount()).toBe(base + 2);
     } finally {
       await session.close();
