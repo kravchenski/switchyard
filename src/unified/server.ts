@@ -1104,6 +1104,19 @@ async function shutdown() {
     process.exit(0);
 }
 
+async function warmWebChats() {
+    if (config.WEB_CHAT_WARMUP === 'off') return;
+    for (const site of WEB_CHAT_SITES) {
+        const profile = rotation.order(site.id)[0];
+        if (!profile || !providerSettings.autoEnabled(site.id)) continue;
+        try {
+            await browserSession(profile).warm(site);
+        } catch (error) {
+            console.error(`Warm-up of ${site.id} failed:`, errorText(error));
+        }
+    }
+}
+
 export async function startUnifiedServer() {
     process.once('SIGINT', shutdown);
     process.once('SIGTERM', shutdown);
@@ -1120,6 +1133,7 @@ export async function startUnifiedServer() {
         hostname: host,
         idleTimeout: 255,
     });
+    void warmWebChats();
 
     console.log(`
   Switchyard — OpenAI- and Anthropic-compatible API

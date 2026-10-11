@@ -24,6 +24,7 @@ export function chainFor(model: string, request: { images: boolean; tools: boole
 const PROVIDER_COOLDOWN_MS = 30_000;
 const NOT_MODEL_FAULTS: ProviderErrorKind[] = ['rate_limit', 'quota_exhausted', 'auth', 'unavailable', 'invalid_request'];
 const MODEL_TIMEOUT_COOLDOWN_MS = 10 * 60_000;
+const WEB_TIMEOUT_COOLDOWN_MS = 2 * 60_000;
 
 export interface SmartRouterOptions {
   firstChunkTimeoutMs?: number;
@@ -143,7 +144,7 @@ export class SmartRouter {
     if (!(error instanceof ProviderError && NOT_MODEL_FAULTS.includes(error.kind))) this.registry.stats.recordFailure(route.model);
     if (modelMissing) this.registry.availability.markUnavailable(route.model, error.message);
     if (!coolDown) return;
-    if (error instanceof FirstChunkTimeout) this.modelCooldownUntil.set(route.model, this.now() + MODEL_TIMEOUT_COOLDOWN_MS);
+    if (error instanceof FirstChunkTimeout) this.modelCooldownUntil.set(route.model, this.now() + (route.provider.fallback ? MODEL_TIMEOUT_COOLDOWN_MS : WEB_TIMEOUT_COOLDOWN_MS));
     else if (!modelMissing) this.cooldownUntil.set(route.provider.id, this.now() + PROVIDER_COOLDOWN_MS);
   }
 

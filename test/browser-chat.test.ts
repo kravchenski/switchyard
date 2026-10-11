@@ -282,4 +282,24 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       await session.close();
     }
   }, 90_000);
+
+  test('warms a chat page up, reports the sign-in and sends nothing', async () => {
+    const seen: Array<[string, boolean]> = [];
+    const session = new BrowserChatSession({
+      profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'),
+      headless: true,
+      onSignIn: (id, result) => seen.push([id, result.signedIn]),
+    });
+    const rule = { storageKey: 'token', claim: 'email', guestPattern: /guest/i };
+    try {
+      const before = streamCalls;
+      expect(await session.warm({ ...site('/member'), signIn: rule })).toBeTrue();
+      expect(await session.warm({ ...site('/signed-out'), signIn: rule })).toBeFalse();
+      expect(await session.warm(site())).toBeTrue();
+      expect(streamCalls).toBe(before);
+      expect(seen).toEqual([['fake', true], ['fake', false]]);
+    } finally {
+      await session.close();
+    }
+  }, 90_000);
 });

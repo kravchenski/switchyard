@@ -409,6 +409,24 @@ export class BrowserChatSession {
     });
   }
 
+  warm(site: ChatSite): Promise<boolean> {
+    return this.withSiteLock(site.id, async () => {
+      const context = await this.context();
+      const page = await context.newPage();
+      try {
+        const readPageModels = this.options.onModels ? this.watchModels(site, page) : () => {};
+        await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        readPageModels();
+        if (!site.signIn) return true;
+        const signIn = await readSignIn(page, site.signIn);
+        this.options.onSignIn?.(site.id, signIn);
+        return signIn.signedIn;
+      } finally {
+        await page.close().catch(() => {});
+      }
+    });
+  }
+
   async solveVerification(site: ChatSite): Promise<void> {
     let created: Page | undefined;
     try {
