@@ -1,6 +1,6 @@
 # Maintainer: kravchenski
 pkgname=switchyard-bin
-pkgver=2.16.3
+pkgver=2.16.4
 pkgrel=1
 pkgdesc="Local OpenAI-compatible gateway for web AI chats and free model APIs"
 arch=('x86_64' 'aarch64')
@@ -13,8 +13,8 @@ conflicts=('switchyard')
 options=('!strip' '!debug')
 source_x86_64=("switchyard-${pkgver}-linux-x64.tar.gz::${url}/releases/download/v${pkgver}/switchyard-${pkgver}-linux-x64.tar.gz")
 source_aarch64=("switchyard-${pkgver}-linux-arm64.tar.gz::${url}/releases/download/v${pkgver}/switchyard-${pkgver}-linux-arm64.tar.gz")
-sha256sums_x86_64=('bbe5462f81107b6904fd06a8f2e2fa299d7c81081f73bade8a0c5e1b3740403e')
-sha256sums_aarch64=('4580743e85a21d68a3f9ab1efd9a0fd5709a3f4402f38300049d76f7c476a329')
+sha256sums_x86_64=('cfabdda170099baa7ddfb5c15befcb3ac39c6cf16ed3a294ac7c6b88f419ba89')
+sha256sums_aarch64=('9e74063c8d2a2f01ed2010ea52137b013053d81b0c3fd3ce0f36698a30b3bd91')
 
 package() {
   cp -a "${srcdir}/usr" "${pkgdir}/"
