@@ -61,6 +61,17 @@ describe('tool selection', () => {
     expect(unnamed.tools.map(toolName)).toEqual(core.map(toolName));
   });
 
+  test('keeps the tools of a server named without its digits when the client prefixes names with the server', async () => {
+    const selector = new ToolSelector(judge(() => false));
+    const context7 = ['context7_query-docs', 'context7_resolve-library-id'].map(name => tool(name));
+    const playwright = ['playwright_browser_click', 'playwright_browser_navigate'].map(name => tool(name));
+    const tools = [...core, ...extra, ...context7, ...playwright, tool('webfetch')];
+    const selection = await selector.select(tools, [{ role: 'user', content: 'используя context mcp получи последние новости python' }]);
+    const kept = selection.tools.map(toolName);
+    expect(kept).toEqual(expect.arrayContaining(['context7_query-docs', 'context7_resolve-library-id', 'webfetch']));
+    expect(kept).not.toContain('playwright_browser_click');
+  });
+
   test('keeps a tool the decision model did not answer about', async () => {
     const selector = new ToolSelector(async () => ({}));
     const selection = await selector.select([...core, ...extra], [{ role: 'user', content: 'x' }]);
