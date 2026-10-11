@@ -3,6 +3,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { bodyLimit } from 'hono/body-limit';
 import { loadConfig } from '../config.ts';
 import { serve } from 'bun';
+import { upgradeWebSocket, websocket } from 'hono/bun';
 import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
@@ -57,6 +58,8 @@ import { ARENA_CHAT_SITE, parseArenaStream } from '../providers/arena/web.ts';
 import { createBrowserChatProvider, type BrowserChatProviderConfig } from '../providers/browser-chat-provider.ts';
 import { parseZaiStream, ZAI_CHAT_SITE } from '../providers/glm/web.ts';
 import { KIMI_CHAT_SITE, parseKimiStream } from '../providers/kimi/web.ts';
+import { BrowserHub, type BridgeSocket } from '../browser-bridge/hub.ts';
+import { handleMcpPost } from '../browser-bridge/mcp.ts';
 
 export const app = new Hono();
 const config = loadConfig();
@@ -67,6 +70,8 @@ const trustedOrigins = parseOrigins(config.EXTENSION_ORIGINS);
 const maxBodyBytes = 25 * 1024 * 1024;
 
 const requestIds = new WeakMap<Request, string>();
+const BROWSER_BRIDGE_PATH = '/browser/ws';
+const BROWSER_TOOLS_SETTING = 'browser_bridge_tools';
 
 app.use('*', async (c, next) => {
     const requestId = requestIdFrom(c.req.header('x-request-id'));
@@ -85,7 +90,9 @@ app.use('*', async (c, next) => {
     if (!apiKey && !isLocalRequest(c.req.raw, trustedOrigins)) {
         return c.json({ error: { message: 'Set GATEWAY_API_KEY to accept requests from other hosts or web pages', type: 'permission_error' } }, 403);
     }
-    if (tokenMatches(bearerToken(c.req.header('authorization')) ?? c.req.header('x-api-key') ?? null, apiKey)) return next();
+    // Browsers cannot set headers on a WebSocket handshake, so the bridge may pass the key in the query.
+    const queryKey = c.req.path === BROWSER_BRIDGE_PATH ? c.req.query('key') : undefined;
+    if (tokenMatches(bearerToken(c.req.header('authorization')) ?? c.req.header('x-api-key') ?? queryKey ?? null, apiKey)) return next();
     return c.json({ error: { message: 'Invalid bearer token', type: 'authentication_error' } }, 401);
 });
 
@@ -706,6 +713,53 @@ app.get('/metrics', (c) => {
     return c.text(metrics.render({ providers, accounts, unavailableModels }), 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
 });
 
+const browserHub = new BrowserHub({
+    load: () => {
+        try {
+            return loadGatewaySetting(db(), BROWSER_TOOLS_SETTING);
+        } catch {
+            return undefined;
+        }
+    },
+    save: (value) => {
+        try {
+            saveGatewaySetting(db(), BROWSER_TOOLS_SETTING, value);
+        } catch (error) {
+            console.error('Browser tools not saved:', errorText(error));
+        }
+    },
+});
+
+app.get(BROWSER_BRIDGE_PATH, upgradeWebSocket(() => {
+    let socket: BridgeSocket | undefined;
+    return {
+        onOpen(_event, ws) {
+            socket = { send: data => ws.send(data), close: (code, reason) => ws.close(code, reason) };
+            browserHub.open(socket);
+        },
+        onMessage(event) {
+            if (socket && typeof event.data === 'string') browserHub.message(socket, event.data);
+        },
+        onClose() {
+            if (socket) browserHub.close(socket);
+        },
+    };
+}));
+
+app.get('/v1/gateway/browser', c => c.json(browserHub.status()));
+
+app.post('/mcp', async (c) => {
+    let body: unknown;
+    try {
+        body = await c.req.json();
+    } catch {
+        return c.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, 400);
+    }
+    return handleMcpPost(body, browserHub, process.env.npm_package_version ?? '0.0.0');
+});
+
+app.on(['GET', 'DELETE'], '/mcp', c => c.body(null, 405, { allow: 'POST' }));
+
 app.get('/health', (c) => {
     return c.json({ status: 'ok', service: 'unified', pid: process.pid });
 });
@@ -1137,6 +1191,7 @@ export async function startUnifiedServer() {
         port,
         hostname: host,
         idleTimeout: 255,
+        websocket,
     });
     void warmWebChats();
 
@@ -1152,6 +1207,9 @@ export async function startUnifiedServer() {
   ${apiKey ? 'API key required (GATEWAY_API_KEY).' : 'No API key required. Set GATEWAY_API_KEY to protect the API.'} Configure OpenCode:
     OPENCODE_API_URL=http://${host === '0.0.0.0' ? 'localhost' : host}:${port}
     OPENCODE_API_KEY=${apiKey ? '<GATEWAY_API_KEY>' : ''}
+
+  Browser tools (Switchyard extension) over MCP:
+    claude mcp add --transport http switchyard-browser http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/mcp
 `);
 }
 

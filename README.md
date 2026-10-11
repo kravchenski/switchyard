@@ -77,6 +77,16 @@ Web chats answer in plain text, and Switchyard turns that text into tool calls f
 - Claude Code asks before commands and Codex runs them in its sandbox by default; keep those defaults.
 - pi has no approval prompts. Use it with Switchyard only in a container, a sandbox or a throwaway checkout.
 
+### Browser tools
+
+With the [Switchyard extension](https://github.com/kravchenski/switchyard-extension) installed in Chrome, agents can work with your tabs: list and open tabs, group them, read pages, click, type and take screenshots. The extension connects to the gateway, and the gateway serves its tools over MCP at `/mcp`:
+
+```bash
+claude mcp add --transport http switchyard-browser http://localhost:3260/mcp
+```
+
+With `GATEWAY_API_KEY` set, add `--header "Authorization: Bearer <GATEWAY_API_KEY>"` and enter the same key in the extension settings. The tool list is remembered, so agents started before Chrome still see the tools; calls fail with a clear message until the extension connects. `GET /v1/gateway/browser` shows whether it is connected.
+
 ## Desktop app
 
 A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click a request to see how it was routed: which models were skipped and why, each attempt with its error and time, and who answered. When a web chat loses its sign-in, a banner says so and takes you to its sign-in. Click the address in the sidebar to copy the base URL.
@@ -279,6 +289,9 @@ Each Jev question costs one request to a fast API model, so the savings pay off 
 | `POST` | `/v1/gateway/refresh` | Reload saved keys, custom providers and model lists |
 | `POST` | `/v1/gateway/providers/:id/check` | Check which models a provider key can use |
 | `GET` | `/metrics` | Prometheus metrics |
+| `POST` | `/mcp` | Browser tools from the Switchyard extension over MCP (Streamable HTTP) |
+| `GET` | `/browser/ws` | WebSocket the extension connects to |
+| `GET` | `/v1/gateway/browser` | Whether the extension is connected and how many tools it offers |
 | `GET` | `/health` | Liveness |
 
 DeepSeek also runs as a standalone OpenAI-compatible service: `bun run start:deepseek` serves `/api/v1/models` and `/api/v1/chat/completions` on port 3265 and describes them in an OpenAPI 3.1 spec at `/api/openapi.json`.
