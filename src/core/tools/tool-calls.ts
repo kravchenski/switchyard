@@ -649,6 +649,11 @@ export function parseToolCallJson(content: unknown, tools: any = null): ParsedTo
         } catch {
         }
     }
+    const salvaged = salvageCutOffToolCalls(content);
+    if (salvaged) {
+        const calls = recoveredToolCalls(salvaged, allowedNames);
+        if (calls) return calls;
+    }
     const recoveredDsml = recoverDsmlToolCalls(content);
     if (recoveredDsml) return recoveredToolCalls(recoveredDsml, allowedNames);
     const recovered = recoverSimpleToolCalls(text);
@@ -678,6 +683,37 @@ const EMPTY_FENCE = /```[\w-]*\s*```/g;
 export function stripEmptyFences(text: string) {
     if (!/```[\w-]*\s*```/.test(text)) return text;
     return text.replace(EMPTY_FENCE, '').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+const CALL_TAIL = /^[^{]*?"[ \t]*\}+[ \t]*\][ \t]*\}[ \t]*(?:\r?\n[ \t]*```)?[ \t]*(?:\r?\n|$)/;
+
+export function stripLeadingCallTail(text: string) {
+    const tail = CALL_TAIL.exec(text);
+    return tail ? text.slice(tail[0].length).trim() : text;
+}
+
+function salvageCutOffToolCalls(text: string) {
+    const list = /"tool_calls"\s*:\s*\[/.exec(text);
+    if (!list) return null;
+    const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    let index = list.index + list[0].length;
+    while (index < text.length) {
+        while (index < text.length && /[\s,]/.test(text[index]!)) index++;
+        if (text[index] !== '{') break;
+        const json = balancedObjectAt(text, index);
+        if (!json) break;
+        try {
+            const call = JSON.parse(json);
+            const fn = call?.function ?? call;
+            const args = transcriptArguments(fn?.arguments ?? fn?.parameters ?? fn?.input ?? {});
+            if (typeof fn?.name !== 'string' || !args) return null;
+            calls.push({ name: fn.name, arguments: args });
+        } catch {
+            return null;
+        }
+        index += json.length;
+    }
+    return calls.length ? calls : null;
 }
 
 export function hasRejectedToolCall(text: string) {

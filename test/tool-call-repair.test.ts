@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     extractFirstToolCallObject,
+    stripLeadingCallTail,
     hasFabricatedTranscript,
     deniesTool,
     hasRejectedToolCall,
@@ -496,5 +497,35 @@ describe('marked-up transcript headers', () => {
         const text = reply('<b>Tool calls:</b> bash', '```json\n{"command":"rm inspect.py && python3 run.py"}\n```');
         expect(parseToolCallJson(text, tools)?.map(call => JSON.parse(call.function.arguments))).toEqual([{ command: 'rm inspect.py && python3 run.py' }]);
         expect(isBrokenToolCall(text, tools)).toBeFalse();
+    });
+});
+
+describe('replies that mix a swallowed call tail, prose and a cut-off call', () => {
+    const tools = [{ type: 'function', function: { name: 'bash' } }];
+    const reply = [
+        "cd /tmp/report && .venv/bin/python - <<'PYEOF'",
+        "print('slides')",
+        'PYEOF"}}]}',
+        '```',
+        '',
+        "I'll also check where the content actually ends.",
+        '',
+        '```json',
+        '{',
+        '  "tool_calls": [{"name": "bash", "arguments": {"command": "cd /tmp/report && grep -n Scenarios -A 60 report.md | head -80"}}, {"name": "bash",',
+        ' "arguments": {"command": "cd /tmp/report && grep -n Integrations -A 25 report.md',
+    ].join('\n');
+
+    test('runs the complete calls of a cut-off tool_calls list', () => {
+        expect(parseToolCallJson(reply, tools)?.map(call => JSON.parse(call.function.arguments))).toEqual([
+            { command: 'cd /tmp/report && grep -n Scenarios -A 60 report.md | head -80' },
+        ]);
+        expect(isBrokenToolCall(reply, tools)).toBeFalse();
+    });
+
+    test('drops the tail of a call whose start the chat swallowed', () => {
+        expect(stripLeadingCallTail(`echo hi"}}]}\n` + '```\n\nDone.')).toBe('Done.');
+        expect(stripLeadingCallTail('A normal answer with "quotes"}.')).toBe('A normal answer with "quotes"}.');
+        expect(stripLeadingCallTail('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}')).toBe('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}');
     });
 });
