@@ -429,7 +429,7 @@ export function recoverFencedShellToolCalls(text: string) {
 }
 
 const TRANSCRIPT_MARKER = /^[ \t]*(?:(?:Assistant )?tool calls:|Tool result \()/im;
-const NAMED_CALL_MARKER = /^[ \t]*(?:Assistant )?tool calls:[ \t]*([A-Za-z_][\w.-]*)[ \t]*$/gim;
+const NAMED_CALL_MARKER = /^[ \t]*(?:Assistant )?tool calls?:[ \t]*([A-Za-z_][\w.-]*)[ \t]*$/gim;
 
 export function hasFabricatedTranscript(text: string) {
     return TRANSCRIPT_MARKER.test(text);
@@ -453,9 +453,9 @@ function transcriptArguments(value: unknown) {
 
 function namedBlockArguments(body: string) {
     const open = body.indexOf('{');
-    if (open < 0 || body.slice(0, open).trim()) return null;
+    if (open < 0 || !/^\s*(?:```(?:json)?\s*)?$/i.test(body.slice(0, open))) return null;
     const rest = body.slice(open);
-    const paragraph = rest.split(/\n[ \t]*\n/)[0]!.trim();
+    const paragraph = rest.split(/\n[ \t]*\n|\n?```/)[0]!.trim();
     const balanced = balancedObjectAt(rest, 0);
     for (const candidate of [paragraph, balanced]) {
         const args = candidate ? transcriptArguments(candidate) : null;
@@ -480,6 +480,43 @@ function recoverNamedToolCalls(text: string) {
         if (parsed.trailing) break;
     }
     return calls.length ? calls : null;
+}
+
+function argumentsObjectAt(text: string, start: number) {
+    const json = balancedObjectAt(text, start);
+    return json ? transcriptArguments(json) : null;
+}
+
+function collectTaggedCalls(text: string, pattern: RegExp) {
+    const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    for (const match of text.matchAll(pattern)) {
+        const args = argumentsObjectAt(text, match.index! + match[0].length - 1);
+        if (!args) return null;
+        calls.push({ name: match[1]!, arguments: args });
+    }
+    return calls.length ? calls : null;
+}
+
+const KIMI_CALL = /(?:^|<\|tool_call_begin\|>)[ \t]*functions\.([\w-]+):\d+[ \t]*(?:<\|tool_call_argument_begin\|>)?\s*\{/gm;
+const REACT_CALL = /^[ \t]*Action:[ \t]*([\w.-]+)[ \t]*\n[ \t]*Action Input:\s*\{/gim;
+const TOOL_CALL_TAG = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+
+export function recoverTaggedToolCalls(text: string) {
+    const tagged = [...text.matchAll(TOOL_CALL_TAG)];
+    if (tagged.length > 1 || (tagged.length === 1 && tagged[0]![1]!.startsWith('<function='))) {
+        const calls = tagged.map(([, inner]) => {
+            if (inner!.startsWith('<function=')) return recoverXmlStyleToolCall(inner!);
+            try {
+                const parsed = JSON.parse(inner!);
+                const args = parsed?.arguments ?? parsed?.parameters ?? parsed?.input ?? {};
+                return typeof parsed?.name === 'string' ? { name: parsed.name, arguments: typeof args === 'string' ? JSON.parse(args) : args } : null;
+            } catch {
+                return null;
+            }
+        });
+        if (calls.every(Boolean)) return calls as Array<{ name: string; arguments: Record<string, unknown> }>;
+    }
+    return collectTaggedCalls(text, KIMI_CALL) ?? collectTaggedCalls(text, REACT_CALL);
 }
 
 export function recoverTranscriptStyleToolCalls(text: string) {
@@ -539,9 +576,8 @@ export function parseToolCallJson(content: unknown, tools: any = null): ParsedTo
         }).filter(([name]) => Boolean(name)))
         : null;
     const allowedNames = allowedTools ? new Set(allowedTools.keys()) : null;
-    const transcript = recoverTranscriptStyleToolCalls(content);
-    if (transcript) {
-        const calls = recoveredToolCalls(transcript, allowedNames);
+    for (const recovered of [recoverTranscriptStyleToolCalls(content), recoverTaggedToolCalls(content)]) {
+        const calls = recovered ? recoveredToolCalls(recovered, allowedNames) : null;
         if (calls) return calls;
     }
     let text = content.trim();
@@ -589,7 +625,7 @@ export function parseToolCallJson(content: unknown, tools: any = null): ParsedTo
             if (!calls || calls.length === 0) continue;
             const mappedCalls = calls.map((call: any, index: number): ParsedToolCall | null => {
                 const name = call.name || call.tool || call.function?.name;
-                const rawArgs = call.arguments ?? call.args ?? call.input ?? call.function?.arguments ?? {};
+                const rawArgs = call.arguments ?? call.args ?? call.input ?? call.parameters ?? call.function?.arguments ?? call.function?.parameters ?? {};
                 const normalizedArgs = name === 'edit' ? repairEditArguments(rawArgs) : rawArgs;
                 const args = typeof normalizedArgs === 'string' ? normalizedArgs : JSON.stringify(normalizedArgs || {});
                 if (!name || (allowedNames && !allowedNames.has(name))) return null;

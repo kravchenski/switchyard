@@ -501,17 +501,21 @@ const TOOL_BLOCK_PATTERNS = [
     /^[ \t]*Tool call:/m,
     /^[ \t]*(?:(?:Assistant )?tool calls:|Tool result \()/im,
     /```(?:bash|sh|shell|zsh)/i,
-    /Tool [\w.:-]+ does not exist/
+    /Tool [\w.:-]+ does not exist/,
+    /<tool_call>|<\|tool_call/,
+    /(?:^|>)[ \t]*functions\.[\w-]+:\d+/m,
+    /^[ \t]*Action:[ \t]*[\w.-]+[ \t]*\n[ \t]*Action Input:/m
 ];
 
 const TOOL_BLOCK_PREFIXES = [
     '{"tool_calls"', '{"tool_call"', '{"function_call"', '{"name"', '{"tool"', '{"function"',
     '<|DSML', '<||DSML', '<\uff5cDSML', '<\uff5c\uff5cDSML',
     '<function=', '<bash>', '<terminal>', '<read>', '<ls>', '<find>', '<grep>',
-    '[\u8c03\u7528', 'Tool call:', '```bash', '```sh', '```shell', '```zsh'
+    '[\u8c03\u7528', 'Tool call:', '```bash', '```sh', '```shell', '```zsh',
+    '<tool_call>', '<|tool_call'
 ];
 
-const TRANSCRIPT_PREFIXES = ['Assistant tool calls:', 'Tool calls:', 'Tool result ('];
+const TRANSCRIPT_PREFIXES = ['Assistant tool calls:', 'Tool calls:', 'Tool result (', 'Action:', 'functions.'];
 
 function toolBlockHoldLength(text: string) {
     const trimmed = text.replace(/\s+$/, '');

@@ -449,3 +449,24 @@ describe('broken tool calls from web chats', () => {
         expect(isBrokenToolCall('The build passes and all 12 tests are green.', tools)).toBeFalse();
     });
 });
+
+describe('tool call formats used by web chats and open models', () => {
+    const tools = ['bash', 'read'].map(name => ({ type: 'function', function: { name } }));
+    const calls = (text: string) => parseToolCallJson(text, tools)?.map(call => [call.function.name, JSON.parse(call.function.arguments)]) ?? null;
+    const ls = [['bash', { command: 'ls' }]];
+    const cases: Array<[string, string, unknown]> = [
+        ['name with parameters', '{"name":"bash","parameters":{"command":"ls"}}', ls],
+        ['two hermes tool_call tags', '<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call>\n<tool_call>{"name":"read","arguments":{"path":"a.ts"}}</tool_call>', [['bash', { command: 'ls' }], ['read', { path: 'a.ts' }]]],
+        ['qwen-coder xml inside tool_call', '<tool_call>\n<function=read>\n<parameter=path>\na.ts\n</parameter>\n</function>\n</tool_call>', [['read', { path: 'a.ts' }]]],
+        ['singular Tool call with a json block', 'Tool call: bash\n{"command":"ls"}', ls],
+        ['Tool calls with a fenced json block', 'Tool calls: bash\n\n```json\n{"command":"ls"}\n```', ls],
+        ['kimi functions prefix', 'functions.bash:0 {"command":"ls"}', ls],
+        ['kimi special tokens', '<|tool_calls_section_begin|><|tool_call_begin|>functions.bash:0<|tool_call_argument_begin|>{"command":"ls"}<|tool_call_end|><|tool_calls_section_end|>', ls],
+        ['react action', 'Thought: I need files.\nAction: bash\nAction Input: {"command":"ls"}', ls],
+        ['a fenced shell block stays text', '```bash\nls -la\n```', null],
+        ['a plain answer stays text', 'Action items are done. These functions: none. Nothing else to do.', null],
+    ];
+    for (const [name, text, expected] of cases) {
+        test(name, () => expect(calls(text)).toEqual(expected as any));
+    }
+});
