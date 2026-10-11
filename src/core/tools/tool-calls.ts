@@ -451,20 +451,35 @@ function transcriptArguments(value: unknown) {
     }
 }
 
+function namedBlockArguments(body: string) {
+    const open = body.indexOf('{');
+    if (open < 0 || body.slice(0, open).trim()) return null;
+    const rest = body.slice(open);
+    const paragraph = rest.split(/\n[ \t]*\n/)[0]!.trim();
+    const balanced = balancedObjectAt(rest, 0);
+    for (const candidate of [paragraph, balanced]) {
+        const args = candidate ? transcriptArguments(candidate) : null;
+        if (args) return { args, trailing: rest.slice(rest.indexOf(candidate!) + candidate!.length).trim() };
+    }
+    const single = /^\{\s*"([\w-]+)"\s*:\s*"([\s\S]*)"\s*\}$/.exec(paragraph);
+    if (!single) return null;
+    const value = single[2]!.replace(/\\(["\\n])/g, (_, char: string) => (char === 'n' ? '\n' : char));
+    return { args: { [single[1]!]: value }, trailing: rest.slice(paragraph.length).trim() };
+}
+
 function recoverNamedToolCalls(text: string) {
     const markers = [...text.matchAll(NAMED_CALL_MARKER)];
-    if (!markers.length) return null;
-    const calls = markers.map((marker, index) => {
+    const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    for (const [index, marker] of markers.entries()) {
         const bodyStart = marker.index! + marker[0].length;
-        const bodyEnd = markers[index + 1]?.index ?? text.length;
-        const body = text.slice(bodyStart, bodyEnd);
-        const open = body.indexOf('{');
-        if (open < 0 || body.slice(0, open).trim()) return null;
-        const json = balancedObjectAt(body, open);
-        const args = json ? transcriptArguments(json) : null;
-        return args ? { name: marker[1]!, arguments: args } : null;
-    });
-    return calls.every(Boolean) ? calls as Array<{ name: string; arguments: Record<string, unknown> }> : null;
+        const parsed = namedBlockArguments(text.slice(bodyStart, markers[index + 1]?.index ?? text.length));
+        if (!parsed) break;
+        const call = { name: marker[1]!, arguments: parsed.args };
+        const key = JSON.stringify(call);
+        if (!calls.some(previous => JSON.stringify(previous) === key)) calls.push(call);
+        if (parsed.trailing) break;
+    }
+    return calls.length ? calls : null;
 }
 
 export function recoverTranscriptStyleToolCalls(text: string) {

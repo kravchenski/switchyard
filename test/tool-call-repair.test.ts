@@ -388,6 +388,32 @@ describe('transcript-style tool calls from web chats', () => {
         expect(stripFabricatedTranscript(reply)).toBe('Ok, building a static site instead.');
     });
 
+    test('repairs unescaped quotes, stops at invented prose and skips repeated calls', () => {
+        const reply = [
+            'Tool calls: bash',
+            '',
+            '{"command":"cd /tmp/report && python3 build_site.py; echo "exit=$?\\"; ls -la site"}',
+            '',
+            'Tool calls: read',
+            '',
+            '{"path":"/tmp/report/build_site.py"}',
+            '',
+            'Tool calls: read',
+            '',
+            '{"path":"/tmp/report/build_site.py"}',
+            '',
+            'The previous calls returned nothing, running it again.',
+            '',
+            'Tool calls: bash',
+            '',
+            '{"command":"rm -rf site"}',
+        ].join('\n');
+        expect(recoverTranscriptStyleToolCalls(reply)).toEqual([
+            { name: 'bash', arguments: { command: 'cd /tmp/report && python3 build_site.py; echo "exit=$?"; ls -la site' } },
+            { name: 'read', arguments: { path: '/tmp/report/build_site.py' } },
+        ]);
+    });
+
     test('never leaks a named block whose arguments are cut off', () => {
         const reply = 'Writing the script.\n\nTool calls: write\n\n{"path":"/tmp/a.py","content":"import re\\n';
         expect(recoverTranscriptStyleToolCalls(reply)).toBeNull();
