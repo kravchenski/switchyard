@@ -101,6 +101,27 @@ describe('SmartRouter auto chain', () => {
     expect(registry.stats.get('fast')).toMatchObject({ successes: 1, lastOutcome: 'success' });
   });
 
+  test('gives web chats their own, longer first-chunk timeout', async () => {
+    const slow = (id: string, fallback: boolean, delayMs: number): Provider => ({
+      id,
+      ownedBy: id,
+      fallback,
+      supports: model => model === id,
+      listModels: async () => [id],
+      capabilities: () => ({ nativeTools: false, reasoning: false, vision: false }),
+      health: () => ({ available: true }),
+      async stream(request) {
+        await Bun.sleep(delayMs);
+        return { chunks: (async function* (): AsyncGenerator<ChatChunk> { yield { type: 'content', text: request.model }; })() };
+      },
+    });
+    const registry = new ProviderRegistry().register(slow('web', false, 60)).register(slow('api', true, 60)).register(slow('backup', true, 0));
+    const router = new SmartRouter(registry, ['web', 'api', 'backup'], Date.now, { firstChunkTimeoutMs: 20, webFirstChunkTimeoutMs: 500 });
+    expect((await router.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('web');
+    const apiFirst = new SmartRouter(registry, ['api', 'backup'], Date.now, { firstChunkTimeoutMs: 20, webFirstChunkTimeoutMs: 500 });
+    expect((await apiFirst.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('backup');
+  });
+
   test('does not time out an explicit single-model request', async () => {
     const registry = new ProviderRegistry().register(provider([], []));
     const router = new SmartRouter(registry, ['a'], Date.now, { firstChunkTimeoutMs: 1 });

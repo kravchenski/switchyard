@@ -151,7 +151,7 @@ function browserSession(profile: string) {
     if (!session) {
         session = new BrowserChatSession({
             profileDir: profileDir(profile),
-            firstChunkTimeoutMs: config.AUTO_FIRST_CHUNK_TIMEOUT_MS,
+            firstChunkTimeoutMs: config.WEB_FIRST_CHUNK_TIMEOUT_MS,
             minIntervalMs: config.WEB_CHAT_MIN_INTERVAL_MS,
             onSignIn: (siteId, result) => {
                 const site = WEB_CHAT_SITES.find(entry => entry.id === siteId);
@@ -270,6 +270,7 @@ const decisions = new DecisionLog(undefined, Date.now());
 export const router = new SmartRouter(registry, parseAutoModels(config.AUTO_MODELS), Date.now, {
     onDecision: decision => decisions.add(decision),
     firstChunkTimeoutMs: config.AUTO_FIRST_CHUNK_TIMEOUT_MS,
+    webFirstChunkTimeoutMs: config.WEB_FIRST_CHUNK_TIMEOUT_MS,
     autoEnabled: provider => providerSettings.autoEnabled(provider),
     prepareAuto: () => {
         if (chainSettings() !== chainOrder) rebuildAutoChain();
