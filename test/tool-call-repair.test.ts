@@ -478,3 +478,23 @@ describe('cut off tool calls', () => {
         expect(isBrokenToolCall('Use the tool_calls field of the response to read them.')).toBeFalse();
     });
 });
+
+describe('marked-up transcript headers', () => {
+    const tools = [{ type: 'function', function: { name: 'bash' } }];
+    const reply = (header: string, body: string) => `It shadows the stdlib inspect module. Let me delete it and re-run.\n\n${header}\n\n${body}`;
+
+    test('a bold header with an empty json fence is a broken call, not an answer', () => {
+        for (const header of ['<b>Tool calls:</b>', '**Tool calls:**', '<strong>Tool calls:</strong>']) {
+            const text = reply(header, '```json\n\n```');
+            expect(hasFabricatedTranscript(text)).toBeTrue();
+            expect(isBrokenToolCall(text, tools)).toBeTrue();
+            expect(stripFabricatedTranscript(text)).toBe('It shadows the stdlib inspect module. Let me delete it and re-run.');
+        }
+    });
+
+    test('a bold named header with arguments becomes a real call', () => {
+        const text = reply('<b>Tool calls:</b> bash', '```json\n{"command":"rm inspect.py && python3 run.py"}\n```');
+        expect(parseToolCallJson(text, tools)?.map(call => JSON.parse(call.function.arguments))).toEqual([{ command: 'rm inspect.py && python3 run.py' }]);
+        expect(isBrokenToolCall(text, tools)).toBeFalse();
+    });
+});

@@ -428,8 +428,10 @@ export function recoverFencedShellToolCalls(text: string) {
     return calls.length > 0 ? calls : null;
 }
 
-const TRANSCRIPT_MARKER = /^[ \t]*(?:(?:Assistant )?tool calls:|Tool result \()/im;
-const NAMED_CALL_MARKER = /^[ \t]*(?:Assistant )?tool calls?:[ \t]*([A-Za-z_][\w.-]*)[ \t]*$/gim;
+const MARKUP = '(?:</?(?:b|strong|em|i)>|\\*\\*|__)*';
+const TRANSCRIPT_MARKER = new RegExp(`^[ \\t]*${MARKUP}[ \\t]*(?:(?:Assistant )?tool calls:|Tool result \\()`, 'im');
+const NAMED_CALL_MARKER = new RegExp(`^[ \\t]*${MARKUP}[ \\t]*(?:Assistant )?tool calls?:${MARKUP}[ \\t]*([A-Za-z_][\\w.-]*)[ \\t]*${MARKUP}[ \\t]*$`, 'gim');
+const ARRAY_CALL_MARKER = new RegExp(`^[ \\t]*${MARKUP}[ \\t]*(?:Assistant )?tool calls:${MARKUP}[ \\t]*(\\[.*)$`, 'im');
 
 export function hasFabricatedTranscript(text: string) {
     return TRANSCRIPT_MARKER.test(text);
@@ -522,7 +524,7 @@ export function recoverTaggedToolCalls(text: string) {
 export function recoverTranscriptStyleToolCalls(text: string) {
     const named = recoverNamedToolCalls(text);
     if (named) return named;
-    const marker = /^[ \t]*(?:Assistant )?tool calls:[ \t]*(\[.*)$/im.exec(text);
+    const marker = ARRAY_CALL_MARKER.exec(text);
     const line = marker?.[1]?.trim();
     if (!line) return null;
     try {
@@ -699,7 +701,8 @@ export function deniesTool(text: string) {
 }
 
 export function isBrokenToolCall(text: string, tools: any = null) {
-    return hasRejectedToolCall(text) || isToolCallFragment(text, tools) || isUnparsedToolCall(text, tools) || deniesTool(text);
+    return hasRejectedToolCall(text) || isToolCallFragment(text, tools) || isUnparsedToolCall(text, tools) || deniesTool(text)
+        || (hasFabricatedTranscript(text) && !parseToolCallJson(text, tools));
 }
 
 export function stripRejectedToolCalls(text: string) {

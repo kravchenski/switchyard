@@ -398,6 +398,16 @@ describe('unified server routing', () => {
     expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'ls' });
   });
 
+  test('keeps a bold Tool calls header and its fence out of the stream', async () => {
+    const block = '<b>Tool calls:</b> bash\n\n```json\n{"command":"rm inspect.py"}\n```';
+    replies.push([{ type: 'content', text: 'Let me delete it and re-run.\n\n' }, ...[...block].map(text => ({ type: 'content' as const, text }))]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    const deltas = sseDeltas(text);
+    expect(deltas.map(choice => choice.delta.content).filter(Boolean).join('')).toBe('Let me delete it and re-run.\n\n');
+    const calls = deltas.flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'rm inspect.py' });
+  });
+
   test('drops empty json fences from a plain answer', async () => {
     replies.push([{ type: 'content', text: 'Done, the site is built.\n\n```json\n\n``` ```json\n\n```' }]);
     const body = await (await chat({ tools: bashTool })).json();
