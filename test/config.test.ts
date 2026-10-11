@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { loadConfig, parseEnv } from '../src/config.ts';
+import { loadConfig, parseEnv, SWITCHYARD_EXTENSION_ORIGIN } from '../src/config.ts';
 
 describe('parseEnv', () => {
     test('applies defaults for missing and blank values', () => {
@@ -8,6 +8,7 @@ describe('parseEnv', () => {
             HOST: '127.0.0.1',
             SESSION_DIR: 'session',
             GATEWAY_API_KEY: undefined,
+            EXTENSION_ORIGINS: SWITCHYARD_EXTENSION_ORIGIN,
             AUTO_MODELS: undefined,
             WEB_CHAT_MIN_INTERVAL_MS: 10_000,
             AUTO_FIRST_CHUNK_TIMEOUT_MS: 60_000,

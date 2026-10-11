@@ -10,11 +10,15 @@ const text = (fallback: string) => z.preprocess(blankToUndefined, z.string().def
 
 const optionalText = z.preprocess(blankToUndefined, z.string().optional());
 
+/** The Switchyard browser extension; its manifest key pins this id. */
+export const SWITCHYARD_EXTENSION_ORIGIN = 'chrome-extension://dammhajbcgfiiaokdhfchhncfaknaemj';
+
 const envSchema = z.object({
     UNIFIED_PORT: port(3260),
     HOST: text('127.0.0.1'),
     SESSION_DIR: text('session'),
     GATEWAY_API_KEY: optionalText,
+    EXTENSION_ORIGINS: text(SWITCHYARD_EXTENSION_ORIGIN),
     AUTO_MODELS: optionalText,
     WEB_CHAT_MIN_INTERVAL_MS: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(600_000).default(10_000)),
     AUTO_FIRST_CHUNK_TIMEOUT_MS: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(600_000).default(60_000)),

@@ -294,6 +294,7 @@ DeepSeek also runs as a standalone OpenAI-compatible service: `bun run start:dee
 | `UNIFIED_PORT` | `3260` | Server port |
 | `HOST` | `127.0.0.1` | Bind address; without `GATEWAY_API_KEY` only requests to `localhost` from local pages are accepted |
 | `GATEWAY_API_KEY` | — | Require this bearer token on every request except `/health` |
+| `EXTENSION_ORIGINS` | Switchyard extension | Comma-separated browser extension origins allowed to call `localhost` without `GATEWAY_API_KEY`; `none` turns it off |
 | `<PROVIDER>_API_KEY` | — | One key or a list per provider (see `.env.example`) |
 | `AUTO_MODELS` | — | Fixed `auto` chain instead of the measured one |
 | `WEB_CHAT_MIN_INTERVAL_MS` | `10000` | Minimum pause between two messages to the same web chat account |

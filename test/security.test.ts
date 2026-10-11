@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { bearerToken, isForwardableResponseHeader, isLocalRequest, tokenMatches } from '../src/gateway/security.ts';
+import { bearerToken, isForwardableResponseHeader, isLocalRequest, parseOrigins, tokenMatches } from '../src/gateway/security.ts';
 
 describe('security boundaries', () => {
     test('protects the gateway with timing-safe bearer checks', () => {
@@ -55,5 +55,28 @@ describe('isLocalRequest', () => {
     test('rejects pages from other origins', () => {
         expect(request({ host: 'localhost:3260', origin: 'https://attacker.example' })).toBeFalse();
         expect(request({ host: '127.0.0.1:3260', origin: 'null' })).toBeFalse();
+    });
+});
+
+describe('trusted extension origins', () => {
+    const extension = 'chrome-extension://dammhajbcgfiiaokdhfchhncfaknaemj';
+    const trusted = parseOrigins(` ${extension}/ , chrome-extension://other `);
+    const request = (headers: Record<string, string>) => isLocalRequest(new Request('http://unknown.invalid/', { headers }), trusted);
+
+    test('parses a comma-separated list', () => {
+        expect([...trusted]).toEqual([extension, 'chrome-extension://other']);
+        expect(parseOrigins('none').size).toBe(0);
+        expect(parseOrigins(undefined).size).toBe(0);
+    });
+
+    test('accepts a trusted extension calling localhost', () => {
+        expect(request({ host: '127.0.0.1:3260', origin: extension })).toBeTrue();
+        expect(request({ host: 'localhost:3260', origin: 'chrome-extension://DAMMHAJBCGFIIAOKDHFCHHNCFAKNAEMJ' })).toBeTrue();
+    });
+
+    test('still rejects other extensions and non-local hosts', () => {
+        expect(request({ host: '127.0.0.1:3260', origin: 'chrome-extension://someoneelse' })).toBeFalse();
+        expect(request({ host: 'gateway.lan:3260', origin: extension })).toBeFalse();
+        expect(isLocalRequest(new Request('http://localhost/', { headers: { origin: extension } }))).toBeFalse();
     });
 });
