@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.16.4](https://github.com/kravchenski/switchyard/compare/v2.16.3...v2.16.4) (2026-10-11)
+
+
+### Bug Fixes
+
+* **agents:** keep every tool of an MCP server the user names in the request ([f116bb8](https://github.com/kravchenski/switchyard/commit/f116bb8ca0a72715bc68680b95d8e91532dac774))
+* **agents:** keep every tool of an MCP server the user names in the request ([96e8f9c](https://github.com/kravchenski/switchyard/commit/96e8f9c0aaf002645f5df67bd8deb23be8c74441))
+* **web-chat:** read one response stream at a time so parallel streams never mix ([26e469b](https://github.com/kravchenski/switchyard/commit/26e469b16b37b077b185636e6d5f8ceb74cb73f3))
+* **web-chat:** read one response stream at a time so parallel streams never mix ([a3a2cef](https://github.com/kravchenski/switchyard/commit/a3a2ceffa94099e66ce605c2e8226f26f1f4a018))
+
+
+### Performance
+
+* **web-chat:** paste prompts longer than 300 characters instead of typing them ([f7f6cb5](https://github.com/kravchenski/switchyard/commit/f7f6cb5c4793c41f3970d7fdc2373ab22a33f736))
+* **web-chat:** paste prompts longer than 300 characters instead of typing them ([72a82ce](https://github.com/kravchenski/switchyard/commit/72a82ce8fd2480a2c397975cd91ff9ad90cb35a5))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.16.3 ([fba002e](https://github.com/kravchenski/switchyard/commit/fba002ef192f25f1d757fa69bb53aa6ac0cb4bd5))
+
 ## [2.16.3](https://github.com/kravchenski/switchyard/compare/v2.16.2...v2.16.3) (2026-10-11)
 
 
