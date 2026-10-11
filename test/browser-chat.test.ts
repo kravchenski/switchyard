@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { BrowserChatSession, type ChatSite } from '../src/browser/browser-chat.ts';
+import { BrowserChatSession, splitPrompt, type ChatSite } from '../src/browser/browser-chat.ts';
 import { collectImageUrls, messagesToPrompt, stripImages } from '../src/core/providers/prompt.ts';
 import { findBrowserExecutable } from '../src/platform/browserExecutable.ts';
 
@@ -214,6 +214,21 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
     }
   }, 120_000);
 
+  test('sends a prompt longer than a part in several messages and streams the answer to the last one', async () => {
+    const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true });
+    try {
+      const prompt = ['first block of history', 'second block of history', 'the question at the end'].join('\n');
+      const before = streamCalls;
+      const answer = await collect(await session.send({ ...site(), partChars: 30 }, prompt));
+      expect(streamCalls - before).toBe(3);
+      expect(answer).toContain('Part 3 of 3, the last one');
+      expect(answer).toContain('the question at the end');
+      expect(answer).not.toContain('first block');
+    } finally {
+      await session.close();
+    }
+  }, 120_000);
+
   test('waits the minimum interval between two messages to the same site', async () => {
     const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true, minIntervalMs: 1_500 });
     try {
@@ -374,4 +389,18 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       await session.close();
     }
   }, 90_000);
+});
+
+describe('splitPrompt', () => {
+  test('cuts a long prompt at line breaks into parts that fit and keeps every line', () => {
+    const prompt = Array.from({ length: 40 }, (_, index) => `line ${index} ${'x'.repeat(index % 7)}`).join('\n');
+    const parts = splitPrompt(prompt, 60);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every(part => part.length <= 60)).toBeTrue();
+    expect(parts.join('\n')).toBe(prompt);
+  });
+
+  test('cuts a single line that is longer than a part', () => {
+    expect(splitPrompt('a'.repeat(25), 10)).toEqual(['a'.repeat(10), 'a'.repeat(10), 'a'.repeat(5)]);
+  });
 });

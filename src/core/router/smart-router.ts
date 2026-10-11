@@ -214,7 +214,9 @@ export class SmartRouter {
       for (let tryIndex = 1; ; tryIndex++) {
         const startedAt = this.now();
         try {
-          const { stream, chunks, latencyMs } = await this.attempt(route, build, new AbortController(), only ? undefined : this.firstChunkTimeout(route));
+          const request = build(route);
+          const timeout = only ? undefined : this.firstChunkTimeout(route);
+          const { stream, chunks, latencyMs } = await this.attempt(route, () => request, new AbortController(), timeout && timeout + (route.provider.extraTimeMs?.(request) ?? 0));
           this.succeeded(route, latencyMs);
           attempts.push({ model: route.model, provider: route.provider.id, outcome: 'chosen', latencyMs });
           return { stream, chunks, route };

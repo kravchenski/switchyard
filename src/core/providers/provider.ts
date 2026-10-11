@@ -47,4 +47,5 @@ export interface Provider {
   capabilities(model: string): ModelCapabilities;
   stream(request: ChatRequest, context?: ProviderContext): Promise<ProviderStream>;
   health(): ProviderHealth;
+  extraTimeMs?(request: ChatRequest): number;
 }
