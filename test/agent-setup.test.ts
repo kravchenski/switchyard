@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parse as parseYaml } from 'yaml';
+import { TOML } from 'bun';
 
 import {
     loadAvailableModelIds,
@@ -34,6 +35,22 @@ describe('agent integration setup', () => {
             await writeFile(paths.opencode, '{}');
             await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'opencode', '--home', home, '--allow-commands']), ['auto']);
             expect((await readOpenCode()).permission).toBeUndefined();
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    });
+
+    test('keeps Codex top-level settings out of the user\'s tables', async () => {
+        const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
+        const paths = integrationPaths(home);
+        try {
+            await mkdir(join(home, '.codex'), { recursive: true });
+            await writeFile(paths.codexBase, 'approval_policy = "on-request"\n\n[profiles.mine]\nmodel = "x"\n');
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'codex', '--home', home]), ['auto']);
+            const codex = TOML.parse(await readFile(paths.codexBase, 'utf8')) as Record<string, any>;
+            expect(codex.model_catalog_json).toBe(paths.codexModels);
+            expect(codex.approval_policy).toBe('on-request');
+            expect(codex.profiles.mine).toEqual({ model: 'x' });
         } finally {
             await rm(home, { recursive: true, force: true });
         }
