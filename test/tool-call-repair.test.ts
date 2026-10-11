@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
     extractFirstToolCallObject,
     stripLeadingCallTail,
+    stripEmptyFences,
     hasFabricatedTranscript,
     deniesTool,
     hasRejectedToolCall,
@@ -551,5 +552,23 @@ describe('edit calls with unescaped quotes in the code', () => {
     test('leaves well-formed edit calls to the normal parser', () => {
         const valid = JSON.stringify({ tool_calls: [{ name: 'edit', arguments: { path: 'a.ts', edits: [{ oldText: 'x', newText: 'y' }] } }] });
         expect(JSON.parse(parseToolCallJson(valid, tools)![0].function.arguments)).toEqual({ path: 'a.ts', edits: [{ oldText: 'x', newText: 'y' }] });
+    });
+});
+
+describe('empty DeepSeek DSML blocks', () => {
+    const tools = [{ type: 'function', function: { name: 'bash' } }];
+    const reply = "I'll verify the two slides you flagged look clean now.\n\n<｜｜DSML｜｜ calls>\n</｜｜DSML｜｜ calls>";
+
+    test('an empty calls block is a broken call and its wrapper never reaches the agent', () => {
+        expect(parseToolCallJson(reply, tools)).toBeNull();
+        expect(isBrokenToolCall(reply, tools)).toBeTrue();
+        expect(stripEmptyFences(reply)).toBe("I'll verify the two slides you flagged look clean now.");
+        expect(stripEmptyFences('<|DSML|tool_calls>   </|DSML|tool_calls>')).toBe('');
+    });
+
+    test('a filled DSML block still becomes a call', () => {
+        const filled = '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="bash">\n<｜｜DSML｜｜ parameter name="command" string="true">ls</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>';
+        expect(parseToolCallJson(filled, tools)?.map(call => JSON.parse(call.function.arguments))).toEqual([{ command: 'ls' }]);
+        expect(isBrokenToolCall(filled, tools)).toBeFalse();
     });
 });
