@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.16.1](https://github.com/kravchenski/switchyard/compare/v2.16.0...v2.16.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* **tools:** keep json fences around tool calls out of replies and retry cut-off calls 2 ([240b11c](https://github.com/kravchenski/switchyard/commit/240b11c47a3f776756ff5e2712396baeb3a85fb9))
+* **tools:** keep json fences around tool calls out of replies and retry cut-off calls 3 ([fdce501](https://github.com/kravchenski/switchyard/commit/fdce501f0149dc64a80d89c2f567a614f53912fe))
+* **tools:** read bold Tool calls headers and retry headers without a call ([1235f4e](https://github.com/kravchenski/switchyard/commit/1235f4e9de5c1855d2c7d2ac74f4964561df121f))
+* **tools:** recover edit calls whose code breaks the JSON quoting ([923320a](https://github.com/kravchenski/switchyard/commit/923320abf922f5d7b77c447b7943cfe5c65e5473))
+* **tools:** run the complete calls of a cut-off tool_calls list and drop swallowed call tails ([ccd69b9](https://github.com/kravchenski/switchyard/commit/ccd69b975e10a136fcafe79f30d47400c1e46fc6))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.16.0 ([1b9af41](https://github.com/kravchenski/switchyard/commit/1b9af4156d3a68883062c0023ba3b03c9d564f7d))
+
 ## [2.16.0](https://github.com/kravchenski/switchyard/compare/v2.15.0...v2.16.0) (2026-10-11)
 
 
