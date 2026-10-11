@@ -470,3 +470,11 @@ describe('tool call formats used by web chats and open models', () => {
         test(name, () => expect(calls(text)).toEqual(expected as any));
     }
 });
+
+describe('cut off tool calls', () => {
+    test('a fenced tool call cut off after its key counts as broken, not as an answer', () => {
+        expect(isBrokenToolCall('```json\n  {\n    "tool_calls\n```')).toBeTrue();
+        expect(isBrokenToolCall('```json\n{"tool_calls":[{"name":"bash"')).toBeTrue();
+        expect(isBrokenToolCall('Use the tool_calls field of the response to read them.')).toBeFalse();
+    });
+});
