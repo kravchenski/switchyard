@@ -122,6 +122,30 @@ describe('SmartRouter auto chain', () => {
     expect((await apiFirst.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('backup');
   });
 
+  test('a timed out web chat comes back after 2 minutes, an API model after 10', async () => {
+    let clock = 0;
+    const hanging = (id: string, fallback: boolean): Provider => ({
+      id,
+      ownedBy: id,
+      fallback,
+      supports: model => model === id,
+      listModels: async () => [id],
+      capabilities: () => ({ nativeTools: false, reasoning: false, vision: false }),
+      health: () => ({ available: true }),
+      async stream(_request, context) {
+        await new Promise((_, reject) => context?.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+        return { chunks: (async function* (): AsyncGenerator<ChatChunk> {})() };
+      },
+    });
+    const registry = new ProviderRegistry().register(hanging('web', false)).register(hanging('api', true)).register(provider([], []));
+    const router = new SmartRouter(registry, ['web', 'api', 'fast'], () => clock, { firstChunkTimeoutMs: 10, webFirstChunkTimeoutMs: 10 });
+    expect((await router.open('auto', route => ({ model: route.model, messages: [] }))).route.model).toBe('fast');
+    clock = 3 * 60_000;
+    expect(router.routes('auto').map(route => route.model)).toEqual(['web', 'fast']);
+    clock = 11 * 60_000;
+    expect(router.routes('auto').map(route => route.model)).toEqual(['web', 'api', 'fast']);
+  });
+
   test('does not time out an explicit single-model request', async () => {
     const registry = new ProviderRegistry().register(provider([], []));
     const router = new SmartRouter(registry, ['a'], Date.now, { firstChunkTimeoutMs: 1 });
