@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.16.2](https://github.com/kravchenski/switchyard/compare/v2.16.1...v2.16.2) (2026-10-11)
+
+
+### Bug Fixes
+
+* **tools:** keep json fences around tool calls out of replies and retry cut-off calls ([6dfd1d1](https://github.com/kravchenski/switchyard/commit/6dfd1d15f498d5f062582aa173133ed607fb70be))
+* **tools:** retry empty DeepSeek DSML call blocks instead of passing them on ([b26538f](https://github.com/kravchenski/switchyard/commit/b26538f4a94f9d23a169f0e3a0f9df21e324b0b5))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.16.1 ([33b9186](https://github.com/kravchenski/switchyard/commit/33b91860aa944815bb3cfc0f0af8f02eb8826258))
+
 ## [2.16.1](https://github.com/kravchenski/switchyard/compare/v2.16.0...v2.16.1) (2026-10-11)
 
 
