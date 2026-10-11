@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.16.3](https://github.com/kravchenski/switchyard/compare/v2.16.2...v2.16.3) (2026-10-11)
+
+
+### Bug Fixes
+
+* **web-chat:** stop resending the whole history into an open chat when the system prompt changes ([50459a4](https://github.com/kravchenski/switchyard/commit/50459a4e8c65f8f594dfdc72db0f94405bdabad0))
+* **web-chat:** stop resending the whole history into an open chat when the system prompt changes ([3750ded](https://github.com/kravchenski/switchyard/commit/3750dedde97586fb22267130243e9900a3ac2033))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.16.2 ([fb2e99f](https://github.com/kravchenski/switchyard/commit/fb2e99f4ae63c0bab7f0dd46c4d220bf081927b4))
+
 ## [2.16.2](https://github.com/kravchenski/switchyard/compare/v2.16.1...v2.16.2) (2026-10-11)
 
 
