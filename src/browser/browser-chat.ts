@@ -231,6 +231,7 @@ function isHistoryPrefix(sent: ChatMessage[], incoming?: ChatMessage[]) {
 function teeScript({ pattern, binding, fields, images }: { pattern: string; binding: string; fields?: Record<string, unknown>; images?: string[] }) {
   const matcher = new RegExp(pattern);
   const original = window.fetch;
+  let nextStream = 0;
   const store = window as unknown as Record<string, unknown>;
   if (images?.length) store.__freeapiImages = images;
   const activeImages = () => (Array.isArray(store.__freeapiImages) ? store.__freeapiImages as string[] : []) as string[];
@@ -304,7 +305,9 @@ function teeScript({ pattern, binding, fields, images }: { pattern: string; bind
     const url = typeof target === 'string' ? target : target instanceof URL ? target.href : target.url;
     if (!matcher.test(url) || !response.body) return response;
     const [forPage, forGateway] = response.body.tee();
-    const emit = (window as unknown as Record<string, (chunk: string | null) => void>)[binding]!;
+    const stream = ++nextStream;
+    const send = (window as unknown as Record<string, (stream: number, chunk: string | null) => void>)[binding]!;
+    const emit = (chunk: string | null) => send(stream, chunk);
     (async () => {
       const reader = forGateway.getReader();
       for (;;) {
@@ -330,7 +333,20 @@ async function drainResponse(queue: ChunkQueue) {
 
 class ChunkQueue {
   private readonly items: Array<Uint8Array | null> = [];
+  private readonly ignored = new Set<number>();
+  private owner?: number;
   private waiter?: () => void;
+
+  pushFrom(stream: number, item: Uint8Array | null) {
+    if (this.ignored.has(stream)) return;
+    this.owner ??= stream;
+    if (stream !== this.owner) {
+      this.ignored.add(stream);
+      return;
+    }
+    if (item === null) this.owner = undefined;
+    this.push(item);
+  }
 
   push(item: Uint8Array | null) {
     this.items.push(item);
@@ -635,8 +651,8 @@ export class BrowserChatSession {
     const page = await context.newPage();
     const queue = new ChunkQueue();
     this.pageQueues.set(page, queue);
-    await page.exposeFunction(BINDING, (chunk: string | null) => {
-      this.pageQueues.get(page)?.push(chunk === null ? null : Buffer.from(chunk, 'base64'));
+    await page.exposeFunction(BINDING, (stream: number, chunk: string | null) => {
+      this.pageQueues.get(page)?.pushFrom(stream, chunk === null ? null : Buffer.from(chunk, 'base64'));
     });
     const fields = model && site.modelFields ? site.modelFields(model) : undefined;
     const images = conversation?.extractImages?.(conversation.messages ?? []) ?? [];

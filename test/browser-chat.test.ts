@@ -32,6 +32,11 @@ const slowSendPage = chatPage
   .replace('<script>', '<script>\nlet ready = false;\nsetTimeout(() => { ready = true; }, 1500);')
   .replace("if (event.key !== 'Enter' || event.shiftKey) return;", "if (event.key !== 'Enter' || event.shiftKey || !ready) return;");
 
+const replayPage = chatPage.replace(
+  "const response = await fetch('/api/stream', { method: 'POST', body: event.target.value });",
+  "const response = await fetch('/api/stream', { method: 'POST', body: event.target.value });\n  setTimeout(() => fetch('/api/stream', { method: 'POST', body: 'REPLAYED FROM THE MIDDLE' }).then(r => r.text()), 20);",
+);
+
 const verifyPage = '<!doctype html><textarea></textarea><p>Please complete security verification</p>';
 
 const jwt = (payload: Record<string, unknown>) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.sig`;
@@ -72,6 +77,7 @@ beforeAll(() => {
       const html = url.pathname === '/verify' ? verifyPage
         : url.pathname === '/slow-send' ? slowSendPage
         : url.pathname === '/precheck' ? precheckPage
+        : url.pathname === '/replay' ? replayPage
         : url.pathname === '/json' ? jsonPage
         : url.pathname === '/framed' ? framedPage
         : url.pathname === '/member' ? withToken({ email: 'me@example.com' })
@@ -106,6 +112,15 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       const [a, b] = await Promise.all([session.send(site(), 'one').then(collect), session.send(site(), 'two').then(collect)]);
       expect(a).toContain('echo one');
       expect(b).toContain('echo two');
+    } finally {
+      await session.close();
+    }
+  }, 90_000);
+
+  test('reads one response stream at a time when the page opens a second one alongside', async () => {
+    const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true });
+    try {
+      expect(await collect(await session.send(site('/replay'), 'the real answer'))).toBe('data: first\n\ndata: echo the real answer\n\ndata: [DONE]\n\n');
     } finally {
       await session.close();
     }
