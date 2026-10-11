@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     extractFirstToolCallObject,
+    stripLeadingCallTail,
     hasFabricatedTranscript,
     deniesTool,
     hasRejectedToolCall,
@@ -496,5 +497,59 @@ describe('marked-up transcript headers', () => {
         const text = reply('<b>Tool calls:</b> bash', '```json\n{"command":"rm inspect.py && python3 run.py"}\n```');
         expect(parseToolCallJson(text, tools)?.map(call => JSON.parse(call.function.arguments))).toEqual([{ command: 'rm inspect.py && python3 run.py' }]);
         expect(isBrokenToolCall(text, tools)).toBeFalse();
+    });
+});
+
+describe('replies that mix a swallowed call tail, prose and a cut-off call', () => {
+    const tools = [{ type: 'function', function: { name: 'bash' } }];
+    const reply = [
+        "cd /tmp/report && .venv/bin/python - <<'PYEOF'",
+        "print('slides')",
+        'PYEOF"}}]}',
+        '```',
+        '',
+        "I'll also check where the content actually ends.",
+        '',
+        '```json',
+        '{',
+        '  "tool_calls": [{"name": "bash", "arguments": {"command": "cd /tmp/report && grep -n Scenarios -A 60 report.md | head -80"}}, {"name": "bash",',
+        ' "arguments": {"command": "cd /tmp/report && grep -n Integrations -A 25 report.md',
+    ].join('\n');
+
+    test('runs the complete calls of a cut-off tool_calls list', () => {
+        expect(parseToolCallJson(reply, tools)?.map(call => JSON.parse(call.function.arguments))).toEqual([
+            { command: 'cd /tmp/report && grep -n Scenarios -A 60 report.md | head -80' },
+        ]);
+        expect(isBrokenToolCall(reply, tools)).toBeFalse();
+    });
+
+    test('drops the tail of a call whose start the chat swallowed', () => {
+        expect(stripLeadingCallTail(`echo hi"}}]}\n` + '```\n\nDone.')).toBe('Done.');
+        expect(stripLeadingCallTail('A normal answer with "quotes"}.')).toBe('A normal answer with "quotes"}.');
+        expect(stripLeadingCallTail('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}')).toBe('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}');
+    });
+});
+
+describe('edit calls with unescaped quotes in the code', () => {
+    const tools = [{ type: 'function', function: { name: 'edit' } }];
+    const oldText = 'def size(text):\\n    """Estimated height."""\\n    return len(text)';
+    const newText = "def size(text):\\n    \"\"\"Height with `code` spans weighted.\"\"\"\\n    return sum(len(p) for p in re.split(r'(`[^`]+`)', text))";
+    const reply = `Let me fix the estimator.\n\n{"tool_calls":[{"name":"edit","arguments":{"path":"/tmp/build.py","edits":[{"oldText":"${oldText}","newText":"${newText}"},{"oldText":"A = 1","newText":"A = \\"2\\""}]}}]`;
+
+    test('recovers the path and every edit with the quotes and newlines intact', () => {
+        const calls = parseToolCallJson(reply, tools);
+        expect(calls).toHaveLength(1);
+        const args = JSON.parse(calls![0].function.arguments);
+        expect(args.path).toBe('/tmp/build.py');
+        expect(args.edits).toEqual([
+            { oldText: 'def size(text):\n    """Estimated height."""\n    return len(text)', newText: "def size(text):\n    \"\"\"Height with `code` spans weighted.\"\"\"\n    return sum(len(p) for p in re.split(r'(`[^`]+`)', text))" },
+            { oldText: 'A = 1', newText: 'A = "2"' },
+        ]);
+        expect(isBrokenToolCall(reply, tools)).toBeFalse();
+    });
+
+    test('leaves well-formed edit calls to the normal parser', () => {
+        const valid = JSON.stringify({ tool_calls: [{ name: 'edit', arguments: { path: 'a.ts', edits: [{ oldText: 'x', newText: 'y' }] } }] });
+        expect(JSON.parse(parseToolCallJson(valid, tools)![0].function.arguments)).toEqual({ path: 'a.ts', edits: [{ oldText: 'x', newText: 'y' }] });
     });
 });

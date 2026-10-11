@@ -6,7 +6,7 @@ import { serve } from 'bun';
 import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
-import { conversationalShellText, stripEmptyFences, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
+import { conversationalShellText, stripEmptyFences, stripLeadingCallTail, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
 import { bearerToken, isLocalRequest, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
 import { ResponsesStreamTranslator } from '../gateway/responses-stream.ts';
@@ -453,7 +453,7 @@ function processToolCalls(
     nativeCalls: ToolCall[] = []
 ) {
     if (nativeCalls.length) return withRtk(content, nativeCalls.map((call, index) => ({ ...call, index })), null);
-    content = stripEmptyFences(content);
+    content = stripLeadingCallTail(stripEmptyFences(content));
     if (captureToolCalls && hasFabricatedTranscript(content)) {
         const transcriptCalls = parseToolCallJson(content, combinedTools);
         content = stripFabricatedTranscript(content);

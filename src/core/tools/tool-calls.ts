@@ -222,6 +222,29 @@ export function repairEditArguments(rawArgs: any) {
     return args;
 }
 
+const JSON_ESCAPES: Record<string, string> = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+
+function decodeLooseJsonString(raw: string) {
+    return raw.replace(/\\(u[0-9a-fA-F]{4}|["\\/bfnrt])/g, (_, escape: string) => escape.length === 5 ? String.fromCharCode(parseInt(escape.slice(1), 16)) : JSON_ESCAPES[escape]!);
+}
+
+export function recoverLooseEditCall(text: string) {
+    const start = /\{\s*"name"\s*:\s*"edit"\s*,\s*"arguments"\s*:\s*\{/.exec(text);
+    if (!start) return null;
+    const body = text.slice(start.index + start[0].length);
+    const path = /^\s*"path"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"edits"\s*:\s*\[\s*\{\s*"oldText"\s*:\s*"/.exec(body);
+    if (!path) return null;
+    const rest = body.slice(path[0].length);
+    const end = rest.search(/"\s*\}\s*\]\s*\}?\s*\}?\s*\]?\s*\}?\s*$/);
+    if (end < 0) return null;
+    const edits = rest.slice(0, end).split(/"\s*\}\s*,\s*\{\s*"oldText"\s*:\s*"/).map(piece => {
+        const parts = piece.split(/"\s*,\s*"newText"\s*:\s*"/);
+        return parts.length === 2 ? { oldText: decodeLooseJsonString(parts[0]!), newText: decodeLooseJsonString(parts[1]!) } : null;
+    });
+    if (!edits.length || edits.some(edit => !edit)) return null;
+    return [{ name: 'edit', arguments: { path: decodeLooseJsonString(path[1]!), edits } as Record<string, unknown> }];
+}
+
 export function recoverSimpleToolCalls(text: string) {
     const normalized = repairToolCallJsonKeys(text);
     const starts = [...normalized.matchAll(/\{\s*"name"\s*:\s*"(write|read)"\s*,\s*"arguments"\s*:\s*\{/g)];
@@ -649,6 +672,16 @@ export function parseToolCallJson(content: unknown, tools: any = null): ParsedTo
         } catch {
         }
     }
+    const looseEdit = recoverLooseEditCall(content);
+    if (looseEdit) {
+        const calls = recoveredToolCalls(looseEdit, allowedNames);
+        if (calls) return calls;
+    }
+    const salvaged = salvageCutOffToolCalls(content);
+    if (salvaged) {
+        const calls = recoveredToolCalls(salvaged, allowedNames);
+        if (calls) return calls;
+    }
     const recoveredDsml = recoverDsmlToolCalls(content);
     if (recoveredDsml) return recoveredToolCalls(recoveredDsml, allowedNames);
     const recovered = recoverSimpleToolCalls(text);
@@ -678,6 +711,37 @@ const EMPTY_FENCE = /```[\w-]*\s*```/g;
 export function stripEmptyFences(text: string) {
     if (!/```[\w-]*\s*```/.test(text)) return text;
     return text.replace(EMPTY_FENCE, '').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+const CALL_TAIL = /^[^{]*?"[ \t]*\}+[ \t]*\][ \t]*\}[ \t]*(?:\r?\n[ \t]*```)?[ \t]*(?:\r?\n|$)/;
+
+export function stripLeadingCallTail(text: string) {
+    const tail = CALL_TAIL.exec(text);
+    return tail ? text.slice(tail[0].length).trim() : text;
+}
+
+function salvageCutOffToolCalls(text: string) {
+    const list = /"tool_calls"\s*:\s*\[/.exec(text);
+    if (!list) return null;
+    const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    let index = list.index + list[0].length;
+    while (index < text.length) {
+        while (index < text.length && /[\s,]/.test(text[index]!)) index++;
+        if (text[index] !== '{') break;
+        const json = balancedObjectAt(text, index);
+        if (!json) break;
+        try {
+            const call = JSON.parse(json);
+            const fn = call?.function ?? call;
+            const args = transcriptArguments(fn?.arguments ?? fn?.parameters ?? fn?.input ?? {});
+            if (typeof fn?.name !== 'string' || !args) return null;
+            calls.push({ name: fn.name, arguments: args });
+        } catch {
+            return null;
+        }
+        index += json.length;
+    }
+    return calls.length ? calls : null;
 }
 
 export function hasRejectedToolCall(text: string) {
