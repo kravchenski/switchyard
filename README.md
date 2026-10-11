@@ -311,6 +311,7 @@ DeepSeek also runs as a standalone OpenAI-compatible service: `bun run start:dee
 | `GATEWAY_API_KEY` | — | Require this bearer token on every request except `/health` |
 | `EXTENSION_ORIGINS` | Switchyard extension | Comma-separated browser extension origins allowed to call `localhost` without `GATEWAY_API_KEY`; `none` turns it off |
 | `<PROVIDER>_API_KEY` | — | One key or a list per provider (see `.env.example`) |
+| `LONG_PROMPT_CHARS` | `240000` | Prompts longer than this (about 60k tokens) are sent first to a web chat that reads long prompts quickly (DeepSeek); `0` turns it off |
 | `AUTO_MODELS` | — | Fixed `auto` chain instead of the measured one |
 | `WEB_CHAT_MIN_INTERVAL_MS` | `2000` | Minimum pause after the previous answer (or message, whichever is later) before the next message to the same web chat account |
 | `ACCOUNTS_SECRET` | OS keyring | Encrypts the saved keys in `session/credentials.enc`; `bun run account init` keeps it in the keyring |

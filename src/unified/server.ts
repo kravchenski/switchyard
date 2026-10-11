@@ -33,7 +33,7 @@ import { collectChunks, ToolCallAssembler } from '../core/streaming/sse.ts';
 import { ProviderError, toHttpError } from '../core/providers/errors.ts';
 import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
-import { AGENT_MODEL, AUTO_MODEL, chainFor, decisionIdOf, isVirtualModel, parseAutoModels, SmartRouter, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
+import { AGENT_MODEL, AUTO_MODEL, chainFor, decisionIdOf, isVirtualModel, parseAutoModels, preferredRoute, SmartRouter, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
 import { collectImageUrls, stripImages } from '../core/providers/prompt.ts';
 import { conversationKey, SessionAffinity } from '../core/router/session-affinity.ts';
 import { listBrowserProfiles, loadGatewaySetting, loadModelStats, loadWebChatModels, saveWebChatModels, loadUnavailableModels, replaceUnavailableModels, loadProviderSetting, loadSignIn, saveGatewaySetting, saveProviderSetting, openDatabase, recordRequest, saveModelStat, saveSignIn, type RequestLog } from '../core/store/database.ts';
@@ -300,6 +300,14 @@ function affinity() {
         console.error('Session affinity unavailable:', errorText(error));
         return undefined;
     }
+}
+
+function promptLength(messages: Array<Record<string, any>>) {
+    return messages.reduce((total, message) => total + (typeof message?.content === 'string' ? message.content.length : JSON.stringify(message?.content ?? '').length), 0);
+}
+
+function handlesLongPrompts(model: string) {
+    return registry.resolve(model)?.capabilities(model).longPrompts === true && registry.availability.isAvailable(model);
 }
 
 function errorText(error: unknown) {
@@ -831,6 +839,12 @@ app.post('/api/chat/completions', async (c) => {
         const sessionKey = isVirtualModel(routeModel) ? conversationId ?? conversationKey(messages) : undefined;
         const sessions = sessionKey ? affinity() : undefined;
         const pinned = sessionKey ? sessions?.get(sessionKey, routeModel) : undefined;
+        const promptChars = promptLength(upstreamMessages);
+        const preferred = isVirtualModel(routeModel)
+            ? preferredRoute(router.autoChain(routeModel), promptChars, config.LONG_PROMPT_CHARS, handlesLongPrompts, pinned?.model)
+            : { model: pinned?.model };
+        const preferredModel = preferred.model;
+        const routeDetails = preferred.long ? { ...details, longPrompt: { chars: promptChars, preferred: preferredModel } } : details;
         const requestFor = (route: Route, nudge?: ChatMessage): ChatRequest => {
             const capabilities = route.provider.capabilities(route.model);
             const native = captureToolCalls && capabilities.nativeTools;
@@ -843,7 +857,7 @@ app.post('/api/chat/completions', async (c) => {
                 ...(native ? { tools: promptTools as ChatMessage[] } : {}),
             };
         };
-        const first = await router.open(routeModel, route => requestFor(route), pinned?.model, details)
+        const first = await router.open(routeModel, route => requestFor(route), preferredModel, routeDetails)
             .catch(error => {
                 logRequest({ provider: registry.resolve(model)?.id ?? 'none', model, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error), decisionId: decisionIdOf(error) });
                 throw error;

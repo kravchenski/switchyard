@@ -27,6 +27,7 @@ export interface ModelCapabilities {
   nativeTools: boolean;
   reasoning: boolean;
   vision: boolean;
+  longPrompts?: boolean;
 }
 
 export interface ProviderHealth {
