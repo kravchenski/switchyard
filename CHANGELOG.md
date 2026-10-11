@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.18.0](https://github.com/kravchenski/switchyard/compare/v2.17.0...v2.18.0) (2026-10-11)
+
+
+### Features
+
+* **agents:** register browser tools with --browser-tools in setup:agents ([7f0f702](https://github.com/kravchenski/switchyard/commit/7f0f7024b6981ec2c90370449e60fdcc68d2df44))
+* **router:** send prompts over LONG_PROMPT_CHARS to a web chat that reads them quickly ([809c296](https://github.com/kravchenski/switchyard/commit/809c29655fe73df47f70760bc257c7294d9c19a1))
+* **router:** send prompts over LONG_PROMPT_CHARS to a web chat that reads them quickly ([3f4327b](https://github.com/kravchenski/switchyard/commit/3f4327b30e69b42e66bea051a55a0cf1002eeb30))
+* **web-chat:** send a long first prompt to Qwen in parts and give the router time for them ([4ad2b62](https://github.com/kravchenski/switchyard/commit/4ad2b62eb1e1ccbcfaec617cc692678f55b8f11e))
+* **web-chat:** send a long first prompt to Qwen in parts and give the router time for them ([7280829](https://github.com/kravchenski/switchyard/commit/7280829af5e1392e2af4ae31cc3fcd5e74ce9a8b))
+
+
+### Bug Fixes
+
+* **agents:** keep Codex top-level settings out of user tables ([20a52e7](https://github.com/kravchenski/switchyard/commit/20a52e7dc0cc97efdccbf4a814d71736e5807241))
+* **agents:** keep Codex top-level settings out of user tables ([32175b3](https://github.com/kravchenski/switchyard/commit/32175b32ef4b309096b4d6712df72ee7603ed7d6))
+* **agents:** list only auto and the web chats in agent configs unless --all-models ([6b46509](https://github.com/kravchenski/switchyard/commit/6b46509e749eba753a5921dca1e0cfc24a18a355))
+* **browser:** drop a web chat thread that failed so a retry opens a fresh chat ([d6c18d8](https://github.com/kravchenski/switchyard/commit/d6c18d8c66cb4cd7b8e4239e52ed70b6f59d2042))
+* **router:** fall back from vision models to the text chains without images ([6d6d166](https://github.com/kravchenski/switchyard/commit/6d6d1663d0773d62fa0335fb6f1aed269cab77e5))
+
+
+### Performance
+
+* **web-chat:** wait two seconds after the previous answer instead of ten after each message ([4fe157c](https://github.com/kravchenski/switchyard/commit/4fe157c8d35ed0a2e1f9d2aac46041f39c027915))
+* **web-chat:** wait two seconds after the previous answer instead of ten after each message ([1559141](https://github.com/kravchenski/switchyard/commit/1559141f7d4987b0a6cef26589cc3753ad32850b))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.17.0 ([eb19af1](https://github.com/kravchenski/switchyard/commit/eb19af1f196fb5db178f4a4d2c6129ae768199f4))
+
 ## [2.17.0](https://github.com/kravchenski/switchyard/compare/v2.16.5...v2.17.0) (2026-10-11)
 
 
