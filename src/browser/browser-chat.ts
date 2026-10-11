@@ -594,6 +594,16 @@ export class BrowserChatSession {
     thread.page.close().catch(() => {});
   }
 
+  private abandonThread(siteId: string, page: Page) {
+    const thread = (this.threads.get(siteId) ?? []).find(entry => entry.page === page);
+    if (thread) {
+      this.dropThread(siteId, thread);
+      return;
+    }
+    this.pageQueues.delete(page);
+    page.close().catch(() => {});
+  }
+
   private async resumeThread(thread: ChatThread, site: ChatSite, conversation: SendContext) {
     const messages = conversation.messages!;
     const sentTurns = conversationTurns(thread.sent);
@@ -793,7 +803,8 @@ export class BrowserChatSession {
         }
       }
       release();
-      this.finishThread(site.id, page);
+      if (failed) this.abandonThread(site.id, page);
+      else this.finishThread(site.id, page);
     }
   }
 }

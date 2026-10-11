@@ -74,6 +74,7 @@ beforeAll(() => {
         }
         const prompt = new TextDecoder().decode(bytes);
         if (prompt.startsWith('{')) return new Response(`data: ${prompt}\n\n`);
+        if (prompt.includes('STALL')) return new Response(new ReadableStream({ start() {} }), { headers: { 'content-type': 'text/event-stream' } });
         const parts = ['data: first\n\n', `data: echo ${prompt}\n\n`, 'data: [DONE]\n\n'];
         return new Response(new ReadableStream({
           async start(controller) {
@@ -185,6 +186,29 @@ describe.skipIf(process.env.RUN_BROWSER_TESTS !== '1' || !findBrowserExecutable(
       const rewritten = [{ role: 'user', content: 'hello there' }, { role: 'assistant', content: 'edited by the agent' }, { role: 'user', content: 'go on' }];
       expect(await collect(await session.send(site(), 'whole rewritten history', undefined, { messages: rewritten, toPrompt }))).toContain('echo whole rewritten history');
       expect(await pageCount()).toBe(base + 2);
+    } finally {
+      await session.close();
+    }
+  }, 120_000);
+
+  test('drops a thread that did not answer and retries the whole history in a new chat', async () => {
+    const session = new BrowserChatSession({ profileDir: join(mkdtempSync(join(tmpdir(), 'chat-')), 'profile'), headless: true, firstChunkTimeoutMs: 1_500 });
+    const toPrompt = (messages: Array<{ role?: string; content?: string }>) =>
+      messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
+    const pageCount = async () => (await (session as unknown as { context: () => Promise<{ pages(): unknown[] }> }).context()).pages().length;
+    try {
+      const base = await pageCount();
+      const first = [{ role: 'user', content: 'plan the slides' }];
+      await collect(await session.send(site(), 'plan the slides', undefined, { messages: first, toPrompt }));
+
+      const second = [...first, { role: 'assistant', content: 'plan' }, { role: 'user', content: 'STALL here' }];
+      await expect(collect(await session.send(site(), 'unused', undefined, { messages: second, toPrompt }))).rejects.toThrow('did not answer in time');
+      for (let tries = 0; tries < 20 && await pageCount() > base; tries++) await Bun.sleep(100);
+      expect(await pageCount()).toBe(base);
+
+      const retried = await collect(await session.send(site(), 'whole history again', undefined, { messages: second, toPrompt }));
+      expect(retried).toContain('echo whole history again');
+      expect(await pageCount()).toBe(base + 1);
     } finally {
       await session.close();
     }
