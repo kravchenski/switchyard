@@ -19,6 +19,7 @@ export const QWEN_CHAT_SITE: ChatSite = {
   challengeResponse: /FAIL_SYS_USER_VALIDATE|\/punish\?/,
   ignoredResponse: /^\{"code":0,[^\n]*"sig":"from bx"/,
   captcha: { slider: true },
+  partChars: 80_000,
   modelFields: model => ({ model, 'messages.*.models': [model] }),
   images: true,
   attachImages: async (page, files) => {

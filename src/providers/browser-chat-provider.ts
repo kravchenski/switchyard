@@ -1,4 +1,4 @@
-import { webChatModelSlug, type BrowserChatSession, type ChatSite, type WebChatModel } from '../browser/browser-chat.ts';
+import { promptParts, webChatModelSlug, type BrowserChatSession, type ChatSite, type WebChatModel } from '../browser/browser-chat.ts';
 import { ProviderError } from '../core/providers/errors.ts';
 import type { ChatChunk, ChatRequest, Provider, ProviderHealth, ProviderStream } from '../core/providers/provider.ts';
 import { collectImageUrls, toWebPrompt } from '../core/providers/prompt.ts';
@@ -26,6 +26,8 @@ export interface BrowserChatProviderConfig {
   recoveryDelayMs?: number;
 }
 
+const PART_TIME_MS = 60_000;
+
 function message(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -52,6 +54,11 @@ export function createBrowserChatProvider(config: BrowserChatProviderConfig): Pr
     listModels: async () => [config.model, ...models().map(entry => `${prefix}${webChatModelSlug(entry.name)}`)],
     capabilities: () => ({ nativeTools: false, reasoning: config.reasoning ?? true, vision: config.site.images === true }),
     health: () => config.health?.() ?? { available: true },
+    extraTimeMs: request => {
+      if (!config.site.partChars) return 0;
+      const parts = promptParts(toWebPrompt(request.messages, config.site.images === true), config.site.partChars).length;
+      return (parts - 1) * PART_TIME_MS;
+    },
     async stream(request): Promise<ProviderStream> {
       const model = upstreamModel(request.model);
       const select = config.sessionsFor ? () => config.sessionsFor!(request) : config.sessions;

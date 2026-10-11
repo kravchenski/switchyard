@@ -46,6 +46,29 @@ export interface ChatSite {
   defaultModels?: WebChatModel[];
   reuseThread?: boolean;
   tokenCheck?: string;
+  partChars?: number;
+}
+
+export function splitPrompt(prompt: string, size: number) {
+  const parts: string[] = [];
+  let current = '';
+  for (const line of prompt.split('\n')) {
+    const pieces = line.length > size ? line.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g'))! : [line];
+    for (const piece of pieces) {
+      if (current && current.length + piece.length + 1 > size) {
+        parts.push(current);
+        current = piece;
+      } else {
+        current = current ? `${current}\n${piece}` : piece;
+      }
+    }
+  }
+  if (current || !parts.length) parts.push(current);
+  return parts;
+}
+
+export function promptParts(prompt: string, size?: number) {
+  return size && prompt.length > size ? splitPrompt(prompt, size) : [prompt];
 }
 
 const MIME_EXTENSIONS: Record<string, string> = {
@@ -604,6 +627,47 @@ export class BrowserChatSession {
     page.close().catch(() => {});
   }
 
+  private async sendPrompt(site: ChatSite, page: Page, input: Locator, queue: ChunkQueue, prompt: string) {
+    const parts = promptParts(prompt, site.partChars);
+    let current = queue;
+    for (let index = 0; index < parts.length; index++) {
+      const last = index === parts.length - 1;
+      if (index > 0) {
+        current = new ChunkQueue(this.lastStreams.get(page));
+        this.pageQueues.set(page, current);
+      }
+      const text = parts.length === 1 ? prompt
+        : last ? `Part ${index + 1} of ${parts.length}, the last one. You now have the whole conversation: continue it and answer its last message.\n\n${parts[index]}`
+        : `Part ${index + 1} of ${parts.length} of a long conversation that arrives in several messages. Read it and reply only with OK.\n\n${parts[index]}`;
+      await input.fill('');
+      await input.click();
+      await humanType(page, text);
+      await submitPrompt(page, input, site.responseUrl);
+      if (!last) await this.waitForAnswer(site, current);
+    }
+    return current;
+  }
+
+  private async waitForAnswer(site: ChatSite, queue: ChunkQueue) {
+    const deadline = Date.now() + (this.options.firstChunkTimeoutMs ?? 60_000);
+    for (;;) {
+      const left = deadline - Date.now();
+      if (left <= 0) throw new ProviderError(`${site.id} did not answer a part of a long prompt in time`, 'unavailable');
+      const first = await queue.next(left);
+      if (!(first instanceof Uint8Array)) continue;
+      const text = new TextDecoder().decode(first);
+      if (site.ignoredResponse?.test(text) || site.challengeResponse?.test(text)) {
+        await drainResponse(queue);
+        continue;
+      }
+      for (;;) {
+        const chunk = await queue.next(this.options.idleTimeoutMs ?? 120_000);
+        if (chunk === null) return;
+        if (chunk === 'timeout') throw new ProviderError(`${site.id} stopped streaming`, 'upstream');
+      }
+    }
+  }
+
   private async resumeThread(thread: ChatThread, site: ChatSite, conversation: SendContext) {
     const messages = conversation.messages!;
     const sentTurns = conversationTurns(thread.sent);
@@ -707,10 +771,7 @@ export class BrowserChatSession {
       const input = page.locator(site.inputSelector).first();
       await input.waitFor({ timeout: 30_000 });
       if (attached.length && site.attachImages) await site.attachImages(page, attached);
-      await input.fill('');
-      await input.click();
-      await humanType(page, prompt);
-      await submitPrompt(page, input, site.responseUrl);
+      const answer = await this.sendPrompt(site, page, input, queue, prompt);
       if (conversation?.messages?.length) {
         this.registerThread(site.id, {
           page,
@@ -720,7 +781,7 @@ export class BrowserChatSession {
           lastUsed: Date.now(),
         });
       }
-      return { page, queue };
+      return { page, queue: answer };
     } catch (error) {
       this.pageQueues.delete(page);
       await page.close().catch(() => {});
