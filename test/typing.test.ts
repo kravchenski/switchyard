@@ -39,6 +39,15 @@ describe('humanType', () => {
     expect(typed).toEqual([]);
   });
 
+  test('pastes a tool output an agent sends instead of typing it word by word', async () => {
+    const { page, typed, pressed, inserted } = mockPage();
+    const output = Array.from({ length: 30 }, (_, index) => `src/file${index}.ts:${index}: const value = compute(${index});`).join('\n');
+    await humanType(page, output, () => 1);
+    expect(inserted).toEqual([output]);
+    expect(typed).toEqual([]);
+    expect(pressed).toEqual([]);
+  });
+
   test('does nothing for an empty prompt', async () => {
     const { page, typed, pressed, inserted } = mockPage();
     await humanType(page, '', () => 1);
