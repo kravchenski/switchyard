@@ -78,6 +78,24 @@ describe('DeepSeek provider adapter', () => {
     expect(waits).toEqual([6_000]);
   });
 
+  test('counts the minimum interval from the end of the previous answer', async () => {
+    let now = 7_000_000;
+    const waits: number[] = [];
+    const deepseek = provider(event({ p: 'response/content', v: 'ok' }), {
+      accounts: () => [{ id: 'paced-after-answer', token: 'p', cookies: [] }],
+      pool: () => new AccountPool(openDatabase(':memory:'), 'deepseek', () => now),
+      now: () => now,
+      minIntervalMs: 2_000,
+      sleep: async ms => { waits.push(ms); now += ms; },
+    });
+    const first = await deepseek.stream({ model: 'deepseek-default', messages: [] });
+    now += 30_000;
+    for await (const _ of first.chunks) {}
+    now += 500;
+    await deepseek.stream({ model: 'deepseek-default', messages: [] });
+    expect(waits).toEqual([1_500]);
+  });
+
   test('rotates to another account on rate limits and records account health', async () => {
     let now = 1_000_000;
     const pool = new AccountPool(openDatabase(':memory:'), 'deepseek', () => now);

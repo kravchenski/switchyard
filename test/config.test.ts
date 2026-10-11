@@ -10,7 +10,7 @@ describe('parseEnv', () => {
             GATEWAY_API_KEY: undefined,
             EXTENSION_ORIGINS: SWITCHYARD_EXTENSION_ORIGIN,
             AUTO_MODELS: undefined,
-            WEB_CHAT_MIN_INTERVAL_MS: 10_000,
+            WEB_CHAT_MIN_INTERVAL_MS: 2_000,
             AUTO_FIRST_CHUNK_TIMEOUT_MS: 60_000,
             WEB_FIRST_CHUNK_TIMEOUT_MS: 150_000,
             WEB_CHAT_WARMUP: 'on',

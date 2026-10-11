@@ -38,16 +38,29 @@ const defaults: DeepSeekDependencies = {
   sleep: ms => Bun.sleep(ms),
 };
 
-const lastStarts = new Map<string, Promise<number>>();
+const lastActivity = new Map<string, number>();
+const paceQueues = new Map<string, Promise<void>>();
 
 function pace(deps: DeepSeekDependencies, accountId: string) {
-  const next = (lastStarts.get(accountId) ?? Promise.resolve(-Infinity)).then(async last => {
-    const wait = last + deps.minIntervalMs - deps.now();
+  const next = (paceQueues.get(accountId) ?? Promise.resolve()).then(async () => {
+    const wait = (lastActivity.get(accountId) ?? -Infinity) + deps.minIntervalMs - deps.now();
     if (wait > 0) await deps.sleep(wait);
-    return deps.now();
+    lastActivity.set(accountId, deps.now());
   });
-  lastStarts.set(accountId, next.catch(() => -Infinity));
+  paceQueues.set(accountId, next.catch(() => {}));
   return next;
+}
+
+function answered(deps: DeepSeekDependencies, accountId: string) {
+  lastActivity.set(accountId, Math.max(lastActivity.get(accountId) ?? -Infinity, deps.now()));
+}
+
+async function* pacedChunks(chunks: AsyncGenerator<ChatChunk>, onEnd: () => void): AsyncGenerator<ChatChunk> {
+  try {
+    yield* chunks;
+  } finally {
+    onEnd();
+  }
 }
 
 async function* deepSeekChunks(body: ReadableStream<Uint8Array> | null): AsyncGenerator<ChatChunk> {
@@ -83,12 +96,13 @@ function recordFailure(deps: DeepSeekDependencies, pool: AccountPool, account: D
   return false;
 }
 
-async function completeWithPool(deps: DeepSeekDependencies, request: ChatRequest): Promise<Completion> {
+async function completeWithPool(deps: DeepSeekDependencies, request: ChatRequest): Promise<Completion & { paceKey: string }> {
   const accounts = deps.accounts();
   if (!accounts.length) {
     const account = deps.fallbackAccount() ?? undefined;
-    await pace(deps, account?.id ?? 'env');
-    return deps.complete({ ...request, account });
+    const paceKey = account?.id ?? 'env';
+    await pace(deps, paceKey);
+    return { ...await deps.complete({ ...request, account }), paceKey };
   }
   const pool = deps.pool();
   pool.sync(accounts.map(account => account.id));
@@ -103,14 +117,14 @@ async function completeWithPool(deps: DeepSeekDependencies, request: ChatRequest
     try {
       const completion = await deps.complete({ ...request, account });
       pool.markSuccess(id);
-      return completion;
+      return { ...completion, paceKey: id };
     } catch (error) {
       lastError = error;
       if (!recordFailure(deps, pool, account, error)) throw error;
     }
   }
   const fallback = deps.fallbackAccount();
-  if (fallback) return deps.complete({ ...request, account: fallback });
+  if (fallback) return { ...await deps.complete({ ...request, account: fallback }), paceKey: fallback.id };
   if (lastError) throw lastError;
   throw new ProviderError('All DeepSeek accounts are cooling down or unavailable', 'unavailable');
 }
@@ -130,8 +144,8 @@ export function createDeepSeekProvider(overrides: Partial<DeepSeekDependencies> 
     health: () =>
       deps.hasAccount() ? { available: true } : { available: false, reason: 'No active DeepSeek accounts' },
     async stream(request): Promise<ProviderStream> {
-      const { response, sessionId } = await completeWithPool(deps, request);
-      return { chunks: deepSeekChunks(response.body), responseFields: { x_deepseek_chat_id: sessionId } };
+      const { response, sessionId, paceKey } = await completeWithPool(deps, request);
+      return { chunks: pacedChunks(deepSeekChunks(response.body), () => answered(deps, paceKey)), responseFields: { x_deepseek_chat_id: sessionId } };
     },
   };
 }

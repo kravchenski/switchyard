@@ -802,6 +802,7 @@ export class BrowserChatSession {
           if (tail === 'timeout') break;
         }
       }
+      this.lastSent.set(site.id, Math.max(this.lastSent.get(site.id) ?? -Infinity, Date.now()));
       release();
       if (failed) this.abandonThread(site.id, page);
       else this.finishThread(site.id, page);
