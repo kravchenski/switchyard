@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.17.0](https://github.com/kravchenski/switchyard/compare/v2.16.5...v2.17.0) (2026-10-11)
+
+
+### Features
+
+* **browser:** serve Switchyard extension tools over MCP ([1fd193e](https://github.com/kravchenski/switchyard/commit/1fd193e30c28669a56fc840060ecb0ca7f57f116))
+* **gateway:** allow the Switchyard browser extension without an API key ([02103f5](https://github.com/kravchenski/switchyard/commit/02103f539a3ecf890c10cb80c5c61955891d4e2c))
+* **gateway:** allow the Switchyard browser extension without an API key ([d15301f](https://github.com/kravchenski/switchyard/commit/d15301f76be9f1f0c35a8563679cda450f565c6f))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.16.5 ([cc7d9f3](https://github.com/kravchenski/switchyard/commit/cc7d9f32763645707d04cb275c4f83f112d8bc92))
+
 ## [2.16.5](https://github.com/kravchenski/switchyard/compare/v2.16.4...v2.16.5) (2026-10-11)
 
 
