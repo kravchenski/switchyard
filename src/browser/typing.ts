@@ -2,7 +2,7 @@ import type { Page } from 'playwright-core';
 
 const sleep = (ms: number) => Bun.sleep(ms);
 
-const HUMAN_CHARS_LIMIT = 3_000;
+const HUMAN_CHARS_LIMIT = 300;
 
 export async function humanType(page: Page, text: string, random: () => number = Math.random): Promise<void> {
   if (!text) return;
