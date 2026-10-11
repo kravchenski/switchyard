@@ -529,3 +529,27 @@ describe('replies that mix a swallowed call tail, prose and a cut-off call', () 
         expect(stripLeadingCallTail('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}')).toBe('{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}');
     });
 });
+
+describe('edit calls with unescaped quotes in the code', () => {
+    const tools = [{ type: 'function', function: { name: 'edit' } }];
+    const oldText = 'def size(text):\\n    """Estimated height."""\\n    return len(text)';
+    const newText = "def size(text):\\n    \"\"\"Height with `code` spans weighted.\"\"\"\\n    return sum(len(p) for p in re.split(r'(`[^`]+`)', text))";
+    const reply = `Let me fix the estimator.\n\n{"tool_calls":[{"name":"edit","arguments":{"path":"/tmp/build.py","edits":[{"oldText":"${oldText}","newText":"${newText}"},{"oldText":"A = 1","newText":"A = \\"2\\""}]}}]`;
+
+    test('recovers the path and every edit with the quotes and newlines intact', () => {
+        const calls = parseToolCallJson(reply, tools);
+        expect(calls).toHaveLength(1);
+        const args = JSON.parse(calls![0].function.arguments);
+        expect(args.path).toBe('/tmp/build.py');
+        expect(args.edits).toEqual([
+            { oldText: 'def size(text):\n    """Estimated height."""\n    return len(text)', newText: "def size(text):\n    \"\"\"Height with `code` spans weighted.\"\"\"\n    return sum(len(p) for p in re.split(r'(`[^`]+`)', text))" },
+            { oldText: 'A = 1', newText: 'A = "2"' },
+        ]);
+        expect(isBrokenToolCall(reply, tools)).toBeFalse();
+    });
+
+    test('leaves well-formed edit calls to the normal parser', () => {
+        const valid = JSON.stringify({ tool_calls: [{ name: 'edit', arguments: { path: 'a.ts', edits: [{ oldText: 'x', newText: 'y' }] } }] });
+        expect(JSON.parse(parseToolCallJson(valid, tools)![0].function.arguments)).toEqual({ path: 'a.ts', edits: [{ oldText: 'x', newText: 'y' }] });
+    });
+});
