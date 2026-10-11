@@ -65,7 +65,8 @@ async function main() {
     await compileSidecars(bunTarget, triple, sidecars);
   }
 
-  await run(['cargo', 'build', '--manifest-path', join(desktop, 'Cargo.toml'), '--release', '--locked']);
+  const { version } = await Bun.file(join(root, 'package.json')).json() as { version: string };
+  await run(['cargo', 'build', '--manifest-path', join(desktop, 'Cargo.toml'), '--release', '--locked'], root, { SWITCHYARD_VERSION: version });
 
   const dist = join(root, 'dist');
   mkdirSync(dist, { recursive: true });
