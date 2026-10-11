@@ -6,7 +6,7 @@ import { serve } from 'bun';
 import crypto from 'crypto';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
-import { conversationalShellText, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
+import { conversationalShellText, stripEmptyFences, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
 import { bearerToken, isLocalRequest, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
 import { ResponsesStreamTranslator } from '../gateway/responses-stream.ts';
@@ -453,6 +453,7 @@ function processToolCalls(
     nativeCalls: ToolCall[] = []
 ) {
     if (nativeCalls.length) return withRtk(content, nativeCalls.map((call, index) => ({ ...call, index })), null);
+    content = stripEmptyFences(content);
     if (captureToolCalls && hasFabricatedTranscript(content)) {
         const transcriptCalls = parseToolCallJson(content, combinedTools);
         content = stripFabricatedTranscript(content);
@@ -503,6 +504,7 @@ const TOOL_BLOCK_PATTERNS = [
     /```(?:bash|sh|shell|zsh)/i,
     /Tool [\w.:-]+ does not exist/,
     /<tool_call>|<\|tool_call/,
+    /```(?:json)?[ \t]*\r?\n?[ \t]*(?:\{\s*"(?:tool_calls|tool_call|function_call|name|tool|function)"|\[\s*\{\s*"name")/,
     /(?:^|>)[ \t]*functions\.[\w-]+:\d+/m,
     /^[ \t]*Action:[ \t]*[\w.-]+[ \t]*\n[ \t]*Action Input:/m
 ];
@@ -512,7 +514,7 @@ const TOOL_BLOCK_PREFIXES = [
     '<|DSML', '<||DSML', '<\uff5cDSML', '<\uff5c\uff5cDSML',
     '<function=', '<bash>', '<terminal>', '<read>', '<ls>', '<find>', '<grep>',
     '[\u8c03\u7528', 'Tool call:', '```bash', '```sh', '```shell', '```zsh',
-    '<tool_call>', '<|tool_call'
+    '<tool_call>', '<|tool_call', '```json'
 ];
 
 const TRANSCRIPT_PREFIXES = ['Assistant tool calls:', 'Tool calls:', 'Tool result (', 'Action:', 'functions.'];
@@ -553,7 +555,9 @@ function toolBlockIndex(text: string) {
 
 function safeStreamLength(text: string) {
     if (/^\s*[,}\]]/.test(text)) return 0;
-    const boundary = text.length - toolBlockHoldLength(text);
+    let boundary = text.length - toolBlockHoldLength(text);
+    const openFence = /(?:^|\n)[ \t]*```(?:json)?[ \t]*\r?\n?[ \t]*$/.exec(text.slice(0, boundary));
+    if (openFence) boundary = openFence.index + (openFence[0].startsWith('\n') ? 1 : 0);
     const block = toolBlockIndex(text);
     return block >= 0 ? Math.min(boundary, block) : boundary;
 }
@@ -826,7 +830,7 @@ app.post('/api/chat/completions', async (c) => {
             throw error;
         }
         finish();
-        const { toolCalls, conversationalText, rtkChanges } = processToolCalls(content, captureToolCalls, combinedTools, nativeCalls);
+        const { content: replyText, toolCalls, conversationalText, rtkChanges } = processToolCalls(content, captureToolCalls, combinedTools, nativeCalls);
         for (const [name, value] of Object.entries(routeHeaders)) c.header(name, value);
         if (rtkChanges.length) c.header('x-gateway-rtk', String(rtkChanges.length));
         return c.json({
@@ -835,7 +839,7 @@ app.post('/api/chat/completions', async (c) => {
                 index: 0,
                 message: toolCalls?.length
                     ? { role: 'assistant', content: null, tool_calls: buildToolCallResponse(toolCalls) }
-                    : { role: 'assistant', content: conversationalText || content, reasoning_content: reasoning || undefined },
+                    : { role: 'assistant', content: conversationalText || replyText, reasoning_content: reasoning || undefined },
                 finish_reason: toolCalls?.length ? 'tool_calls' : 'stop'
             }],
             usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },

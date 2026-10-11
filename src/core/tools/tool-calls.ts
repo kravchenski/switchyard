@@ -671,6 +671,13 @@ const REJECTED_TOOL_CALL = /Tool [\w.:-]+ does not exists?\.?/;
 const FRAGMENT_START = /^\s*[,}\]]/;
 const FRAGMENT_END = /\}\s*\}\s*\]\s*\}\s*$/;
 
+const EMPTY_FENCE = /```[\w-]*\s*```/g;
+
+export function stripEmptyFences(text: string) {
+    if (!/```[\w-]*\s*```/.test(text)) return text;
+    return text.replace(EMPTY_FENCE, '').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export function hasRejectedToolCall(text: string) {
     return REJECTED_TOOL_CALL.test(text);
 }
@@ -680,7 +687,7 @@ export function isToolCallFragment(text: string, tools: any = null) {
     return FRAGMENT_START.test(text) || FRAGMENT_END.test(text);
 }
 
-const TOOL_CALL_MARKUP = /<\/?tool_call>|"arguments"\s*:/;
+const TOOL_CALL_MARKUP = /<\/?tool_call>|"arguments"\s*:|"tool_calls/;
 const TOOL_DENIAL = /\b(?:do not|don't|doesn't|does not) have (?:access to )?(?:a |an |the |any )?(?:[`"']?[\w.:-]+[`"']? )?tools?\b|\bno tools? (?:is |are )?available\b|\btool (?:named |called )?[`"']?[\w.:-]+[`"']? (?:is not available|isn't available|is unavailable)\b/i;
 
 export function isUnparsedToolCall(text: string, tools: any = null) {

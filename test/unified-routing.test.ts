@@ -388,6 +388,22 @@ describe('unified server routing', () => {
     expect(deltas.at(-1).finish_reason).toBe('tool_calls');
   });
 
+  test('keeps the json fence around a tool call out of the stream', async () => {
+    const block = '```json\n{"tool_calls":[{"name":"bash","arguments":{"command":"ls"}}]}\n```';
+    replies.push([{ type: 'content', text: 'Running it.\n' }, ...[...block].map(text => ({ type: 'content' as const, text }))]);
+    const text = await (await chat({ tools: bashTool, stream: true })).text();
+    const deltas = sseDeltas(text);
+    expect(deltas.map(choice => choice.delta.content).filter(Boolean).join('')).toBe('Running it.\n');
+    const calls = deltas.flatMap(choice => choice.delta.tool_calls ?? []);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ command: 'ls' });
+  });
+
+  test('drops empty json fences from a plain answer', async () => {
+    replies.push([{ type: 'content', text: 'Done, the site is built.\n\n```json\n\n``` ```json\n\n```' }]);
+    const body = await (await chat({ tools: bashTool })).json();
+    expect(body.choices[0].message.content).toBe('Done, the site is built.');
+  });
+
   test('turns a transcript-style reply into a tool call without streaming the invented results', async () => {
     const block = JSON.stringify([{ id: 'call_1', type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'python3 -V' }) } }]);
     replies.push([
