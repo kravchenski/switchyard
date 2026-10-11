@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { ProviderError } from '../src/core/providers/errors.ts';
 import type { ChatChunk, Provider } from '../src/core/providers/provider.ts';
 import { ProviderRegistry } from '../src/core/providers/registry.ts';
-import { chainFor, parseAutoModels, SmartRouter } from '../src/core/router/smart-router.ts';
+import { chainFor, parseAutoModels, preferredRoute, SmartRouter } from '../src/core/router/smart-router.ts';
 import { collectChunks } from '../src/core/streaming/sse.ts';
 
 type Behavior = 'ok' | 'fail-open' | 'fail-first-chunk' | 'fail-mid-stream' | 'empty' | 'flaky-unavailable' | 'fail-unavailable';
@@ -174,5 +174,23 @@ describe('chainFor', () => {
     expect(chainFor('qwen-chat/qwen3.8-max', { images: true, tools: true }, ready)).toBe('qwen-chat/qwen3.8-max');
     expect(chainFor('agent', { images: true, tools: true }, chain => chain !== 'vision')).toBe('agent');
     expect(chainFor('vision', { images: true, tools: false }, () => false)).toBe('auto');
+  });
+});
+
+describe('preferredRoute', () => {
+  const chain = ['qwen-chat', 'deepseek-default', 'glm-chat'];
+  const roomy = (model: string) => model.startsWith('deepseek');
+
+  test('keeps the pinned model for short prompts', () => {
+    expect(preferredRoute(chain, 1_000, 240_000, roomy, 'qwen-chat')).toEqual({ model: 'qwen-chat' });
+    expect(preferredRoute(chain, 1_000, 240_000, roomy)).toEqual({ model: undefined });
+  });
+
+  test('sends a long prompt to the first model that handles long prompts', () => {
+    expect(preferredRoute(chain, 300_000, 240_000, roomy, 'qwen-chat')).toEqual({ model: 'deepseek-default', long: true });
+    expect(preferredRoute(chain, 300_000, 240_000, roomy, 'deepseek-default')).toEqual({ model: 'deepseek-default' });
+    expect(preferredRoute(chain, 300_000, 240_000, () => false, 'qwen-chat')).toEqual({ model: 'qwen-chat' });
+    expect(preferredRoute(chain, 300_000, 0, roomy, 'qwen-chat')).toEqual({ model: 'qwen-chat' });
+    expect(preferredRoute(chain, 300_000, 240_000, roomy, 'deepseek-reasoner')).toEqual({ model: 'deepseek-default', long: true });
   });
 });

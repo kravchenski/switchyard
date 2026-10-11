@@ -245,6 +245,13 @@ function failedAttempt(route: Route, error: unknown, latencyMs: number): RouteAt
   return { model: route.model, provider: route.provider.id, outcome: error instanceof FirstChunkTimeout ? 'timeout' : 'failed', latencyMs, error: errorText(error) };
 }
 
+export function preferredRoute(chain: readonly string[], promptChars: number, limit: number, handlesLongPrompts: (model: string) => boolean, pinned?: string) {
+  if (!limit || promptChars <= limit) return { model: pinned };
+  if (pinned && chain.includes(pinned) && handlesLongPrompts(pinned)) return { model: pinned };
+  const long = chain.find(handlesLongPrompts);
+  return long ? { model: long, long: true } : { model: pinned };
+}
+
 export function parseAutoModels(value: string | undefined) {
   const models = (value ?? '').split(',').map(model => model.trim()).filter(Boolean);
   return models;
