@@ -16,7 +16,7 @@ import { AnthropicStreamTranslator } from '../api/anthropic/stream.ts';
 import { readLines } from '../core/streaming/sse.ts';
 import type { ChatMessage, ChatRequest, ProviderStream, ToolCall } from '../core/providers/provider.ts';
 import { ProviderRegistry, type ModelEntry } from '../core/providers/registry.ts';
-import { checkProviderModels } from '../core/models/model-check.ts';
+import { checkAllModels, checkProviderModels } from '../core/models/model-check.ts';
 import { DecisionLog } from '../core/router/decisions.ts';
 import { compactToolResults } from '../core/agents/compact.ts';
 import { restoreShellCalls, rewriteShellCalls, rtkRewriter, type RtkRewrite } from '../core/agents/rtk.ts';
@@ -683,6 +683,62 @@ app.post('/v1/gateway/providers/:id/check', async (c) => {
     const report = await checkProviderModels(provider, models, registry, { timeoutMs: MODEL_CHECK_TIMEOUT_MS });
     await refreshModelLists();
     return c.json(report);
+});
+
+let checkingAllModels = false;
+
+// Checks every model at once and hides those that do not answer; streams one JSON line per model.
+app.post('/v1/gateway/models/check', async (c) => {
+    if (checkingAllModels) return c.json({ error: { message: 'A model check is already running', type: 'conflict' } }, 409);
+    const body = await c.req.json().catch(() => ({})) as { providers?: unknown; timeoutSeconds?: unknown; concurrency?: unknown; includeWeb?: unknown };
+    const providers = Array.isArray(body.providers) ? body.providers.filter((id): id is string => typeof id === 'string') : undefined;
+    const timeoutSeconds = typeof body.timeoutSeconds === 'number' && body.timeoutSeconds > 0 ? Math.min(body.timeoutSeconds, 120) : 20;
+    const concurrency = typeof body.concurrency === 'number' && body.concurrency >= 1 ? Math.min(Math.floor(body.concurrency), 32) : 8;
+    checkingAllModels = true;
+    forgetSavedKeys();
+    const encoder = new TextEncoder();
+    const startedAt = Date.now();
+    const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+            const line = (value: unknown) => {
+                try {
+                    controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`));
+                } catch {
+                    // The client went away; the check still finishes and saves what it learned.
+                }
+            };
+            try {
+                const reports = await checkAllModels(registry.list(), registry, {
+                    timeoutMs: timeoutSeconds * 1000,
+                    concurrency,
+                    includeWeb: body.includeWeb === true,
+                    providers,
+                    onResult: (provider, result) => line({ type: 'result', provider, ...result }),
+                });
+                await refreshModelLists();
+                for (const report of reports) {
+                    if (report.skipped || report.stopped) line({ type: 'provider', provider: report.provider, skipped: report.skipped, stopped: report.stopped });
+                }
+                const results = reports.flatMap(report => report.results);
+                line({
+                    type: 'done',
+                    checked: results.length,
+                    working: results.filter(result => result.ok).length,
+                    hidden: results.filter(result => result.hidden).length,
+                    visibleModels: visibleModels().length - 1,
+                    durationMs: Date.now() - startedAt,
+                });
+            } catch (error) {
+                line({ type: 'error', message: errorText(error) });
+            } finally {
+                checkingAllModels = false;
+                try {
+                    controller.close();
+                } catch {}
+            }
+        },
+    });
+    return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' } });
 });
 
 app.post('/v1/gateway/refresh', async (c) => {

@@ -190,7 +190,7 @@ export class OpenAICompatibleProvider implements Provider {
       return this.streamWith(undefined, request, context);
     }
     const ready = this.readyKeys();
-    if (!ready.length) throw new ProviderError(this.health().reason ?? this.missingKey(), 'rate_limit', 429);
+    if (!ready.length) throw new ProviderError(this.health().reason ?? this.missingKey(), 'rate_limit', 429, this.pool.secondsUntilReady(keys));
     let lastError: unknown;
     for (const key of ready) {
       try {
