@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.20.0](https://github.com/kravchenski/switchyard/compare/v2.19.0...v2.20.0) (2026-10-12)
+
+
+### Features
+
+* **accounts:** paste a sign-in token for every web chat from the desktop app ([d0056ee](https://github.com/kravchenski/switchyard/commit/d0056eedc36e32a7a1b233a57fe687903ec1dcdc))
+* **accounts:** paste a sign-in token for every web chat from the desktop app ([09d935e](https://github.com/kravchenski/switchyard/commit/09d935e9f4f89974def820f5f153f5740a680692))
+
+
+### Bug Fixes
+
+* **providers:** report an HTML error page by its title instead of its markup ([a130b74](https://github.com/kravchenski/switchyard/commit/a130b74d529e5e489a96d9abc097b781b4ec5411))
+* **providers:** report an HTML error page by its title instead of its markup ([46209f8](https://github.com/kravchenski/switchyard/commit/46209f86b72cddde8b09be898e90a8a4b1f7133b))
+* **providers:** skip leading HTML comments without a backtracking regex ([842742f](https://github.com/kravchenski/switchyard/commit/842742fbe4c3cee7a085f63c924fd0866355ddec))
+* **router:** cool down only the API model that answered a server error ([65d7280](https://github.com/kravchenski/switchyard/commit/65d7280cc82019593ba9198555305c765a4c6065))
+* **router:** cool down only the API model that answered a server error ([9c920f5](https://github.com/kravchenski/switchyard/commit/9c920f5ad1ca6532b9e8053134d99b14a0dd8703))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.19.0 ([7043f2c](https://github.com/kravchenski/switchyard/commit/7043f2c597766e5d686f202a3faeb5d21b13acc0))
+
 ## [2.19.0](https://github.com/kravchenski/switchyard/compare/v2.18.0...v2.19.0) (2026-10-12)
 
 
