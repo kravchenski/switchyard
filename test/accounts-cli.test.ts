@@ -72,7 +72,30 @@ describe('accounts CLI', () => {
     expect(lines.at(-1)).toBe('chat.z.ai: not signed in, the site treats the token as a guest');
     expect(lines.join('\n')).not.toContain('jwt-token');
 
-    await expect(runAccountsCommand(['token', 'arena-chat'], deps)).rejects.toThrow('Use: bun run account token <qwen-chat|glm-chat|kimi-chat>');
+    expect(await runAccountsCommand(['token', 'arena-chat'], deps)).toBe(0);
+    expect(lines.some(line => line.includes('Cookies > https://arena.ai and copy "arena-auth-prod-v1.0"'))).toBe(true);
+    await expect(runAccountsCommand(['token', 'deepseek'], deps)).rejects.toThrow('Use: bun run account token <qwen-chat|glm-chat|kimi-chat|arena-chat>');
+  });
+
+  test('saves a pasted DeepSeek token without a browser', async () => {
+    const { deps, lines } = harness();
+    const saved: string[] = [];
+    deps.askHidden = async () => '{"value":"ds-token","__version":"0"}';
+    deps.addDeepSeekToken = async token => {
+      if (token !== 'ds-token') throw new Error('DeepSeek did not accept this token: HTTP 401');
+      saved.push(token);
+      return 'deepseek_1';
+    };
+
+    expect(await runAccountsCommand(['token', 'deepseek'], deps)).toBe(0);
+    expect(saved).toEqual(['ds-token']);
+    expect(lines.at(-1)).toBe('chat.deepseek.com: signed in with the token as deepseek_1');
+    expect(lines.join('\n')).not.toContain('ds-token');
+
+    deps.askHidden = async () => 'other';
+    await expect(runAccountsCommand(['token', 'deepseek'], deps)).rejects.toThrow('HTTP 401');
+    deps.askHidden = async () => ' ';
+    await expect(runAccountsCommand(['token', 'deepseek'], deps)).rejects.toThrow('No token entered');
   });
 
   test('rejects unknown providers and commands and points to the API key flag', async () => {

@@ -116,6 +116,17 @@ pub fn kind_label(kind: &str) -> &str {
     }
 }
 
+pub fn token_location(id: &str) -> &str {
+    match id {
+        "qwen-chat" => "Local Storage > https://chat.qwen.ai and copy \"token\"",
+        "glm-chat" => "Local Storage > https://chat.z.ai and copy \"token\"",
+        "kimi-chat" => "Local Storage > https://www.kimi.ai and copy \"refresh_token\"",
+        "arena-chat" => "Cookies > https://arena.ai and copy \"arena-auth-prod-v1.0\" (paste \"arena-auth-prod-v1.1\", if any, right after it)",
+        "deepseek" => "Local Storage > https://chat.deepseek.com and copy \"userToken\"",
+        _ => "Local Storage of the chat site and copy its sign-in token",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
