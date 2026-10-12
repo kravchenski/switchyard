@@ -35,6 +35,10 @@ describe('provider errors', () => {
     expect(error.kind).toBe('upstream');
     expect((await upstreamError('X', new Response('<html><body>down</body></html>', { status: 503 }))).message).toBe('X failed: 503 HTML error page');
     expect((await upstreamError('X', new Response('{"error":"<b>bad</b>"}', { status: 400 }))).message).toBe('X failed: 400 {"error":"<b>bad</b>"}');
+    const comments = `<!--${'--><!--'.repeat(50_000)}`;
+    const started = performance.now();
+    expect((await upstreamError('X', new Response(comments, { status: 502 }))).message).toStartWith('X failed: 502 <!--');
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   test('maps errors to gateway http responses', () => {
