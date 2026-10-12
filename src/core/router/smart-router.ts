@@ -64,7 +64,7 @@ function withTimeout<T>(work: Promise<T>, ms: number | undefined, onTimeout: () 
 
 export class SmartRouter {
   private readonly cooldownUntil = new Map<string, number>();
-  private readonly modelCooldownUntil = new Map<string, number>();
+  private readonly modelCooldownUntil = new Map<string, { until: number; reason: string }>();
   private readonly chains = new Map<VirtualModel, string[]>();
 
   constructor(
@@ -122,7 +122,8 @@ export class SmartRouter {
       if (this.options.autoEnabled && !this.options.autoEnabled(provider.id)) return skip(candidate, `${provider.id} is off in auto`);
       if (!this.registry.availability.isAvailable(candidate)) return skip(candidate, 'model is not available for this key');
       if ((this.cooldownUntil.get(provider.id) ?? 0) > now) return skip(candidate, `${provider.id} cooling down after an error`);
-      if ((this.modelCooldownUntil.get(candidate) ?? 0) > now) return skip(candidate, 'model cooling down after a timeout');
+      const modelCooldown = this.modelCooldownUntil.get(candidate);
+      if (modelCooldown && modelCooldown.until > now) return skip(candidate, `model cooling down after ${modelCooldown.reason}`);
       return [{ provider, model: candidate }];
     });
   }
@@ -150,7 +151,8 @@ export class SmartRouter {
     if (!(error instanceof ProviderError && NOT_MODEL_FAULTS.includes(error.kind))) this.registry.stats.recordFailure(route.model);
     if (modelMissing) this.registry.availability.markUnavailable(route.model, error.message);
     if (!coolDown) return;
-    if (error instanceof FirstChunkTimeout) this.modelCooldownUntil.set(route.model, this.now() + (route.provider.fallback ? MODEL_TIMEOUT_COOLDOWN_MS : WEB_TIMEOUT_COOLDOWN_MS));
+    if (error instanceof FirstChunkTimeout) this.modelCooldownUntil.set(route.model, { until: this.now() + (route.provider.fallback ? MODEL_TIMEOUT_COOLDOWN_MS : WEB_TIMEOUT_COOLDOWN_MS), reason: 'a timeout' });
+    else if (route.provider.fallback && error instanceof ProviderError && error.kind === 'upstream' && (error.status ?? 0) >= 500) this.modelCooldownUntil.set(route.model, { until: this.now() + PROVIDER_COOLDOWN_MS, reason: `an error (HTTP ${error.status})` });
     else if (!modelMissing) this.cooldownUntil.set(route.provider.id, this.now() + PROVIDER_COOLDOWN_MS);
   }
 
