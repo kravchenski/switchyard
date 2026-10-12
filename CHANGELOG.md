@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.19.0](https://github.com/kravchenski/switchyard/compare/v2.18.0...v2.19.0) (2026-10-12)
+
+
+### Features
+
+* **models:** check every model at once and hide the ones that do not answer ([ad4e82e](https://github.com/kravchenski/switchyard/commit/ad4e82e4708bcf7303a3bb70b2927ef51338a69e))
+* **models:** check every model at once and hide the ones that do not answer ([cbc0806](https://github.com/kravchenski/switchyard/commit/cbc08068db22713680c5f229166f964922c81ccc))
+
+
+### Bug Fixes
+
+* **accounts:** save a second API key without a label as default-2 and reject a key saved twice ([a965785](https://github.com/kravchenski/switchyard/commit/a965785ff8d5da612acf6644a5e1420e2f0a0a60))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.18.0 ([4c15ffb](https://github.com/kravchenski/switchyard/commit/4c15ffbe82e36cfcc37814459862810ee0601990))
+
 ## [2.18.0](https://github.com/kravchenski/switchyard/compare/v2.17.0...v2.18.0) (2026-10-11)
 
 
