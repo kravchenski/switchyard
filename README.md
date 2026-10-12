@@ -193,7 +193,7 @@ Everything below has a free tier or works through your own signed-in web account
 - **Gentle on web accounts:** each account keeps requests in one chat (a request with its own `conversation_id` gets its own chat), sends one message at a time and waits `WEB_CHAT_MIN_INTERVAL_MS` (2 s) after the previous answer before sending the next message. Heavy automated traffic still breaks the sites' terms and can get an account blocked; use API providers for bots.
 - **Collect keys from an account:** `bun run account auto-collect --profile <id>` signs in to the web chats and provider dashboards with that account's Google session and creates its API keys (Auto-collect keys on the desktop Accounts page). Stop the API first, because it uses the same browser profile.
 - **Custom providers:** `bun run account custom add <id> --url <base-url> [--name <name>]`, or the Custom provider card on the desktop API keys page. Save a key with `bun run account add <id> --api-key` if it needs one. Models are named `<id>/<model>` and join `auto` as a fallback. Use `https://`, or `http://` only for localhost.
-- Models a key cannot use are detected and hidden; `bun run models:probe` measures which models answer and how fast.
+- Models a key cannot use are detected and hidden. `bun run models:check` checks every model of every provider at once (about a minute for ~500 API models) and hides the ones that time out, fail, or belong to a provider whose key or balance is spent; they come back after 24 hours or on the next check. Add `--web` to include browser chats and `-v` to list each failure. `bun run models:probe` measures which models answer and how fast.
 
 </details>
 
@@ -290,6 +290,7 @@ Each Jev question costs one request to a fast API model, so the savings pay off 
 | `GET` | `/v1/gateway/status` | Providers, accounts, models, chains, web chat order, recent requests |
 | `POST` | `/v1/gateway/refresh` | Reload saved keys, custom providers and model lists |
 | `POST` | `/v1/gateway/providers/:id/check` | Check which models a provider key can use |
+| `POST` | `/v1/gateway/models/check` | Check every model of every provider and hide the ones that do not answer; streams one JSON line per model |
 | `GET` | `/metrics` | Prometheus metrics |
 | `POST` | `/mcp` | Browser tools from the Switchyard extension over MCP (Streamable HTTP) |
 | `GET` | `/browser/ws` | WebSocket the extension connects to |
