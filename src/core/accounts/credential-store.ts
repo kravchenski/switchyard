@@ -51,6 +51,9 @@ export class CredentialStore {
     const apiKey = input.apiKey.trim();
     if (!label || !apiKey) throw new Error('Label and API key are required');
     const credentials = this.read();
+    if (credentials.some(credential => credential.provider === input.provider && credential.token === apiKey)) {
+      throw new Error(`This API key is already saved for ${input.provider}`);
+    }
     if (credentials.some(credential => credential.provider === input.provider && credential.email === label)) {
       throw new Error(`Account already exists: ${input.provider} ${label}`);
     }

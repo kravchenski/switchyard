@@ -36,6 +36,8 @@ describe('credential registry', () => {
     expect(savedApiKey(store, 'qwen')).toBeUndefined();
     expect(() => store.addApiKey({ provider: 'nvidia', label: 'main', apiKey: 'x' })).toThrow('already exists');
     expect(() => store.addApiKey({ provider: 'nvidia', label: 'other', apiKey: ' ' })).toThrow('required');
+    expect(() => store.addApiKey({ provider: 'nvidia', label: 'second', apiKey: 'nvapi-1' })).toThrow('This API key is already saved for nvidia');
+    expect(store.addApiKey({ provider: 'nvidia', label: 'second', apiKey: 'nvapi-2' })).toMatchObject({ email: 'second', token: 'nvapi-2' });
   });
 
   test('returns no saved key when the registry cannot be opened', () => {

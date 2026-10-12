@@ -30,6 +30,14 @@ function harness() {
 }
 
 describe('accounts CLI', () => {
+  test('names a second key without a label default-2 instead of refusing it', async () => {
+    const { deps, saved } = harness();
+    await runAccountsCommand(['add', 'openrouter', '--api-key', '--no-verify'], deps);
+    await runAccountsCommand(['add', 'openrouter', '--api-key', '--no-verify'], deps);
+    await runAccountsCommand(['add', 'nvidia', '--api-key', '--no-verify'], deps);
+    expect(saved.map(entry => `${entry.provider} ${entry.email}`)).toEqual(['openrouter default', 'openrouter default-2', 'nvidia default']);
+  });
+
   test('lists saved keys without printing them, checks and removes them by id', async () => {
     const { deps, lines } = harness();
     await runAccountsCommand(['add', 'nvidia', '--api-key', '--label', 'main', '--no-verify'], deps);

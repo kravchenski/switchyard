@@ -57,6 +57,13 @@ const WEB_CHAT_IDS = WEB_CHAT_SITES.map(site => site.id);
 export type ProfileSignIn = SiteSignIn & { profile?: BrowserProfile };
 
 const DEFAULT_ACCOUNT = 'default';
+
+function freeLabel(taken: string[]) {
+    if (!taken.includes(DEFAULT_ACCOUNT)) return DEFAULT_ACCOUNT;
+    let index = 2;
+    while (taken.includes(`${DEFAULT_ACCOUNT}-${index}`)) index++;
+    return `${DEFAULT_ACCOUNT}-${index}`;
+}
 const GOOGLE_SIGN_IN_URL = 'https://accounts.google.com/';
 
 const ACCOUNTS_USAGE = `Usage: bun run account <command>
@@ -398,7 +405,7 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
 
   if (command === 'add' && args.includes('--api-key')) {
     const provider = requireProvider(target);
-    const label = option(args, '--label') ?? 'default';
+    const label = option(args, '--label') ?? freeLabel(deps.store.list(provider).map(credential => credential.email));
     let apiKey = (await deps.askHidden('API key: ')).trim();
     if (!apiKey) throw new Error('API key is required');
     const accountLabel = deps.accountLabel?.(provider);
