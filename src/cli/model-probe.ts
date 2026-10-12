@@ -1,3 +1,4 @@
+import { errorDetail } from '../core/providers/errors.ts';
 import { readLines } from '../core/streaming/sse.ts';
 import { parseOpenAIEvent } from '../providers/openai-compatible.ts';
 import { isVirtualModel } from '../core/router/smart-router.ts';
@@ -41,7 +42,7 @@ export async function listGatewayModels(options: ProbeOptions): Promise<ModelInf
 }
 
 export function summarizeError(status: number, text: string) {
-  let message = text;
+  let message = errorDetail(text);
   try {
     const parsed = JSON.parse(text)?.error?.message;
     if (typeof parsed === 'string') message = parsed;

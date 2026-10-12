@@ -36,8 +36,26 @@ function retryAfterSeconds(header: string | null) {
   return Number.isNaN(date) ? undefined : Math.max(Math.ceil((date - Date.now()) / 1000), 0);
 }
 
+const HTML_START = /^<(?:!doctype html|html|head|body)\b/i;
+
+function isHtmlPage(text: string) {
+  let rest = text.trimStart();
+  while (rest.startsWith('<!--')) {
+    const end = rest.indexOf('-->', 4);
+    if (end < 0) return false;
+    rest = rest.slice(end + 3).trimStart();
+  }
+  return HTML_START.test(rest);
+}
+
+export function errorDetail(text: string) {
+  if (!isHtmlPage(text)) return text.slice(0, MAX_DETAIL_LENGTH);
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(text)?.[1]?.replace(/\s+/g, ' ').trim();
+  return title ? `HTML page "${title.slice(0, 200)}"` : 'HTML error page';
+}
+
 export async function upstreamError(action: string, response: Response) {
-  const body = (await response.text().catch(() => '')).slice(0, MAX_DETAIL_LENGTH);
+  const body = errorDetail(await response.text().catch(() => ''));
   return new ProviderError(
     `${action} failed: ${response.status} ${body}`,
     classifyStatus(response.status, body),
