@@ -28,6 +28,15 @@ describe('provider errors', () => {
     expect(error.message.length).toBeLessThan(600);
   });
 
+  test('reports an HTML error page by its title instead of its markup', async () => {
+    const page = '<!DOCTYPE html>\n<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->\n<head><title>tokenharbor.ai | 502: Bad gateway</title></head><body>log in again</body></html>';
+    const error = await upstreamError('Token Harbor completion', new Response(page, { status: 502 }));
+    expect(error.message).toBe('Token Harbor completion failed: 502 HTML page "tokenharbor.ai | 502: Bad gateway"');
+    expect(error.kind).toBe('upstream');
+    expect((await upstreamError('X', new Response('<html><body>down</body></html>', { status: 503 }))).message).toBe('X failed: 503 HTML error page');
+    expect((await upstreamError('X', new Response('{"error":"<b>bad</b>"}', { status: 400 }))).message).toBe('X failed: 400 {"error":"<b>bad</b>"}');
+  });
+
   test('maps errors to gateway http responses', () => {
     expect(toHttpError(new ProviderError('slow', 'rate_limit', 429, 5))).toEqual({
       status: 429, type: 'rate_limit_exceeded', message: 'slow', retryAfterSeconds: 5,
