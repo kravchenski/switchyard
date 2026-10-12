@@ -41,29 +41,30 @@ export function evaluateSignIn(rule: SignInRule, value: string | null | undefine
   return { signedIn: true };
 }
 
+export function signInToken(rule: SignInRule, raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let value = raw;
+  if (value.startsWith('base64-')) {
+    const b64 = value.slice(7);
+    try {
+      value = Buffer.from(b64.slice(0, b64.length - (b64.length % 4)), 'base64').toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+  if (!rule.tokenPattern) return value;
+  const match = new RegExp(rule.tokenPattern).exec(value);
+  return match ? (match[1] ?? match[0]) : null;
+}
+
 export async function readSignInValue(page: Page, rule: SignInRule): Promise<string | null> {
-  return page.evaluate(({ key, cookie, pattern }) => {
-    let raw: string | null = null;
-    if (key) raw = localStorage.getItem(key);
-    else if (cookie) {
-      const found = document.cookie.match(new RegExp(`(?:^|;\\s*)${cookie}=([^;]+)`));
-      raw = found ? decodeURIComponent(found[1]) : null;
-    }
-    if (!raw) return null;
-    if (raw.startsWith('base64-')) {
-      const b64 = raw.slice(7);
-      try {
-        raw = atob(b64.slice(0, b64.length - (b64.length % 4)));
-      } catch {
-        return null;
-      }
-    }
-    if (pattern) {
-      const match = new RegExp(pattern).exec(raw);
-      return match ? (match[1] ?? match[0]) : null;
-    }
-    return raw;
-  }, { key: rule.storageKey ?? null, cookie: rule.cookie ?? null, pattern: rule.tokenPattern ?? null }).catch(() => null);
+  const raw = await page.evaluate(({ key, cookie }) => {
+    if (key) return localStorage.getItem(key);
+    if (!cookie) return null;
+    const found = document.cookie.match(new RegExp(`(?:^|;\\s*)${cookie}=([^;]+)`));
+    return found ? decodeURIComponent(found[1]) : null;
+  }, { key: rule.storageKey ?? null, cookie: rule.cookie ?? null }).catch(() => null);
+  return signInToken(rule, raw);
 }
 
 export async function readSignIn(page: Page, rule: SignInRule, now = Date.now()) {

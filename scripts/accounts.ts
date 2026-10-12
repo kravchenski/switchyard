@@ -23,7 +23,8 @@ import { buildOverview } from '../src/cli/overview.ts';
 import { INIT_MESSAGES, initAccountsSecret } from '../src/cli/accounts-secret.ts';
 import { loadAccountsSecret, systemKeyring } from '../src/core/secrets/accounts-secret.ts';
 import { accountStates } from '../src/core/status.ts';
-import { loadDeepSeekAccounts, removeDeepSeekAccount } from '../src/providers/deepseek/accounts.ts';
+import { addDeepSeekAccount, loadDeepSeekAccounts, removeDeepSeekAccount } from '../src/providers/deepseek/accounts.ts';
+import { checkDeepSeekToken } from '../src/providers/deepseek/auth.ts';
 import { checkDeepSeekProfile, DEEPSEEK_SIGN_IN_SITE, profileAccountId } from '../src/providers/deepseek/profile.ts';
 import { isDeepSeekUrl } from '../src/providers/deepseek/url.ts';
 import { harvestBrowserFrom, harvestKeys } from '../src/browser/key-harvest.ts';
@@ -165,6 +166,13 @@ try {
       return results;
     },
     signInWithToken: (siteId, token, profile) => signInWithToken({ site: WEB_CHAT_SITES.find(site => site.id === siteId)!, token, profileDir: profileDir(profile) }),
+    addDeepSeekToken: async token => {
+      const rejected = await checkDeepSeekToken(token);
+      if (rejected) throw new Error(`DeepSeek did not accept this token: ${rejected}`);
+      const id = loadDeepSeekAccounts().find(account => account.token === token)?.id ?? `deepseek_${Date.now()}`;
+      addDeepSeekAccount({ id, token, cookies: [], invalid: false, resetAt: null });
+      return id;
+    },
     verifyApiKey: (provider, apiKey) => {
       const definition = apiKeyProvider(provider);
       if (!definition) throw new Error(`API keys are not supported for ${provider}`);

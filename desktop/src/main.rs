@@ -18,7 +18,7 @@ use gpui_kit::*;
 use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount};
 use settings::{AutoSettings, DesktopSettings, ThemeChoice};
 use gateway::{check_health, open_in_browser, stop_external, Gateway, GatewayConfig};
-use overview::{activity, detail, display_name, kind_label, needs_sign_in, Activity, ProviderOverview};
+use overview::{activity, detail, display_name, kind_label, needs_sign_in, token_location, Activity, ProviderOverview};
 use status::{check_models, fetch_decision, fetch_status, now_ms, read_api_key, refresh_models, relative_time, summarize_requests, Decision, GatewayStatus, ProviderStatus, RequestLog};
 use ui::*;
 
@@ -80,6 +80,7 @@ struct Shell {
     profile_name: Entity<InputState>,
     api_key: Entity<InputState>,
     account_id: Entity<InputState>,
+    chat_token: Entity<InputState>,
     custom_name: Entity<InputState>,
     custom_url: Entity<InputState>,
     custom_key: Entity<InputState>,
@@ -161,6 +162,7 @@ impl Shell {
             profile_name: cx.new(|cx| InputState::new(window, cx).placeholder("Account name, e.g. Work")),
             api_key: cx.new(|cx| InputState::new(window, cx).placeholder("Paste the API key").masked(true)),
             account_id: cx.new(|cx| InputState::new(window, cx).placeholder("Account ID")),
+            chat_token: cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token").masked(true)),
             custom_name: cx.new(|cx| InputState::new(window, cx).placeholder("Name, e.g. Home Ollama")),
             custom_url: cx.new(|cx| InputState::new(window, cx).placeholder("Base URL, e.g. http://localhost:11434/v1")),
             custom_key: cx.new(|cx| InputState::new(window, cx).placeholder("API key (optional)").masked(true)),
@@ -374,6 +376,35 @@ impl Shell {
         self.account_id.update(cx, |input, cx| input.set_value("", window, cx));
         let check = provider.clone();
         self.run_command_then(cx, move |cli| cli.add_api_key(&provider, &key), true, Some(check));
+    }
+
+    fn sign_in_with_token(&mut self, chat: String, window: &mut Window, cx: &mut Context<Self>) {
+        let token = self.chat_token.read(cx).value().trim().to_string();
+        self.chat_token.update(cx, |input, cx| input.set_value("", window, cx));
+        let check = chat.clone();
+        self.run_command_then(cx, move |cli| cli.sign_in_with_token(&chat, &token), true, Some(check));
+    }
+
+    fn render_token_form(&self, chat: &str, enabled: bool, cx: &mut Context<Self>) -> Div {
+        let chat = chat.to_string();
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(muted(format!("Or sign in with a token: sign in in your usual browser, open DevTools (F12) > Application > {}.", token_location(&chat))).text_xs())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().child(Input::new(&self.chat_token)))
+                    .child(button("provider-save-token", if self.busy { "Working…" } else { "Save token" }, Some(IconName::KeyRound), Tone::Primary, enabled).when(enabled, |this| {
+                        this.on_click(cx.listener(move |shell, _, window, cx| {
+                            shell.sign_in_with_token(chat.clone(), window, cx);
+                            cx.notify();
+                        }))
+                    })),
+            )
     }
 
     fn copy_url(&mut self, cx: &mut Context<Self>) {
@@ -919,7 +950,11 @@ impl Shell {
                                 }))
                             })),
                     )
+                    .child(self.render_token_form(&row.id, !blocked, cx))
             }
+            ("account", _) if row.id == "deepseek" => connection
+                .child(muted("Messages are sent from your signed-in session on chat.deepseek.com. Tokens are checked against DeepSeek before they are saved.").text_xs())
+                .child(self.render_token_form(&row.id, !self.busy, cx)),
             ("api-key", _) => {
                 let provider = row.id.clone();
                 let keys: Vec<SavedAccount> = self.saved.iter().filter(|account| account.provider == row.id).cloned().collect();

@@ -122,6 +122,14 @@ impl AccountsCli {
         self.run(&["add", provider, "--api-key"], Some(&format!("{key}\n")))
     }
 
+    pub fn sign_in_with_token(&self, chat: &str, token: &str) -> Result<String, String> {
+        let token = token.trim();
+        if token.is_empty() {
+            return Err("Paste the token".into());
+        }
+        self.run(&["token", chat], Some(&format!("{token}\n")))
+    }
+
     pub fn add_custom(&self, id: &str, url: &str, name: &str) -> Result<String, String> {
         if id.is_empty() {
             return Err("Enter a name for the provider".into());
@@ -312,6 +320,10 @@ mod tests {
         assert!(output.contains("args:add nvidia --api-key"));
         assert!(!output.lines().next().unwrap().contains("s3cret"));
         assert!(output.contains("stdin:s3cret"));
+        let output = cli.sign_in_with_token("arena-chat", " base64-abc ").unwrap();
+        assert!(output.contains("args:token arena-chat"));
+        assert!(output.contains("stdin:base64-abc"));
+        assert_eq!(cli.sign_in_with_token("deepseek", " "), Err("Paste the token".into()));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
