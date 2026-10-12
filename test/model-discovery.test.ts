@@ -99,6 +99,24 @@ describe('model availability', () => {
     expect(calls).toEqual(['gone', 'works', 'works']);
   });
 
+  test('auto cools down only the API model that answered a server error', async () => {
+    const calls: string[] = [];
+    let now = 0;
+    const failing = { 'th/claude:free': new ProviderError('Token Harbor completion failed: 502 HTML page "502: Bad gateway"', 'upstream', 502) };
+    const registry = new ProviderRegistry().register({ ...fakeProvider('th', ['th/claude:free', 'th/mimo:free'], failing, calls), fallback: true });
+    const router = new SmartRouter(registry, ['th/claude:free', 'th/mimo:free'], () => now);
+    const open = () => router.open('auto', route => ({ model: route.model, messages: [] }));
+    expect((await open()).route.model).toBe('th/mimo:free');
+    expect((await open()).route.model).toBe('th/mimo:free');
+    expect(calls).toEqual(['th/claude:free', 'th/mimo:free', 'th/mimo:free']);
+    const skipped: Array<{ model: string; reason: string }> = [];
+    router.routes('auto', undefined, skipped);
+    expect(skipped).toContainEqual({ model: 'th/claude:free', reason: 'model cooling down after an error (HTTP 502)' });
+    now = 30_001;
+    await open();
+    expect(calls.at(-2)).toBe('th/claude:free');
+  });
+
   test('an explicit request for a missing model marks it and rethrows', async () => {
     const registry = new ProviderRegistry().register(fakeProvider('p', ['gone'], {
       gone: new ProviderError('Gone', 'model_unavailable', 410),
