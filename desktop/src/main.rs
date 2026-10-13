@@ -15,7 +15,7 @@ use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount};
+use accounts::{provider_id, AccountProfile, AccountsCli, SavedAccount, SecretState};
 use settings::{AutoSettings, DesktopSettings, ThemeChoice};
 use gateway::{check_health, open_in_browser, stop_external, Gateway, GatewayConfig};
 use overview::{activity, detail, display_name, kind_label, needs_sign_in, token_location, Activity, ProviderOverview};
@@ -99,7 +99,7 @@ struct Shell {
     busy: bool,
     running: bool,
     compact: bool,
-    locked: bool,
+    secret: SecretState,
     message: Option<(bool, String)>,
     copied: bool,
 }
@@ -181,7 +181,7 @@ impl Shell {
             busy: false,
             running: false,
             compact: false,
-            locked: false,
+            secret: SecretState::Ready,
             message: None,
             copied: false,
         };
@@ -222,7 +222,7 @@ impl Shell {
     }
 
     fn registry_locked(&self) -> bool {
-        self.locked
+        self.secret != SecretState::Ready
     }
 
     fn apply_health(&mut self, healthy: bool) {
@@ -271,9 +271,9 @@ impl Shell {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let cli = self.accounts.clone();
         cx.spawn(async move |this, cx| {
-            let (overview, saved, missing, profiles, auto) = cx
+            let (overview, saved, secret, profiles, auto) = cx
                 .background_executor()
-                .spawn(async move { (cli.overview(), cli.list(), cli.secret_missing(), cli.profiles(), cli.auto_settings()) })
+                .spawn(async move { (cli.overview(), cli.list(), cli.secret_state(), cli.profiles(), cli.auto_settings()) })
                 .await;
             let _ = this.update(cx, |shell, cx| {
                 if let Ok(auto) = auto {
@@ -282,8 +282,8 @@ impl Shell {
                 if let Ok(profiles) = profiles {
                     shell.profiles = profiles;
                 }
-                if let Ok(missing) = missing {
-                    shell.locked = missing;
+                if let Ok(secret) = secret {
+                    shell.secret = secret;
                 }
                 match overview {
                     Ok(rows) => shell.overview = rows,
@@ -1504,6 +1504,7 @@ impl Shell {
             .flex_col()
             .gap_4()
             .children(self.registry_locked().then(|| {
+                let locked_keyring = self.secret == SecretState::Locked;
                 card()
                     .flex()
                     .items_center()
@@ -1516,15 +1517,27 @@ impl Shell {
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .child(section_title("API keys are locked"))
-                            .child(muted("Create an encryption secret in the system keyring so API keys can be saved. Restart the API afterwards.").text_xs()),
+                            .child(section_title(if locked_keyring { "Saved keys are locked" } else { "API keys are locked" }))
+                            .child(muted(if locked_keyring {
+                                "The system keyring is locked, so the saved keys cannot be opened. Unlock the keyring, or put ACCOUNTS_SECRET back into .env, then check again. Creating a new secret would leave the saved keys unreadable."
+                            } else {
+                                "Create an encryption secret in the system keyring so API keys can be saved. Restart the API afterwards."
+                            }).text_xs()),
                     )
-                    .child(button("init-secret", "Create secret", Some(IconName::KeyRound), Tone::Primary, !self.busy).when(!self.busy, |this| {
-                        this.on_click(cx.listener(|shell, _, _, cx| {
-                            shell.run_command(cx, |cli| cli.init_secret());
-                            cx.notify();
-                        }))
-                    }))
+                    .child(if locked_keyring {
+                        button("refresh-secret", if self.busy { "Checking…" } else { "Check again" }, Some(IconName::RefreshCw), Tone::Primary, !self.busy).when(!self.busy, |this| {
+                            this.on_click(cx.listener(|shell, _, _, cx| {
+                                shell.refresh(cx);
+                            }))
+                        })
+                    } else {
+                        button("init-secret", "Create secret", Some(IconName::KeyRound), Tone::Primary, !self.busy).when(!self.busy, |this| {
+                            this.on_click(cx.listener(|shell, _, _, cx| {
+                                shell.run_command(cx, |cli| cli.init_secret());
+                                cx.notify();
+                            }))
+                        })
+                    })
             }))
             .child(key_card)
             .child(

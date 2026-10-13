@@ -21,7 +21,7 @@ export interface ApiKeyCredential {
   apiKey: string;
 }
 
-const CREDENTIALS_FILE = path.resolve(process.env.SESSION_DIR || 'session', 'credentials.enc');
+export const CREDENTIALS_FILE = path.resolve(process.env.SESSION_DIR || 'session', 'credentials.enc');
 
 export class CredentialStore {
   constructor(
