@@ -38,6 +38,7 @@ export interface AccountsCliDeps {
   overview?: () => ProviderOverview[];
   initSecret?: () => Promise<string>;
   secretSource?: () => Promise<string>;
+  showSecret?: () => Promise<string>;
   providerAuto?: (provider: string, auto?: boolean) => boolean;
   customProviders?: {
     list(): CustomProvider[];
@@ -70,8 +71,8 @@ const GOOGLE_SIGN_IN_URL = 'https://accounts.google.com/';
 const ACCOUNTS_USAGE = `Usage: bun run account <command>
 
   (no command) [--json]                           Show every provider and whether it is connected
-  init                                            Create ACCOUNTS_SECRET in the system keyring (moves it out of .env)
-  secret                                          Show where ACCOUNTS_SECRET is loaded from
+  init                                            Create ACCOUNTS_SECRET in the secret file and the system keyring (moves it out of .env)
+  secret [--show]                                 Show where ACCOUNTS_SECRET is loaded from; --show prints its value for a backup
   provider <id> [--auto on|off]                   Show or change whether model=auto may use a provider
   auto [--order <id,...>] [--model <chat>=<model|fastest>] [--compact on|off] [--tools on|off] [--rtk on|off]
                                                   Show or change model=auto (order of the web chats, e.g. qwen-chat,deepseek,glm-chat;
@@ -239,6 +240,10 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
   }
 
   if (command === 'secret' && deps.secretSource) {
+    if (args.includes('--show') && deps.showSecret) {
+      deps.log(await deps.showSecret());
+      return 0;
+    }
     deps.log(`ACCOUNTS_SECRET: ${await deps.secretSource()}`);
     return 0;
   }
