@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.21.0](https://github.com/kravchenski/switchyard/compare/v2.20.0...v2.21.0) (2026-10-13)
+
+
+### Features
+
+* **desktop:** show a locked keyring instead of a missing secret ([e65bddf](https://github.com/kravchenski/switchyard/commit/e65bddfe003637af263c1322eeacdad8dd084413))
+
+
+### Bug Fixes
+
+* **accounts:** keep a durable ACCOUNTS_SECRET and never replace a locked vault ([f1e4678](https://github.com/kravchenski/switchyard/commit/f1e46788803b0d946ae4d72792f3991d67aec4cf))
+* **accounts:** keep a durable ACCOUNTS_SECRET and never replace a locked vault ([6a317ff](https://github.com/kravchenski/switchyard/commit/6a317ff0fc499b8698c7fb70e89673852e1e628b))
+* **accounts:** keep ACCOUNTS_SECRET outside the data directory and add secret --show ([77bde27](https://github.com/kravchenski/switchyard/commit/77bde277e7c26ae53a2c0537892306c2f9d9ce49))
+* **accounts:** stop losing saved keys when the system keyring locks ([83ad564](https://github.com/kravchenski/switchyard/commit/83ad564c2ae87f6e208ee1c6fe84f8986fe11a62))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.20.0 ([b6b8e95](https://github.com/kravchenski/switchyard/commit/b6b8e95bdc0860121a4558ac4a0bb9fad0ae9db5))
+
 ## [2.20.0](https://github.com/kravchenski/switchyard/compare/v2.19.0...v2.20.0) (2026-10-12)
 
 
