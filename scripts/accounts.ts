@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 
+import fs from 'node:fs';
+
 import { runAccountsCommand, type ProfileSignIn } from '../src/cli/accounts.ts';
-import { openCredentialStore } from '../src/core/accounts/credential-store.ts';
+import { openCredentialStore, CREDENTIALS_FILE } from '../src/core/accounts/credential-store.ts';
 import { API_KEY_PROVIDERS, apiKeyProvider, apiKeyProviders, defaultAuto, setCustomProviders, verifyProviderKey } from '../src/providers/catalog.ts';
 import { CUSTOM_PROVIDERS_SETTING, customProviderDefinition, readCustomProviders, validateCustomProvider, type CustomProvider } from '../src/providers/custom.ts';
 import { askHidden } from '../src/utils/hiddenPrompt.ts';
@@ -46,6 +48,7 @@ function profileStore(db: Database) {
 const environmentSecret = process.env.ACCOUNTS_SECRET;
 const secretSource = await loadAccountsSecret();
 const store = openCredentialStore();
+const secretState = () => (secretSource === 'missing' && fs.existsSync(CREDENTIALS_FILE) ? 'locked' : secretSource);
 
 function loadCustomProviders() {
   return withDb(db => readCustomProviders(loadGatewaySetting(db, CUSTOM_PROVIDERS_SETTING)));
@@ -83,8 +86,8 @@ try {
         }),
       }))),
     },
-    initSecret: async () => INIT_MESSAGES[await initAccountsSecret({ envFile: '.env', env: { ACCOUNTS_SECRET: environmentSecret }, keyring: systemKeyring })],
-    secretSource: async () => secretSource,
+    initSecret: async () => INIT_MESSAGES[await initAccountsSecret({ envFile: '.env', env: { ACCOUNTS_SECRET: environmentSecret }, keyring: systemKeyring, credentialsFile: CREDENTIALS_FILE })],
+    secretSource: async () => secretState(),
     autoSettings: change => withDb(db => {
       const settings = new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: (key, value) => saveGatewaySetting(db, key, value) });
       if (change.order !== undefined) settings.setWebOrder(change.order);

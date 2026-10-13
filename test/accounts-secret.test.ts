@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ensureAccountsSecret, initAccountsSecret, readFileSecret } from '../src/cli/accounts-secret.ts';
+import { INIT_MESSAGES, ensureAccountsSecret, initAccountsSecret, readFileSecret } from '../src/cli/accounts-secret.ts';
 import { runAccountsCommand, type AccountsCliDeps } from '../src/cli/accounts.ts';
 import { CredentialStore } from '../src/core/accounts/credential-store.ts';
 import { accountsSecret, forgetAccountsSecret, KEYRING_ENTRY, loadAccountsSecret, type Keyring } from '../src/core/secrets/accounts-secret.ts';
@@ -29,31 +29,31 @@ function fakeKeyring(initial?: string, options: { broken?: boolean; dropWrites?:
 afterEach(forgetAccountsSecret);
 
 describe('initAccountsSecret', () => {
-  test('creates a new secret in the keyring and leaves .env untouched', async () => {
+  test('creates a new secret in the keyring and keeps a durable copy in .env', async () => {
     const file = envFile();
     writeFileSync(file, 'HOST=0.0.0.0\n');
     const store = fakeKeyring();
     expect(await initAccountsSecret({ envFile: file, env: {}, keyring: store.keyring, random: () => 'fresh' })).toBe('created');
     expect(store.value()).toBe('fresh');
-    expect(readFileSync(file, 'utf8')).toBe('HOST=0.0.0.0\n');
+    expect(readFileSync(file, 'utf8')).toBe('HOST=0.0.0.0\nACCOUNTS_SECRET=fresh\n');
   });
 
-  test('moves a secret out of .env into the keyring', async () => {
+  test('copies a secret from .env into the keyring and keeps the .env fallback', async () => {
     const file = envFile();
     writeFileSync(file, 'NVIDIA_API_KEY=k\nACCOUNTS_SECRET="from-file"\nHOST=0.0.0.0\n');
     const store = fakeKeyring();
     expect(await initAccountsSecret({ envFile: file, env: { ACCOUNTS_SECRET: 'from-file' }, keyring: store.keyring })).toBe('moved');
     expect(store.value()).toBe('from-file');
-    expect(readFileSync(file, 'utf8')).toBe('NVIDIA_API_KEY=k\nHOST=0.0.0.0\n');
-    expect(readFileSecret(file)).toBeUndefined();
+    expect(readFileSecret(file)).toBe('from-file');
     if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
-  test('removes the .env copy when the keyring already has the same secret', async () => {
+  test('keeps the .env copy when the keyring already has the same secret', async () => {
     const file = envFile();
     writeFileSync(file, 'ACCOUNTS_SECRET=same');
-    expect(await initAccountsSecret({ envFile: file, env: {}, keyring: fakeKeyring('same').keyring })).toBe('moved');
-    expect(readFileSync(file, 'utf8')).toBe('');
+    expect(await initAccountsSecret({ envFile: file, env: {}, keyring: fakeKeyring('same').keyring })).toBe('exists');
+    expect(readFileSecret(file)).toBe('same');
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   test('refuses to pick between two different secrets', async () => {
@@ -63,6 +63,17 @@ describe('initAccountsSecret', () => {
     await expect(initAccountsSecret({ envFile: file, env: {}, keyring: store.keyring })).rejects.toThrow('different ACCOUNTS_SECRET');
     expect(readFileSecret(file)).toBe('file');
     expect(store.value()).toBe('keyring');
+  });
+
+  test('never mints a new secret while saved keys already exist', async () => {
+    const file = envFile();
+    const vault = join(mkdtempSync(join(tmpdir(), 'vault-')), 'credentials.enc');
+    writeFileSync(vault, 'unreadable-without-the-secret');
+    const store = fakeKeyring();
+    expect(await initAccountsSecret({ envFile: file, env: {}, keyring: store.keyring, random: () => 'fresh', credentialsFile: vault })).toBe('locked');
+    expect(existsSync(file)).toBeFalse();
+    expect(store.value()).toBeUndefined();
+    expect(INIT_MESSAGES.locked).toContain('unreadable');
   });
 
   test('keeps the .env secret when the keyring does not store it', async () => {
@@ -80,7 +91,8 @@ describe('initAccountsSecret', () => {
     const other = envFile();
     expect(await initAccountsSecret({ envFile: other, env: { ACCOUNTS_SECRET: 'docker' }, keyring: fakeKeyring().keyring })).toBe('environment');
     expect(existsSync(other)).toBeFalse();
-    expect(await initAccountsSecret({ envFile: other, env: {}, keyring: fakeKeyring('stored').keyring })).toBe('exists');
+    expect(await initAccountsSecret({ envFile: other, env: {}, keyring: fakeKeyring('stored').keyring, random: () => 'unused' })).toBe('copied');
+    expect(readFileSecret(other)).toBe('stored');
   });
 });
 
@@ -136,5 +148,20 @@ describe('accounts CLI secret commands', () => {
     expect(await runAccountsCommand(['init'], deps)).toBe(0);
     expect(await runAccountsCommand(['secret'], deps)).toBe(0);
     expect(lines).toEqual(['Moved ACCOUNTS_SECRET', 'ACCOUNTS_SECRET: keyring']);
+  });
+
+  test('secret distinguishes a locked keyring from a missing secret', async () => {
+    const lines: string[] = [];
+    const deps: AccountsCliDeps = {
+      store: { list: () => [], addApiKey: () => { throw new Error('unused'); }, remove: () => false },
+      askHidden: async () => '',
+      log: line => lines.push(line),
+      initSecret: async () => INIT_MESSAGES.locked,
+      secretSource: async () => 'locked',
+    };
+    expect(await runAccountsCommand(['init'], deps)).toBe(0);
+    expect(await runAccountsCommand(['secret'], deps)).toBe(0);
+    expect(lines).toEqual([INIT_MESSAGES.locked, 'ACCOUNTS_SECRET: locked']);
+    expect(lines[0]).toContain('unreadable');
   });
 });
