@@ -34,8 +34,23 @@ pub fn parse_list(output: &str) -> Vec<SavedAccount> {
         .collect()
 }
 
-pub fn parse_secret_missing(output: &str) -> bool {
-    output.lines().filter_map(|line| line.strip_prefix("ACCOUNTS_SECRET: ")).any(|source| source.trim() == "missing")
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SecretState {
+    Ready,
+    Missing,
+    Locked,
+}
+
+pub fn parse_secret_state(output: &str) -> Option<SecretState> {
+    output
+        .lines()
+        .filter_map(|line| line.strip_prefix("ACCOUNTS_SECRET: "))
+        .map(|state| match state.trim() {
+            "missing" => SecretState::Missing,
+            "locked" => SecretState::Locked,
+            _ => SecretState::Ready,
+        })
+        .next_back()
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -136,8 +151,8 @@ impl AccountsCli {
         self.run(&["custom", "remove", id], None)
     }
 
-    pub fn secret_missing(&self) -> Result<bool, String> {
-        self.run(&["secret"], None).map(|output| parse_secret_missing(&output))
+    pub fn secret_state(&self) -> Result<SecretState, String> {
+        self.run(&["secret"], None).map(|output| parse_secret_state(&output).unwrap_or(SecretState::Ready))
     }
 
     pub fn init_secret(&self) -> Result<String, String> {
@@ -278,10 +293,12 @@ mod tests {
     }
 
     #[test]
-    fn detects_a_missing_accounts_secret() {
-        assert!(parse_secret_missing("$ bun run scripts/accounts.ts secret\nACCOUNTS_SECRET: missing"));
-        assert!(!parse_secret_missing("ACCOUNTS_SECRET: keyring"));
-        assert!(!parse_secret_missing("ACCOUNTS_SECRET: environment"));
+    fn tells_a_locked_keyring_apart_from_a_missing_secret() {
+        assert_eq!(parse_secret_state("$ bun run scripts/accounts.ts secret\nACCOUNTS_SECRET: missing"), Some(SecretState::Missing));
+        assert_eq!(parse_secret_state("ACCOUNTS_SECRET: locked"), Some(SecretState::Locked));
+        assert_eq!(parse_secret_state("ACCOUNTS_SECRET: keyring"), Some(SecretState::Ready));
+        assert_eq!(parse_secret_state("ACCOUNTS_SECRET: environment"), Some(SecretState::Ready));
+        assert_eq!(parse_secret_state("nothing here"), None);
     }
 
     #[test]
