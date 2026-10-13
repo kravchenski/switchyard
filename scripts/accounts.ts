@@ -23,7 +23,7 @@ import { AGENT_OPTIONS, GatewaySettings, type AgentOption } from '../src/core/se
 import { siteForUrl, WEB_CHAT_SITES } from '../src/providers/web-chat-sites.ts';
 import { buildOverview } from '../src/cli/overview.ts';
 import { INIT_MESSAGES, initAccountsSecret } from '../src/cli/accounts-secret.ts';
-import { loadAccountsSecret, systemKeyring } from '../src/core/secrets/accounts-secret.ts';
+import { loadAccountsSecret, systemKeyring, accountsSecret, accountsSecretFile } from '../src/core/secrets/accounts-secret.ts';
 import { accountStates } from '../src/core/status.ts';
 import { loadDeepSeekAccounts, removeDeepSeekAccount } from '../src/providers/deepseek/accounts.ts';
 import { checkDeepSeekProfile, DEEPSEEK_SIGN_IN_SITE, profileAccountId } from '../src/providers/deepseek/profile.ts';
@@ -46,7 +46,8 @@ function profileStore(db: Database) {
 }
 
 const environmentSecret = process.env.ACCOUNTS_SECRET;
-const secretSource = await loadAccountsSecret();
+const secretFile = accountsSecretFile();
+const secretSource = await loadAccountsSecret(systemKeyring, process.env, secretFile);
 const store = openCredentialStore();
 const secretState = () => (secretSource === 'missing' && fs.existsSync(CREDENTIALS_FILE) ? 'locked' : secretSource);
 
@@ -86,8 +87,13 @@ try {
         }),
       }))),
     },
-    initSecret: async () => INIT_MESSAGES[await initAccountsSecret({ envFile: '.env', env: { ACCOUNTS_SECRET: environmentSecret }, keyring: systemKeyring, credentialsFile: CREDENTIALS_FILE })],
+    initSecret: async () => INIT_MESSAGES[await initAccountsSecret({ secretFile, envFile: '.env', env: { ACCOUNTS_SECRET: environmentSecret }, keyring: systemKeyring, credentialsFile: CREDENTIALS_FILE })],
     secretSource: async () => secretState(),
+    showSecret: async () => {
+      const value = accountsSecret({});
+      if (!value) throw new Error('ACCOUNTS_SECRET is not available. Run: bun run account init');
+      return `Secret file: ${secretFile}\nACCOUNTS_SECRET=${value}`;
+    },
     autoSettings: change => withDb(db => {
       const settings = new GatewaySettings({ load: key => loadGatewaySetting(db, key), save: (key, value) => saveGatewaySetting(db, key, value) });
       if (change.order !== undefined) settings.setWebOrder(change.order);

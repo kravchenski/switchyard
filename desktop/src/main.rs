@@ -1484,7 +1484,7 @@ impl Shell {
                             .gap_1()
                             .child(section_title(if locked_keyring { "Saved keys are locked" } else { "API keys are locked" }))
                             .child(muted(if locked_keyring {
-                                "The system keyring is locked, so the saved keys cannot be opened. Unlock the keyring, or put ACCOUNTS_SECRET back into .env, then check again. Creating a new secret would leave the saved keys unreadable."
+                                "The system keyring is locked, so the saved keys cannot be opened. Unlock the keyring, or put ACCOUNTS_SECRET back into the secret file, then check again. Creating a new secret would leave the saved keys unreadable."
                             } else {
                                 "Create an encryption secret in the system keyring so API keys can be saved. Restart the API afterwards."
                             }).text_xs()),
