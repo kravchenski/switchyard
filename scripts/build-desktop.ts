@@ -72,6 +72,10 @@ async function main() {
   mkdirSync(dist, { recursive: true });
   const app = join(dist, `switchyard${exe}`);
   copyFileSync(join(desktop, 'target', 'release', `freeapi-desktop${exe}`), app);
+  for (const name of ['freeapi-gateway', 'freeapi-accounts']) {
+    const compiled = join(sidecars, `${name}-${triple}${exe}`);
+    if (existsSync(compiled)) copyFileSync(compiled, join(dist, `${name}${exe}`));
+  }
   console.log(`\nDesktop app: ${app}`);
 
   if (!packageInstaller) return;

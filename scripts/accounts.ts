@@ -22,7 +22,7 @@ import { ProviderSettings } from '../src/core/providers/settings.ts';
 import { AGENT_OPTIONS, GatewaySettings, type AgentOption } from '../src/core/settings/gateway-settings.ts';
 import { siteForUrl, WEB_CHAT_SITES } from '../src/providers/web-chat-sites.ts';
 import { buildOverview } from '../src/cli/overview.ts';
-import { INIT_MESSAGES, initAccountsSecret } from '../src/cli/accounts-secret.ts';
+import { INIT_MESSAGES, initAccountsSecret, resetAccountsSecret } from '../src/cli/accounts-secret.ts';
 import { loadAccountsSecret, systemKeyring, accountsSecret, accountsSecretFile } from '../src/core/secrets/accounts-secret.ts';
 import { accountStates } from '../src/core/status.ts';
 import { addDeepSeekAccount, loadDeepSeekAccounts, removeDeepSeekAccount } from '../src/providers/deepseek/accounts.ts';
@@ -48,7 +48,7 @@ function profileStore(db: Database) {
 
 const environmentSecret = process.env.ACCOUNTS_SECRET;
 const secretFile = accountsSecretFile();
-const secretSource = await loadAccountsSecret(systemKeyring, process.env, secretFile);
+const secretSource = await loadAccountsSecret(systemKeyring, process.env, secretFile, CREDENTIALS_FILE);
 const store = openCredentialStore();
 const secretState = () => (secretSource === 'missing' && fs.existsSync(CREDENTIALS_FILE) ? 'locked' : secretSource);
 
@@ -89,6 +89,10 @@ try {
       }))),
     },
     initSecret: async () => INIT_MESSAGES[await initAccountsSecret({ secretFile, envFile: '.env', env: { ACCOUNTS_SECRET: environmentSecret }, keyring: systemKeyring, credentialsFile: CREDENTIALS_FILE })],
+    resetSecret: async () => {
+      const backup = await resetAccountsSecret({ secretFile, envFile: '.env', env: {}, keyring: systemKeyring, credentialsFile: CREDENTIALS_FILE });
+      return `${backup ? `Encrypted vault backed up to: ${backup}. ` : ''}Created a new ACCOUNTS_SECRET. Add your API keys again and restart the gateway.`;
+    },
     secretSource: async () => secretState(),
     showSecret: async () => {
       const value = accountsSecret({});

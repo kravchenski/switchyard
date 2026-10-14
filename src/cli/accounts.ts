@@ -37,6 +37,7 @@ export interface AccountsCliDeps {
   chatUrls?: string[];
   overview?: () => ProviderOverview[];
   initSecret?: () => Promise<string>;
+  resetSecret?: () => Promise<string>;
   secretSource?: () => Promise<string>;
   showSecret?: () => Promise<string>;
   providerAuto?: (provider: string, auto?: boolean) => boolean;
@@ -72,6 +73,7 @@ const ACCOUNTS_USAGE = `Usage: bun run account <command>
 
   (no command) [--json]                           Show every provider and whether it is connected
   init                                            Create ACCOUNTS_SECRET in the secret file and the system keyring (moves it out of .env)
+  init --reset                                    Back up the encrypted vault and create a new secret; saved API keys must be added again
   secret [--show]                                 Show where ACCOUNTS_SECRET is loaded from; --show prints its value for a backup
   provider <id> [--auto on|off]                   Show or change whether model=auto may use a provider
   auto [--order <id,...>] [--model <chat>=<model|fastest>] [--compact on|off] [--tools on|off] [--rtk on|off]
@@ -195,7 +197,12 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
   }
 
   if (command === 'init' && deps.initSecret) {
-    deps.log(await deps.initSecret());
+    if (args.includes('--reset')) {
+      if (!deps.resetSecret) throw new Error('Resetting the credential vault is not supported');
+      deps.log(await deps.resetSecret());
+    } else {
+      deps.log(await deps.initSecret());
+    }
     return 0;
   }
 

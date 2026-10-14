@@ -1,6 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+
+import { open } from './vault.ts';
 
 export const KEYRING_ENTRY = { service: 'free-ai-gateway', name: 'ACCOUNTS_SECRET' };
 
@@ -14,7 +16,21 @@ export const systemKeyring: Keyring = {
   set: entry => Bun.secrets.set(entry),
 };
 
-export type SecretSource = 'environment' | 'file' | 'keyring' | 'missing';
+export type SecretSource = 'environment' | 'file' | 'env-file' | 'keyring' | 'missing' | 'locked';
+
+export function readFileSecret(envFile: string) {
+  const current = existsSync(envFile) ? readFileSync(envFile, 'utf8') : '';
+  return current.match(/^ACCOUNTS_SECRET=(.*)$/m)?.[1]?.trim().replace(/^["']|["']$/g, '') || undefined;
+}
+
+export function secretOpensCredentials(secret: string, file: string) {
+  if (!existsSync(file)) return true;
+  try {
+    return Array.isArray(JSON.parse(open(readFileSync(file, 'utf8').trim(), secret)));
+  } catch {
+    return false;
+  }
+}
 
 export function accountsSecretFile(env: Record<string, string | undefined> = process.env) {
   if (env.ACCOUNTS_SECRET_FILE) return env.ACCOUNTS_SECRET_FILE;
@@ -50,23 +66,33 @@ export async function loadAccountsSecret(
   keyring: Keyring = systemKeyring,
   env: Record<string, string | undefined> = process.env,
   file: string = accountsSecretFile(env),
+  credentialsFile: string = resolve(env.SESSION_DIR || 'session', 'credentials.enc'),
+  envFile: string = '.env',
 ): Promise<SecretSource> {
-  if (env.ACCOUNTS_SECRET) {
-    loaded = env.ACCOUNTS_SECRET;
-    delete env.ACCOUNTS_SECRET;
-    return 'environment';
-  }
-  const durable = readSecretFile(file);
-  if (durable) {
-    loaded = durable;
-    return 'file';
+  const environment = env.ACCOUNTS_SECRET;
+  delete env.ACCOUNTS_SECRET;
+  loaded = undefined;
+  const candidates: Array<[SecretSource, string | undefined]> = [
+    ['environment', environment],
+    ['file', readSecretFile(file)],
+    ['env-file', readFileSecret(envFile)],
+  ];
+  for (const [source, value] of candidates) {
+    if (value && secretOpensCredentials(value, credentialsFile)) {
+      loaded = value;
+      return source;
+    }
   }
   try {
-    loaded = (await keyring.get(KEYRING_ENTRY)) || undefined;
+    const value = await keyring.get(KEYRING_ENTRY);
+    if (value && secretOpensCredentials(value, credentialsFile)) {
+      loaded = value;
+      return 'keyring';
+    }
   } catch {
-    loaded = undefined;
+    // A locked or unavailable keyring must not replace the saved encryption key.
   }
-  return loaded ? 'keyring' : 'missing';
+  return existsSync(credentialsFile) ? 'locked' : 'missing';
 }
 
 export function forgetAccountsSecret() {
