@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.21.1](https://github.com/kravchenski/switchyard/compare/v2.21.0...v2.21.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **accounts:** recover vault secrets and preserve keys across desktop updates ([76c8317](https://github.com/kravchenski/switchyard/commit/76c83176e04d280191c60a009f82fdc36b230fb7))
+* **accounts:** recover vault secrets and preserve keys across desktop updates ([76ec7d7](https://github.com/kravchenski/switchyard/commit/76ec7d7ddf810e526030fcfb937870d519a560ec))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.21.0 ([2fb4dbb](https://github.com/kravchenski/switchyard/commit/2fb4dbb7ee36d4dc5c97543cf9490235b843ecfb))
+
 ## [2.21.0](https://github.com/kravchenski/switchyard/compare/v2.20.0...v2.21.0) (2026-10-13)
 
 
