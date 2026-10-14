@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { INIT_MESSAGES, initAccountsSecret, readFileSecret } from '../src/cli/accounts-secret.ts';
+import { INIT_MESSAGES, initAccountsSecret, readFileSecret, resetAccountsSecret } from '../src/cli/accounts-secret.ts';
 import { runAccountsCommand, type AccountsCliDeps } from '../src/cli/accounts.ts';
 import { CredentialStore } from '../src/core/accounts/credential-store.ts';
 import {
@@ -11,7 +11,7 @@ import {
   accountsSecretFile,
   forgetAccountsSecret,
   KEYRING_ENTRY,
-  loadAccountsSecret,
+  loadAccountsSecret as loadSecret,
   readSecretFile,
   writeSecretFile,
   type Keyring,
@@ -20,6 +20,12 @@ import {
 const scratch = () => mkdtempSync(join(tmpdir(), 'secret-'));
 const secretFile = () => join(scratch(), 'nested', 'secret');
 const envFile = () => join(scratch(), '.env');
+const SECRET = 'correct horse battery staple';
+const WRONG_SECRET = 'a different long secret';
+
+function loadAccountsSecret(keyring: Keyring, env: Record<string, string | undefined>, file: string, credentialsFile = join(scratch(), 'credentials.enc'), dotenvFile = envFile()) {
+  return loadSecret(keyring, env, file, credentialsFile, dotenvFile);
+}
 
 function fakeKeyring(initial?: string, options: { broken?: boolean; dropWrites?: boolean } = {}) {
   let value = initial;
@@ -118,6 +124,72 @@ describe('initAccountsSecret', () => {
     expect(await initAccountsSecret({ secretFile: other, envFile: envFile(), env: {}, keyring: fakeKeyring('stored').keyring })).toBe('copied');
     expect(readSecretFile(other)).toBe('stored');
   });
+
+  test('recovers a working keyring secret instead of copying an incorrect file secret over it', async () => {
+    const file = secretFile();
+    const vault = join(scratch(), 'credentials.enc');
+    const credentials = new CredentialStore(vault, SECRET);
+    credentials.addApiKey({ provider: 'nvidia', label: 'a', apiKey: 'saved-key' });
+    const original = readFileSync(vault, 'utf8');
+    writeSecretFile(file, WRONG_SECRET);
+    const store = fakeKeyring(SECRET);
+    expect(await initAccountsSecret({ secretFile: file, envFile: envFile(), env: {}, keyring: store.keyring, credentialsFile: vault })).toBe('recovered');
+    expect(readSecretFile(file)).toBe(SECRET);
+    expect(store.value()).toBe(SECRET);
+    expect(readFileSync(vault, 'utf8')).toBe(original);
+    expect(credentials.list()[0]?.token).toBe('saved-key');
+  });
+
+  test('leaves every secret and the vault untouched when none opens it', async () => {
+    const file = secretFile();
+    const vault = join(scratch(), 'credentials.enc');
+    const dotenv = envFile();
+    new CredentialStore(vault, SECRET).addApiKey({ provider: 'nvidia', label: 'a', apiKey: 'saved-key' });
+    const original = readFileSync(vault, 'utf8');
+    writeSecretFile(file, WRONG_SECRET);
+    writeFileSync(dotenv, `ACCOUNTS_SECRET=${WRONG_SECRET}\n`);
+    const store = fakeKeyring(WRONG_SECRET);
+    expect(await initAccountsSecret({ secretFile: file, envFile: dotenv, env: {}, keyring: store.keyring, credentialsFile: vault })).toBe('locked');
+    expect(readSecretFile(file)).toBe(WRONG_SECRET);
+    expect(readFileSecret(dotenv)).toBe(WRONG_SECRET);
+    expect(store.value()).toBe(WRONG_SECRET);
+    expect(readFileSync(vault, 'utf8')).toBe(original);
+  });
+});
+
+describe('resetAccountsSecret', () => {
+  test('preserves the old ciphertext and allows new keys to be saved after restarting', async () => {
+    const file = secretFile();
+    const vault = join(scratch(), 'credentials.enc');
+    const dotenv = envFile();
+    new CredentialStore(vault, SECRET).addApiKey({ provider: 'nvidia', label: 'old', apiKey: 'old-key' });
+    const original = readFileSync(vault, 'utf8');
+    writeFileSync(dotenv, `OTHER=keep\nACCOUNTS_SECRET=${SECRET}\n`);
+    const store = fakeKeyring(SECRET);
+    const backup = await resetAccountsSecret({ secretFile: file, envFile: dotenv, env: {}, keyring: store.keyring, credentialsFile: vault, random: () => WRONG_SECRET });
+    expect(backup).toBeDefined();
+    expect(readFileSync(backup!, 'utf8')).toBe(original);
+    expect(new CredentialStore(backup!, SECRET).list()[0]?.token).toBe('old-key');
+    expect(existsSync(vault)).toBeFalse();
+    expect(readSecretFile(file)).toBe(WRONG_SECRET);
+    expect(store.value()).toBe(WRONG_SECRET);
+    expect(readFileSync(dotenv, 'utf8')).toBe('OTHER=keep\n');
+    expect(await loadAccountsSecret(store.keyring, {}, file, vault, dotenv)).toBe('file');
+    const reopened = new CredentialStore(vault, () => accountsSecret({}));
+    reopened.addApiKey({ provider: 'nvidia', label: 'new', apiKey: 'new-key' });
+    expect(reopened.list()[0]?.token).toBe('new-key');
+  });
+
+  test('restores the original vault if the secret file cannot be written', async () => {
+    const vault = join(scratch(), 'credentials.enc');
+    writeFileSync(vault, 'original-ciphertext');
+    const invalidParent = join(scratch(), 'not-a-directory');
+    writeFileSync(invalidParent, 'file');
+    const store = fakeKeyring(SECRET);
+    await expect(resetAccountsSecret({ secretFile: join(invalidParent, 'secret'), envFile: envFile(), env: {}, keyring: store.keyring, credentialsFile: vault, random: () => WRONG_SECRET })).rejects.toThrow();
+    expect(readFileSync(vault, 'utf8')).toBe('original-ciphertext');
+    expect(store.value()).toBe(SECRET);
+  });
 });
 
 describe('secret file', () => {
@@ -173,6 +245,32 @@ describe('loadAccountsSecret', () => {
     store.addApiKey({ provider: 'nvidia', label: 'a', apiKey: 'k' });
     expect(store.list()).toHaveLength(1);
   });
+
+  test('tries the keyring when both environment and file secrets fail to open saved keys', async () => {
+    const file = secretFile();
+    const vault = join(scratch(), 'credentials.enc');
+    new CredentialStore(vault, SECRET).addApiKey({ provider: 'nvidia', label: 'a', apiKey: 'saved-key' });
+    writeSecretFile(file, WRONG_SECRET);
+    const env: Record<string, string | undefined> = { ACCOUNTS_SECRET: WRONG_SECRET };
+    expect(await loadAccountsSecret(fakeKeyring(SECRET).keyring, env, file, vault)).toBe('keyring');
+    expect(env).toEqual({});
+    expect(accountsSecret({})).toBe(SECRET);
+    expect(readSecretFile(file)).toBe(WRONG_SECRET);
+  });
+
+  test('tries the legacy .env copy and reports locked when no secret opens saved keys', async () => {
+    const file = secretFile();
+    const vault = join(scratch(), 'credentials.enc');
+    const dotenv = envFile();
+    new CredentialStore(vault, SECRET).addApiKey({ provider: 'nvidia', label: 'a', apiKey: 'saved-key' });
+    writeFileSync(dotenv, `ACCOUNTS_SECRET="${SECRET}"\n`);
+    expect(await loadAccountsSecret(fakeKeyring(WRONG_SECRET).keyring, {}, file, vault, dotenv)).toBe('env-file');
+    expect(accountsSecret({})).toBe(SECRET);
+    writeFileSync(dotenv, `ACCOUNTS_SECRET=${WRONG_SECRET}\n`);
+    expect(await loadAccountsSecret(fakeKeyring(WRONG_SECRET).keyring, {}, file, vault, dotenv)).toBe('locked');
+    expect(accountsSecret({})).toBeUndefined();
+    expect(new CredentialStore(vault, SECRET).list()[0]?.token).toBe('saved-key');
+  });
 });
 
 describe('accounts CLI secret commands', () => {
@@ -197,6 +295,14 @@ describe('accounts CLI secret commands', () => {
     const lines: string[] = [];
     expect(await runAccountsCommand(['secret', '--show'], deps(lines))).toBe(0);
     expect(lines).toEqual(['Secret file: /tmp/secret\nACCOUNTS_SECRET=abc']);
+  });
+
+  test('only resets the vault when --reset is explicitly requested', async () => {
+    const lines: string[] = [];
+    const callbacks = deps(lines, { resetSecret: async () => 'Backed up the encrypted vault' });
+    expect(await runAccountsCommand(['init'], callbacks)).toBe(0);
+    expect(await runAccountsCommand(['init', '--reset'], callbacks)).toBe(0);
+    expect(lines).toEqual(['Created ACCOUNTS_SECRET', 'Backed up the encrypted vault']);
   });
 
   test('secret distinguishes a locked keyring from a missing secret', async () => {

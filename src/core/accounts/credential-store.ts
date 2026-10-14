@@ -79,7 +79,10 @@ export class CredentialStore {
 
   private requireSecret() {
     const secret = typeof this.secret === 'function' ? this.secret() : this.secret;
-    if (!secret) throw new Error('ACCOUNTS_SECRET is not set; run: bun run account init');
+    if (!secret) {
+      if (fs.existsSync(this.file)) throw new Error('Saved credentials are locked: restore the original ACCOUNTS_SECRET or run: bun run account init --reset (backs up the encrypted vault; API keys must be added again)');
+      throw new Error('ACCOUNTS_SECRET is not set; run: bun run account init');
+    }
     return secret;
   }
 

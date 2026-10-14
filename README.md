@@ -315,7 +315,10 @@ DeepSeek also runs as a standalone OpenAI-compatible service: `bun run start:dee
 | `LONG_PROMPT_CHARS` | `240000` | Prompts longer than this (about 60k tokens) are sent first to a web chat that reads long prompts quickly (DeepSeek); `0` turns it off |
 | `AUTO_MODELS` | — | Fixed `auto` chain instead of the measured one |
 | `WEB_CHAT_MIN_INTERVAL_MS` | `2000` | Minimum pause after the previous answer (or message, whichever is later) before the next message to the same web chat account |
-| `ACCOUNTS_SECRET` | OS keyring | Encrypts the saved keys in `session/credentials.enc`; `bun run account init` keeps it in the keyring |
+| `ACCOUNTS_SECRET` | Config file, then OS keyring | Encrypts saved keys in `session/credentials.enc`; `bun run account init` keeps a durable copy outside the data directory and checks it against existing saved keys |
+| `ACCOUNTS_SECRET_FILE` | OS config directory | Override the durable secret file (Linux: `~/.config/free-ai-gateway/secret`) |
+
+If saved keys cannot be decrypted, restore the original secret or unlock the system keyring. `bun run account init` can reconcile conflicting copies when one opens the vault. If the original secret is lost, `bun run account init --reset` moves the encrypted vault to a timestamped backup and creates a new secret. Add the API keys again and restart the app. A compiled installation supports the same commands through `freeapi-accounts`.
 
 </details>
 

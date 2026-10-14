@@ -285,6 +285,15 @@ impl Shell {
                 if let Ok(secret) = secret {
                     shell.secret = secret;
                 }
+                if overview.is_ok() && saved.is_ok() && shell.secret == SecretState::Ready
+                    && shell.message.as_ref().is_some_and(|(ok, error)| !ok && (
+                        error.contains("Vault decryption failed")
+                        || error.contains("Saved credentials are locked")
+                        || error.contains("ACCOUNTS_SECRET is not set")
+                    ))
+                {
+                    shell.message = None;
+                }
                 match overview {
                     Ok(rows) => shell.overview = rows,
                     Err(error) => shell.message = Some((false, error)),
@@ -1519,7 +1528,7 @@ impl Shell {
                             .gap_1()
                             .child(section_title(if locked_keyring { "Saved keys are locked" } else { "API keys are locked" }))
                             .child(muted(if locked_keyring {
-                                "The system keyring is locked, so the saved keys cannot be opened. Unlock the keyring, or put ACCOUNTS_SECRET back into the secret file, then check again. Creating a new secret would leave the saved keys unreadable."
+                                "The available encryption secret cannot open the saved keys. Unlock the system keyring or restore the original ACCOUNTS_SECRET, then check again. If the secret is lost, bun run account init --reset backs up the encrypted vault so you can add your API keys again."
                             } else {
                                 "Create an encryption secret in the system keyring so API keys can be saved. Restart the API afterwards."
                             }).text_xs()),
