@@ -157,6 +157,18 @@ describe('parseAutoModels', () => {
     router.setChain('vision', []);
     expect((await open('vision')).route.model).toBe('b-model');
   });
+
+  test('the vision chain alone never falls back to text models', async () => {
+    const { router, calls } = setup({ a: 'ok', b: 'ok', c: 'fail-first-chunk' });
+    router.setChain('vision', ['c-model']);
+    router.setChain('agent', ['b-model']);
+    const ownOnly = () => router.open('vision', route => ({ model: route.model, messages: [] }), undefined, undefined, true);
+    await expect(ownOnly()).rejects.toThrow('c reset');
+    expect(calls).toEqual(['c-model']);
+    router.setChain('vision', []);
+    await expect(ownOnly()).rejects.toThrow('No available provider for model vision');
+    expect(calls).toEqual(['c-model']);
+  });
 });
 
 describe('chainFor', () => {

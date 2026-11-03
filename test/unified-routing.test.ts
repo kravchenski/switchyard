@@ -541,3 +541,114 @@ describe('unified server routing', () => {
     }
   });
 });
+
+describe('images sent to models that cannot see them', () => {
+  const eyesReplies: ChatChunk[][] = [];
+  let eyesFail = false;
+
+  const eyesProvider: Provider = {
+    id: 'eyes',
+    ownedBy: 'eyes-owner',
+    supports: model => model.startsWith('eyes-'),
+    listModels: async () => ['eyes-model'],
+    capabilities: () => ({ nativeTools: false, reasoning: false, vision: true }),
+    health: () => ({ available: true }),
+    async stream(request) {
+      requests.push(request);
+      if (eyesFail) throw new ProviderError('eyes are down', 'invalid_request', 400);
+      const chunks = eyesReplies.shift() ?? [{ type: 'content', text: 'a plain picture' }];
+      return { chunks: (async function* () { yield* chunks; })() };
+    },
+  };
+
+  const picture = (data: string, text = 'what is this?') => ({
+    role: 'user',
+    content: [{ type: 'text', text }, { type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } }],
+  });
+
+  beforeAll(async () => {
+    server.registry.register(eyesProvider);
+    const saved = process.env.NVIDIA_API_KEY;
+    const realFetch = globalThis.fetch;
+    process.env.NVIDIA_API_KEY = '';
+    globalThis.fetch = (async () => { throw new Error('offline in tests'); }) as unknown as typeof fetch;
+    try {
+      await server.app.fetch(new Request('http://local/v1/gateway/refresh', { method: 'POST', headers: { authorization: `Bearer ${key}` } }));
+    } finally {
+      process.env.NVIDIA_API_KEY = saved;
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  function ask(body: Record<string, unknown>, chain: string[] = ['eyes-model']) {
+    server.router.setChain('vision', chain);
+    eyesFail = false;
+    return chat(body);
+  }
+
+  test('has a vision model describe the image and answers with the model that was asked', async () => {
+    eyesReplies.push([{ type: 'content', text: 'a red octagon reading STOP' }]);
+    replies.push([{ type: 'content', text: 'It is a stop sign.' }]);
+    const response = await ask({ messages: [picture('AAAA')] });
+    const json = await response.json() as any;
+    expect(response.status).toBe(200);
+    expect(json.choices[0].message.content).toBe('It is a stop sign.');
+    expect(response.headers.get('x-gateway-route')).toBe('fake/fake-model');
+    expect(response.headers.get('x-gateway-images')).toBe('described=1,omitted=0');
+    expect(requests.map(request => request.model)).toEqual(['eyes-model', 'fake-model']);
+    expect(JSON.stringify(requests[0]!.messages)).toContain('image_url');
+    const sent = JSON.stringify(requests[1]!.messages);
+    expect(sent).toContain('a red octagon reading STOP');
+    expect(sent).toContain('what is this?');
+    expect(sent).not.toContain('image_url');
+    expect(sent).not.toContain('base64');
+  });
+
+  test('describes the same image once across requests', async () => {
+    eyesReplies.push([{ type: 'content', text: 'a cat on a sofa' }]);
+    replies.push([{ type: 'content', text: 'first' }], [{ type: 'content', text: 'second' }]);
+    await ask({ messages: [picture('BBBB')] });
+    expect(requests.map(request => request.model)).toEqual(['eyes-model', 'fake-model']);
+    const response = await ask({ messages: [picture('BBBB'), { role: 'assistant', content: 'first' }, { role: 'user', content: 'and the colour?' }] });
+    expect(requests.map(request => request.model)).toEqual(['fake-model']);
+    expect(JSON.stringify(requests[0]!.messages)).toContain('a cat on a sofa');
+    expect(response.headers.get('x-gateway-images')).toBe('described=1,omitted=0');
+  });
+
+  test('passes images straight to a model that can see them', async () => {
+    const response = await ask({ model: 'eyes-model', messages: [picture('CCCC')] });
+    expect(response.status).toBe(200);
+    expect(requests.map(request => request.model)).toEqual(['eyes-model']);
+    expect(JSON.stringify(requests[0]!.messages)).toContain('image_url');
+    expect(response.headers.get('x-gateway-images')).toBeNull();
+  });
+
+  test('leaves auto to the vision chain instead of describing', async () => {
+    const response = await ask({ model: 'auto', messages: [picture('DDDD')] });
+    expect(response.status).toBe(200);
+    expect(requests.map(request => request.model)).toEqual(['eyes-model']);
+    expect(response.headers.get('x-gateway-images')).toBeNull();
+  });
+
+  test('still answers with an omitted marker when no vision model exists', async () => {
+    replies.push([{ type: 'content', text: 'cannot see it' }]);
+    const response = await ask({ messages: [picture('EEEE')] }, []);
+    expect(response.status).toBe(200);
+    expect(requests.map(request => request.model)).toEqual(['fake-model']);
+    expect(JSON.stringify(requests[0]!.messages)).toContain('[image omitted: this model cannot process images]');
+    expect(JSON.stringify(requests[0]!.messages)).not.toContain('base64');
+    expect(response.headers.get('x-gateway-images')).toBe('described=0,omitted=1');
+  });
+
+  test('still answers with an omitted marker when the vision model fails', async () => {
+    replies.push([{ type: 'content', text: 'cannot see it' }]);
+    server.router.setChain('vision', ['eyes-model']);
+    eyesFail = true;
+    const response = await chat({ messages: [picture('FFFF')] });
+    eyesFail = false;
+    expect(response.status).toBe(200);
+    expect(requests.at(-1)!.model).toBe('fake-model');
+    expect(JSON.stringify(requests.at(-1)!.messages)).toContain('[image omitted');
+    expect(response.headers.get('x-gateway-images')).toBe('described=0,omitted=1');
+  });
+});

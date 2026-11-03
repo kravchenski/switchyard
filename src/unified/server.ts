@@ -35,6 +35,7 @@ import { buildAgentChain, buildAutoChain } from '../core/router/auto-chain.ts';
 import { GatewaySettings } from '../core/settings/gateway-settings.ts';
 import { AGENT_MODEL, AUTO_MODEL, chainFor, decisionIdOf, isVirtualModel, parseAutoModels, preferredRoute, SmartRouter, VISION_MODEL, type Route } from '../core/router/smart-router.ts';
 import { collectImageUrls, stripImages } from '../core/providers/prompt.ts';
+import { describeImages, describeMessages, DescriptionCache } from '../core/providers/image-description.ts';
 import { conversationKey, SessionAffinity } from '../core/router/session-affinity.ts';
 import { listBrowserProfiles, loadGatewaySetting, loadModelStats, loadWebChatModels, saveWebChatModels, loadUnavailableModels, replaceUnavailableModels, loadProviderSetting, loadSignIn, saveGatewaySetting, saveProviderSetting, openDatabase, recordRequest, saveModelStat, saveSignIn, type RequestLog } from '../core/store/database.ts';
 import { WebSignInStatus } from '../core/accounts/sign-in-status.ts';
@@ -322,6 +323,39 @@ function logRequest(entry: RequestLog) {
         recordRequest(db(), entry);
     } catch (error) {
         console.error('Failed to record request log:', error instanceof Error ? error.message : error);
+    }
+}
+
+const imageDescriptions = new DescriptionCache();
+
+function seesImages(model: string) {
+    return registry.resolve(model)?.capabilities(model).vision === true;
+}
+
+async function describeImage(image: string, request: string) {
+    if (!router.autoChain(VISION_MODEL).length) throw new ProviderError('No vision model is available', 'unavailable');
+    const startedAt = Date.now();
+    const opened = await router.open(VISION_MODEL, route => ({ model: route.model, messages: describeMessages(image, request) }), undefined, { purpose: 'describe-image' }, true)
+        .catch(error => {
+            logRequest({ provider: 'none', model: VISION_MODEL, status: 'error', latencyMs: Date.now() - startedAt, error: errorText(error), decisionId: decisionIdOf(error) });
+            throw error;
+        });
+    const { provider, model } = opened.route;
+    const finish = (error?: unknown) => logRequest({
+        provider: provider.id,
+        model,
+        status: error === undefined ? 'success' : 'error',
+        latencyMs: Date.now() - startedAt,
+        ...(error === undefined ? {} : { error: errorText(error) }),
+        decisionId: opened.decisionId,
+    });
+    try {
+        const { content } = await collectChunks(opened.chunks);
+        finish();
+        return content;
+    } catch (error) {
+        finish(error);
+        throw error;
     }
 }
 
@@ -862,7 +896,13 @@ app.post('/api/chat/completions', async (c) => {
 
         const { messages: restoredMessages } = restoreShellCalls(messages);
         messages = restoredMessages;
-        const conversationId = body.conversation_id || body.chat_id || c.req.header('x-conversation-id') || undefined;
+        let imageStats: { described: number; omitted: number } | undefined;
+        if (!isVirtualModel(model) && !seesImages(model) && collectImageUrls(messages).length > 0) {
+            const { messages: described, ...stats } = await describeImages(messages, describeImage, imageDescriptions);
+            messages = described;
+            imageStats = stats;
+        }
+        const conversationId =body.conversation_id || body.chat_id || c.req.header('x-conversation-id') || undefined;
         const combinedTools = tools || (Array.isArray(functions)
             ? functions.map((fn: Record<string, unknown>) => ({ type: 'function', function: fn }))
             : null);
@@ -883,8 +923,8 @@ app.post('/api/chat/completions', async (c) => {
         const upstreamMessages = toolPrompt
             ? [{ role: 'system', content: toolPrompt }, ...agentMessages]
             : agentMessages;
-        const details = compaction?.stats.results || toolDetails
-            ? { ...(compaction?.stats.results ? { compaction: compaction.stats } : {}), ...(toolDetails ? { tools: toolDetails } : {}) }
+        const details = compaction?.stats.results || toolDetails || imageStats
+            ? { ...(compaction?.stats.results ? { compaction: compaction.stats } : {}), ...(toolDetails ? { tools: toolDetails } : {}), ...(imageStats ? { images: imageStats } : {}) }
             : undefined;
         const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
         const created = Math.floor(Date.now() / 1000);
@@ -933,6 +973,7 @@ app.post('/api/chat/completions', async (c) => {
             'x-gateway-route': `${provider.id}/${routedModel}`,
             ...(compaction?.stats.results ? { 'x-gateway-compacted': `${compaction.stats.charsBefore}->${compaction.stats.charsAfter}` } : {}),
             ...(toolDetails?.dropped ? { 'x-gateway-tools': `${toolDetails.before}->${toolDetails.after}` } : {}),
+            ...(imageStats ? { 'x-gateway-images': `described=${imageStats.described},omitted=${imageStats.omitted}` } : {}),
         };
 
         if (stream) {
