@@ -1,8 +1,10 @@
-function isImagePart(part: any): boolean {
+export const OMITTED_IMAGE = '[image omitted: this model cannot process images]';
+
+export function isImagePart(part: any): boolean {
   return part?.type === 'image_url' || part?.type === 'image';
 }
 
-function imageUrl(part: any): string | undefined {
+export function imageUrl(part: any): string | undefined {
   if (part?.type === 'image_url') {
     const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
     return typeof url === 'string' && url ? url : undefined;
@@ -29,7 +31,7 @@ export function collectImageUrls(messages: Array<Record<string, any>>): string[]
 }
 
 export function stripImages(messages: Array<Record<string, any>>, supported: boolean): Array<Record<string, any>> {
-  const marker = supported ? '[image]' : '[image omitted: this model cannot process images]';
+  const marker = supported ? '[image]' : OMITTED_IMAGE;
   return (messages ?? []).map(message => {
     const content = message?.content;
     if (!Array.isArray(content)) return message;
@@ -84,7 +86,7 @@ export function toWebPrompt(messages: Array<Record<string, any>>, imagesSupporte
       const parts: string[] = [];
       for (const part of content) {
         if (isImagePart(part)) {
-          if (!imagesSupported) parts.push('[image omitted: this model cannot process images]');
+          if (!imagesSupported) parts.push(OMITTED_IMAGE);
         } else if (typeof part?.text === 'string') parts.push(part.text);
         else parts.push(typeof part === 'string' ? part : JSON.stringify(part ?? ''));
       }

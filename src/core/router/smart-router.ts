@@ -99,14 +99,14 @@ export class SmartRouter {
     return isVirtualModel(model) || Boolean(this.registry.resolve(model));
   }
 
-  routes(model: string, preferredModel?: string, skipped: SkippedRoute[] = []): Route[] {
+  routes(model: string, preferredModel?: string, skipped: SkippedRoute[] = [], ownChainOnly = false): Route[] {
     if (!isVirtualModel(model)) {
       const provider = this.registry.resolve(model);
       return provider ? [{ provider, model }] : [];
     }
     this.options.prepareAuto?.();
     const now = this.now();
-    const chain = model === VISION_MODEL ? this.visionWithFallback() : this.autoChain(model);
+    const chain = model === VISION_MODEL && !ownChainOnly ? this.visionWithFallback() : this.autoChain(model);
     const candidates = preferredModel && chain.includes(preferredModel)
       ? [preferredModel, ...chain.filter(candidate => candidate !== preferredModel)]
       : chain;
@@ -170,9 +170,9 @@ export class SmartRouter {
     });
   }
 
-  async open(model: string, build: (route: Route) => ChatRequest, preferredModel?: string, details?: Record<string, unknown>): Promise<RoutedStream> {
+  async open(model: string, build: (route: Route) => ChatRequest, preferredModel?: string, details?: Record<string, unknown>, ownChainOnly = false): Promise<RoutedStream> {
     const skipped: SkippedRoute[] = [];
-    let routes = this.routes(model, preferredModel, skipped);
+    let routes = this.routes(model, preferredModel, skipped, ownChainOnly);
     const virtual = isVirtualModel(model);
     const mode: RoutingDecision['mode'] = virtual ? 'fallback' : 'direct';
     if (!routes.length) {

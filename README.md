@@ -266,6 +266,8 @@ Each Jev question costs one request to a fast API model, so the savings pay off 
 
 **Vision.** Put images in a message (OpenAI `image_url` parts, data URLs or links) and send it to a model that can see. The web chats attach them through each site's own upload, DeepSeek through its file upload, and vision-capable API models get them directly.
 
+**Models that cannot see.** If you name a model that has no vision (for example `deepseek-reasoner`), Switchyard lets a model from the vision chain describe each image in detail and sends yours the description in place of the picture. Up to the 4 latest images per request are described, and a description is reused while the same image stays in the conversation. The header `x-gateway-images: described=1,omitted=0` shows what happened; when no vision model answers, the image becomes an `[image omitted]` marker and the request still goes through. `auto` is not affected: it already sends image requests to models that can see.
+
 **Generation.** `POST /v1/images/generations` (OpenAI Images API) with `qwen-chat/image` (your Qwen Chat, up to 2688×1536), `cloudflare/@cf/<model>` (FLUX, SDXL) or `pollinations/<model>` (no key, watermarked). Without a `model` the first available one is used.
 
 ## API
