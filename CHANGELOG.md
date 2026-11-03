@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.22.0](https://github.com/kravchenski/switchyard/compare/v2.21.1...v2.22.0) (2026-11-03)
+
+
+### Features
+
+* **gateway:** describe images for models that cannot see them ([1e2cd86](https://github.com/kravchenski/switchyard/commit/1e2cd86d4dd1fa30bd4af40a3f5a8e6cb138d407))
+* **gateway:** describe images for models that cannot see them ([b7927d4](https://github.com/kravchenski/switchyard/commit/b7927d43da3bb0cedd85a90dcf8cbbe80f6c8609))
+
+
+### Bug Fixes
+
+* **deps:** update hono and zod to patched versions ([90acd8b](https://github.com/kravchenski/switchyard/commit/90acd8b5d84e05556f95faa298a1f0cb7b6e5467))
+* **deps:** update hono and zod to patched versions ([99be921](https://github.com/kravchenski/switchyard/commit/99be9210a8a9d89648726e342e690f7eb03db7d0))
+* **desktop:** update rustls to 0.23.46 ([e1ff5c4](https://github.com/kravchenski/switchyard/commit/e1ff5c440bba64d80a5d20d39d1b9b7c2c89d3db))
+* **desktop:** update rustls to 0.23.46 ([f79c051](https://github.com/kravchenski/switchyard/commit/f79c051fee20d029dfa3814034bb5721ef695242))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.21.1 ([8107e55](https://github.com/kravchenski/switchyard/commit/8107e55845c9f1f5ad94932e6bd632e1a9308891))
+
 ## [2.21.1](https://github.com/kravchenski/switchyard/compare/v2.21.0...v2.21.1) (2026-10-14)
 
 
