@@ -58,11 +58,11 @@
         "web:dev": "bun --watch src/web/server.ts"
     },
     "dependencies": {
-        "hono": "^4.12.26",
+        "hono": "^4.13.16",
         "ofetch": "^1.4.0",
         "playwright-core": "^1.63.0",
         "yaml": "^2.9.0",
-        "zod": "^4.6.5"
+        "zod": "^4.6.7"
     },
     "devDependencies": {
         "@types/bun": "^1.4.2",
