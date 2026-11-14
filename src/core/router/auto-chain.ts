@@ -1,4 +1,4 @@
-import { rankModels, type ModelStats } from '../models/stats.ts';
+import { rankModels, type ModelRanking } from '../models/stats.ts';
 import { modelStrength } from '../models/strength.ts';
 
 export interface ChainCandidate {
@@ -17,7 +17,7 @@ function webRank(order: readonly string[], provider: string) {
 
 export function buildAutoChain(
   candidates: ChainCandidate[],
-  stats: Pick<ModelStats, 'get'>,
+  stats: ModelRanking,
   isAvailable: (model: string) => boolean = () => true,
   webOrder: readonly string[] = [],
   webModels: Readonly<Record<string, string>> = {},
@@ -37,7 +37,7 @@ export function buildAutoChain(
 
 export function buildAgentChain(
   candidates: Array<ChainCandidate & { nativeTools: boolean }>,
-  stats: Pick<ModelStats, 'get'>,
+  stats: ModelRanking,
   fallback: readonly string[],
   isAvailable: (model: string) => boolean = () => true,
 ) {
@@ -47,5 +47,8 @@ export function buildAgentChain(
   const ranked = rankModels(native, stats)
     .sort((a, b) => modelStrength(a) - modelStrength(b))
     .slice(0, MAX_AGENT_MODELS);
-  return [...fallback, ...ranked.filter(model => !fallback.includes(model))];
+  const web = new Set(candidates.filter(candidate => !candidate.fallback).map(candidate => candidate.id));
+  const fastestWeb = rankModels(fallback.filter(model => web.has(model)), stats);
+  const chain = [...fastestWeb, ...fallback.filter(model => !web.has(model))];
+  return [...chain, ...ranked.filter(model => !chain.includes(model))];
 }

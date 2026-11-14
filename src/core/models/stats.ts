@@ -8,6 +8,8 @@ export interface ModelStat {
 }
 
 const LATENCY_WEIGHT = 0.3;
+const OUTLIER_FACTOR = 3;
+const FAILURE_COOLDOWN_MS = 10 * 60_000;
 
 export class ModelStats {
   private readonly stats = new Map<string, ModelStat>();
@@ -23,7 +25,7 @@ export class ModelStats {
     const previous = this.stats.get(model);
     const latency = previous?.latencyMs === undefined
       ? latencyMs
-      : previous.latencyMs + LATENCY_WEIGHT * (latencyMs - previous.latencyMs);
+      : previous.latencyMs + LATENCY_WEIGHT * (Math.min(latencyMs, previous.latencyMs * OUTLIER_FACTOR) - previous.latencyMs);
     this.update({
       model,
       successes: (previous?.successes ?? 0) + 1,
@@ -50,6 +52,11 @@ export class ModelStats {
     return this.stats.get(model);
   }
 
+  recentlyFailed(model: string) {
+    const stat = this.stats.get(model);
+    return stat?.lastOutcome === 'failure' && this.now() - stat.updatedAt < FAILURE_COOLDOWN_MS;
+  }
+
   list() {
     return [...this.stats.values()];
   }
@@ -65,11 +72,15 @@ export class ModelStats {
   }
 }
 
-export function rankModels(models: string[], stats: Pick<ModelStats, 'get'>) {
+export type ModelRanking = Pick<ModelStats, 'get' | 'recentlyFailed'>;
+
+export function rankModels(models: string[], stats: ModelRanking) {
   const group = (model: string) => {
     const stat = stats.get(model);
     if (!stat) return 1;
-    return stat.lastOutcome === 'success' ? 0 : 2;
+    if (stat.lastOutcome === 'success') return 0;
+    if (stats.recentlyFailed(model)) return 2;
+    return stat.latencyMs !== undefined && stat.successes > stat.failures ? 0 : 1;
   };
   return models
     .map((model, order) => ({ model, order, group: group(model), latency: stats.get(model)?.latencyMs ?? 0 }))

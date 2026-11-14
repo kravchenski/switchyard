@@ -65,6 +65,38 @@ describe('ModelStats', () => {
     expect(seen).toEqual(['m:success', 'm:success', 'm:failure']);
   });
 
+  test('lets one slow answer move the latency only a little but follows a lasting slowdown', () => {
+    const stats = new ModelStats();
+    stats.recordSuccess('m', 3_000);
+    stats.recordSuccess('m', 43_000);
+    expect(stats.get('m')?.latencyMs).toBe(4_800);
+    for (let turn = 0; turn < 6; turn++) stats.recordSuccess('m', 43_000);
+    expect(stats.get('m')!.latencyMs!).toBeGreaterThan(30_000);
+  });
+
+  test('gives a model that failed long ago its place by speed again', () => {
+    let clock = 0;
+    const stats = new ModelStats(() => clock);
+    stats.recordSuccess('fast', 2_000);
+    stats.recordSuccess('fast', 2_000);
+    stats.recordSuccess('slow', 10_000);
+    stats.recordFailure('fast');
+    expect(rankModels(['fast', 'slow'], stats)).toEqual(['slow', 'fast']);
+    clock = 11 * 60_000;
+    expect(rankModels(['fast', 'slow'], stats)).toEqual(['fast', 'slow']);
+  });
+
+  test('keeps a model that fails more often than it answers behind reliable ones', () => {
+    let clock = 0;
+    const stats = new ModelStats(() => clock);
+    stats.recordSuccess('reliable', 10_000);
+    stats.recordSuccess('flaky', 4_000);
+    stats.recordFailure('flaky');
+    stats.recordFailure('flaky');
+    clock = 11 * 60_000;
+    expect(rankModels(['flaky', 'reliable'], stats)).toEqual(['reliable', 'flaky']);
+  });
+
   test('ranks models without touching unknown ones', () => {
     expect(rankModels(['a', 'b', 'c'], measured({ c: 10, a: 'fail' }))).toEqual(['c', 'b', 'a']);
   });
@@ -174,6 +206,20 @@ describe('buildAgentChain', () => {
       api('text/only-model', false),
     ], new ModelStats(), ['qwen-chat', 'openai/gpt-oss-120b', 'glm-chat']);
     expect(chain).toEqual(['qwen-chat', 'openai/gpt-oss-120b', 'glm-chat', 'acme/helper-model']);
+  });
+
+  test('puts the fastest web chat first because agent turns add up', () => {
+    const web = (id: string, provider: string) => ({ id, provider, fallback: false, nativeTools: false });
+    const stats = new ModelStats();
+    stats.recordSuccess('qwen-chat', 11_000);
+    stats.recordSuccess('deepseek-default', 2_000);
+    stats.recordFailure('glm-chat');
+    const chain = buildAgentChain(
+      [web('qwen-chat', 'qwen-chat'), web('deepseek-default', 'deepseek'), web('glm-chat', 'glm-chat'), web('kimi-chat', 'kimi-chat'), api('openai/gpt-oss-120b')],
+      stats,
+      ['qwen-chat', 'deepseek-default', 'glm-chat', 'kimi-chat', 'openai/gpt-oss-120b'],
+    );
+    expect(chain).toEqual(['deepseek-default', 'qwen-chat', 'kimi-chat', 'glm-chat', 'openai/gpt-oss-120b']);
   });
 
   test('without native tool models it is the auto chain', () => {
