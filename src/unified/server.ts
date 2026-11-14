@@ -8,6 +8,8 @@ import crypto from 'crypto';
 import path from 'node:path';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
+import { closeDeepSeekBridge } from '../providers/deepseek/bridge.ts';
+import { exitOnSignals } from '../utils/shutdown.ts';
 import { conversationalShellText, stripEmptyFences, stripLeadingCallTail, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
 import { bearerToken, isLocalRequest, parseOrigins, tokenMatches } from '../gateway/security.ts';
 import { chatResponseToResponses, responsesToChatRequest } from '../gateway/responses.ts';
@@ -1310,11 +1312,6 @@ app.post('/v1/messages/count_tokens', async (c) => {
 app.post('/v1/responses', handleResponses);
 app.post('/api/v1/responses', handleResponses);
 
-async function shutdown() {
-    await Promise.all([...browserSessions.values()].map(session => session.close()));
-    process.exit(0);
-}
-
 async function warmWebChats() {
     if (config.WEB_CHAT_WARMUP === 'off') return;
     for (const site of WEB_CHAT_SITES) {
@@ -1329,8 +1326,7 @@ async function warmWebChats() {
 }
 
 export async function startUnifiedServer() {
-    process.once('SIGINT', shutdown);
-    process.once('SIGTERM', shutdown);
+    exitOnSignals(() => [...[...browserSessions.values()].map(session => () => session.close()), closeDeepSeekBridge]);
     await loadAccountsSecret();
     loadModelStatistics();
     syncCustomProviders();
