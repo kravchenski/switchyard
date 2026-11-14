@@ -118,6 +118,14 @@ export class OpenAICompatibleProvider implements Provider {
     return { ...this.config.headers, ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) };
   }
 
+  private rejectedKeys(keys: string[]) {
+    const rejected = this.pool.rejectedKeys(keys).length;
+    if (!rejected || rejected < keys.length) return undefined;
+    const subject = keys.length === 1 ? 'the API key' : `all ${keys.length} API keys`;
+    const target = keys.length === 1 ? 'it' : 'them';
+    return `${this.config.label} rejected ${subject}; replace ${target} on the provider page of the desktop app${this.config.accountHint ? ` ${this.config.accountHint}` : ''}`;
+  }
+
   private missingKey() {
     return `${this.config.apiKeyEnv} is not set${this.config.accountHint ? `; ${this.config.accountHint}` : ''}`;
   }
@@ -179,8 +187,12 @@ export class OpenAICompatibleProvider implements Provider {
     const keys = this.keys();
     if (!keys.length) return { available: false, reason: this.missingKey() };
     if (this.readyKeys().length) return { available: true };
+    const rejected = this.rejectedKeys(keys);
+    if (rejected) return { available: false, reason: rejected };
     const seconds = this.pool.secondsUntilReady(keys);
-    return { available: false, reason: `all ${keys.length} ${this.config.label} keys are rate limited or rejected; next one in ${seconds}s` };
+    const refused = this.pool.rejectedKeys(keys).length;
+    const detail = refused ? `${refused} rejected, ${keys.length - refused} rate limited` : 'rate limited';
+    return { available: false, reason: `all ${keys.length} ${this.config.label} keys are unusable (${detail}); next one in ${seconds}s` };
   }
 
   async stream(request: ChatRequest, context: ProviderContext = {}): Promise<ProviderStream> {
@@ -190,7 +202,11 @@ export class OpenAICompatibleProvider implements Provider {
       return this.streamWith(undefined, request, context);
     }
     const ready = this.readyKeys();
-    if (!ready.length) throw new ProviderError(this.health().reason ?? this.missingKey(), 'rate_limit', 429, this.pool.secondsUntilReady(keys));
+    if (!ready.length) {
+      const rejected = this.rejectedKeys(keys);
+      if (rejected) throw new ProviderError(rejected, 'auth', 401);
+      throw new ProviderError(this.health().reason ?? this.missingKey(), 'rate_limit', 429, this.pool.secondsUntilReady(keys));
+    }
     let lastError: unknown;
     for (const key of ready) {
       try {

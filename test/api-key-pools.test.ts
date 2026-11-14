@@ -41,6 +41,22 @@ describe('key lists', () => {
     pool.failed('c', 'quota_exhausted', 5);
     expect(pool.secondsUntilReady(['a', 'c'])).toBe(5);
   });
+
+  test('keeps a rejected key out for hours and forgets the rejection once it works', () => {
+    let clock = 0;
+    const pool = new KeyPool(() => clock);
+    pool.failed('a', 'auth', 30);
+    pool.failed('b', 'rate_limit');
+    expect(pool.rejectedKeys(['a', 'b'])).toEqual(['a']);
+    clock = 2 * 60 * 60_000;
+    expect(pool.order(['a', 'b'])).toEqual(['b']);
+    clock = 7 * 60 * 60_000;
+    expect(pool.order(['a', 'b'])).toEqual(['a', 'b']);
+    expect(pool.rejectedKeys(['a'])).toEqual([]);
+    pool.failed('a', 'auth');
+    pool.succeeded('a');
+    expect(pool.rejectedKeys(['a'])).toEqual([]);
+  });
 });
 
 describe('providers with several keys', () => {
@@ -84,6 +100,19 @@ describe('providers with several keys', () => {
     const failing = createApiProvider(apiKeyProvider('groq')!, { env: { GROQ_API_KEY: 'k1,k2' }, fetch: broken.fetchFn });
     await expect(failing.stream({ model: 'groq/llama', messages: [] })).rejects.toThrow('status 500');
     expect(broken.used).toEqual(['k1']);
+  });
+
+  test('says the key was rejected instead of rate limited and fails with an auth error', async () => {
+    const rejected = createApiProvider(apiKeyProvider('nvidia')!, { env: { NVIDIA_API_KEY: 'dead' }, fetch: upstream({ dead: 403 }).fetchFn });
+    await expect(rejected.stream({ model: 'nvidia/model', messages: [] })).rejects.toMatchObject({ kind: 'auth' });
+    expect(rejected.health()).toEqual({ available: false, reason: 'NVIDIA rejected the API key; replace it on the provider page of the desktop app or run: bun run account add nvidia --api-key' });
+    await expect(rejected.stream({ model: 'nvidia/model', messages: [] })).rejects.toMatchObject({ kind: 'auth', message: expect.stringContaining('rejected the API key') });
+  });
+
+  test('tells rejected and rate limited keys apart when every key is paused', async () => {
+    const provider = createApiProvider(apiKeyProvider('groq')!, { env: { GROQ_API_KEY: 'k1,k2' }, fetch: upstream({ k1: 401, k2: 429 }).fetchFn });
+    await expect(provider.stream({ model: 'groq/llama', messages: [] })).rejects.toThrow('status 429');
+    expect(provider.health().reason).toMatch(/^all 2 Groq keys are unusable \(1 rejected, 1 rate limited\); next one in \d+s$/);
   });
 
   test('counts every key in the overview', () => {
