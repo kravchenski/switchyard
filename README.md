@@ -5,50 +5,103 @@
   <img src="docs/images/logo-light.png" alt="switchyard" width="420">
 </picture>
 
-**A local LLM gateway for coding agents.**<br>
-One OpenAI- and Anthropic-compatible endpoint in front of your signed-in web chats and 25+ free model APIs, with fallback routing, native tool calling and token savings for Claude Code, Codex, OpenCode and pi.
+### One local endpoint for every free model your coding agent can reach
+
+Claude Code, Codex, OpenCode and pi talk to `localhost:3260`. Switchyard sends each request to your signed-in web chats and 25+ free model APIs, falls back when one is down, and keeps tool calls working whichever model answers.
 
 [![CI](https://github.com/kravchenski/switchyard/actions/workflows/ci.yml/badge.svg)](https://github.com/kravchenski/switchyard/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/kravchenski/switchyard)](https://github.com/kravchenski/switchyard/releases)
-[![Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun&logoColor=000)](https://bun.sh)
+[![Release](https://img.shields.io/github/v/release/kravchenski/switchyard)](https://github.com/kravchenski/switchyard/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/kravchenski/switchyard/total)](https://github.com/kravchenski/switchyard/releases)
+[![Stars](https://img.shields.io/github/stars/kravchenski/switchyard)](https://github.com/kravchenski/switchyard/stargazers)
 [![OpenAI compatible](https://img.shields.io/badge/API-OpenAI%20%7C%20Anthropic-412991)](#api)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[Quick start](#quick-start) · [Agents](#use-it-with-your-agent) · [Desktop app](#desktop-app) · [Providers](#providers) · [Routing](#routing) · [API](#api)
+[Install](#install) · [Demos](#see-it-work) · [Agents](#use-it-with-your-agent) · [Desktop app](#desktop-app) · [Providers](#providers) · [Routing](#routing) · [FAQ](#faq)
 
-<img src="docs/images/demo.gif" alt="Listing models, asking model=auto for a haiku, and reading the routing decision: Qwen Chat answered first" width="900">
+<img src="docs/images/agent-demo.gif" alt="pi fixes a failing test through switchyard: it runs the test, reads the files, edits calc.py, reruns the test and reports FIXED; the decision log shows every turn answered by Qwen Chat" width="900">
 
-*One request to `model=auto`: the router tries the web chats in your order and logs every attempt.* [Watch as MP4](docs/images/demo.mp4)
+*pi fixes a failing test with `model=auto`. Every tool call came from a signed-in web chat, and the decision log shows which model answered each turn.* [MP4](docs/images/agent-demo.mp4)
 
 </div>
 
-## How it works
-
-```mermaid
-flowchart LR
-  A["Claude Code · Codex · OpenCode · pi<br/>Continue · Cline · any OpenAI client"] -->|"/v1/chat/completions<br/>/v1/messages · /v1/responses"| S(("switchyard<br/>localhost:3260"))
-  S --> R{"model=auto"}
-  R -->|"1st: your web chats, in your order"| W["Qwen · DeepSeek · GLM · Kimi · Arena"]
-  R -->|"then: free API models"| P["NVIDIA · OpenRouter · Groq · Gemini · Cerebras<br/>Mistral · Cloudflare · … · your own"]
-```
+## Why switchyard
 
 - **One endpoint, many models.** Point any agent at `http://localhost:3260` and ask for `model=auto`. Switchyard picks a working model and moves to the next one when a provider is down, rate-limited or out of quota.
 - **Built for coding agents.** Tool calls go natively to providers that support them and are emulated for the rest, with repair of broken JSON and vendor markup, so agents keep working whichever model answers.
 - **Fewer tokens.** Tool output is compacted, unneeded tools are dropped per task, and shell commands can run through [rtk](https://github.com/rtk-ai/rtk). On one bug-fix task the agent's input went from about 69k to about 7k tokens with the same result ([how it was measured](#coding-agent-optimizations)).
+- **Images both ways.** Screenshots go to models that can see them, through each site's own upload; you can also generate images through an OpenAI-compatible Images API.
 - **Your providers too.** Add any OpenAI-compatible API, such as Ollama, LM Studio, vLLM or a company proxy, next to the built-in ones.
-- **Images both ways.** Send screenshots to vision models, or generate images through an OpenAI-compatible Images API.
-- **Desktop app.** Start the gateway, add keys and accounts, set the routing order and watch every request. Installers for Linux, macOS and Windows.
+- **A desktop app.** Start the gateway, add keys and accounts, set the routing order and see how every request was routed. Installers for Linux, macOS and Windows.
 
-## Quick start
+## Install
+
+Pick one. All three give you the same gateway on `http://localhost:3260`.
+
+<table>
+<tr>
+<th width="33%">Desktop app</th>
+<th width="33%">From source</th>
+<th width="33%">Docker</th>
+</tr>
+<tr valign="top">
+<td>
+
+Download the installer for your system from the [latest release](https://github.com/kravchenski/switchyard/releases/latest) ([which file](#desktop-app)), or on Arch:
 
 ```bash
-git clone https://github.com/kravchenski/switchyard.git
-cd switchyard
-bun install
-bun run start          # http://localhost:3260
+paru -S switchyard-bin
 ```
 
-Add a free key or sign in to a web chat ([Providers](#providers)), then:
+([one-time paru setup](packaging/aur/README.md#install-with-paru))
+
+Bun is not needed; the gateway is bundled.
+
+</td>
+<td>
+
+Needs [Bun](https://bun.sh).
+
+```bash
+git clone https://github.com/kravchenski/switchyard
+cd switchyard
+bun install
+bun run start
+```
+
+</td>
+<td>
+
+```bash
+git clone https://github.com/kravchenski/switchyard
+cd switchyard
+docker compose up -d
+```
+
+Mounts `.env`, `session/`, `data/` and `logs/`. Connect accounts on the host first.
+
+</td>
+</tr>
+</table>
+
+Web chats need Chrome or Chromium on the same machine. API providers need nothing but a key.
+
+### Your first answer in three steps
+
+**1. Connect at least one provider.** The fastest free one to start with is a key:
+
+```bash
+bun run account add nvidia --api-key        # or groq, gemini, openrouter, cerebras, …
+```
+
+or a web chat you already use, through your own browser account:
+
+```bash
+bun run account open https://chat.deepseek.com/
+```
+
+In the desktop app: **API keys** or **Accounts → Connect chats**. `bun run account` lists every provider, whether it is connected and the command that connects it.
+
+**2. Ask for `auto`:**
 
 ```bash
 curl http://localhost:3260/v1/chat/completions \
@@ -56,7 +109,29 @@ curl http://localhost:3260/v1/chat/completions \
   -d '{"model": "auto", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-`bun run account` lists every provider, whether it is connected and the command that connects it. Prefer a window? Grab the [desktop app](#desktop-app).
+**3. Point your agent at it.** `bun run setup:agents` writes the configs for OpenCode, pi, Continue, Hermes, Aider and Cline; Claude Code and Codex need one line each ([below](#use-it-with-your-agent)).
+
+## See it work
+
+<table>
+<tr>
+<th width="50%">Screenshots go to a model that can see them</th>
+<th width="50%">Every request shows how it was routed</th>
+</tr>
+<tr valign="top">
+<td><img src="docs/images/vision-demo.gif" alt="pi sends shapes.png through switchyard and gets back an exact description: a red square with the white text K7Q and a blue circle"><br><sub><code>@shapes.png</code> with <code>model=auto</code>: the vision chain picks a web chat that reads images itself. <a href="docs/images/vision-demo.mp4">MP4</a></sub></td>
+<td><img src="docs/images/demo.gif" alt="Listing models, asking model=auto for a haiku, and reading the routing decision: Qwen Chat answered first"><br><sub>One request to <code>model=auto</code> and the decision log: skipped candidates, each attempt and who answered. <a href="docs/images/demo.mp4">MP4</a></sub></td>
+</tr>
+</table>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/tour-dark.gif">
+    <img src="docs/images/tour-light.gif" alt="Desktop app tour: requests, a web chat provider, NVIDIA models, settings, API keys and copying the gateway URL" width="900">
+  </picture>
+  <br>
+  <sub>The desktop app: requests, providers, routing order and keys. Full quality: <a href="docs/images/tour-light.mp4">light</a> · <a href="docs/images/tour-dark.mp4">dark</a></sub>
+</p>
 
 ## Use it with your agent
 
@@ -92,15 +167,6 @@ With `GATEWAY_API_KEY` set, add `--header "Authorization: Bearer <GATEWAY_API_KE
 ## Desktop app
 
 A native app (Rust + [GPUI](https://www.gpui.rs)) for everything the CLI does: start and stop the gateway, add API keys, custom providers and browser accounts, order the web chats, switch providers in or out of `auto`, and watch requests and model health. Click a request to see how it was routed: which models were skipped and why, each attempt with its error and time, and who answered. When a web chat loses its sign-in, a banner says so and takes you to its sign-in. Click the address in the sidebar to copy the base URL.
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/tour-dark.gif">
-    <img src="docs/images/tour-light.gif" alt="Desktop app tour: requests, a web chat provider, NVIDIA models, settings, API keys and copying the gateway URL" width="900">
-  </picture>
-  <br>
-  <em>Full quality: <a href="docs/images/tour-light.mp4">light</a> · <a href="docs/images/tour-dark.mp4">dark</a></em>
-</p>
 
 Every [release](https://github.com/kravchenski/switchyard/releases) has installers for x86_64 and arm64 Linux, macOS and Windows, plus `SHA256SUMS` to check the downloads. They bundle the gateway, so Bun is not needed; Chrome or Chromium is needed for the web chats. The installers are not code-signed yet.
 
@@ -150,7 +216,12 @@ Check a download with `sha256sum --check --ignore-missing SHA256SUMS`. The Arch 
 
 ## Providers
 
-Everything below has a free tier or works through your own signed-in web account.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/providers-dark.png">
+  <img src="docs/images/providers-light.png" alt="Qwen Chat, DeepSeek, GLM, Kimi, Arena, NVIDIA, OpenRouter, Groq, Gemini, Cerebras, Mistral, SambaNova, Cloudflare, GitHub Models, Hugging Face, Zhipu, Cohere, Z.AI, Ollama Cloud, OpenCode Zen, Kilo and Aion Labs">
+</picture>
+
+Everything here has a free tier or works through your own signed-in web account.
 
 | Provider | Connect with |
 |---|---|
@@ -196,6 +267,16 @@ Everything below has a free tier or works through your own signed-in web account
 - Models a key cannot use are detected and hidden. `bun run models:check` checks every model of every provider at once (about a minute for ~500 API models) and hides the ones that time out, fail, or belong to a provider whose key or balance is spent; they come back after 24 hours or on the next check. Add `--web` to include browser chats and `-v` to list each failure. `bun run models:probe` measures which models answer and how fast.
 
 </details>
+
+## How it works
+
+```mermaid
+flowchart LR
+  A["Claude Code · Codex · OpenCode · pi<br/>Continue · Cline · any OpenAI client"] -->|"/v1/chat/completions<br/>/v1/messages · /v1/responses"| S(("switchyard<br/>localhost:3260"))
+  S --> R{"model=auto"}
+  R -->|"1st: your web chats, in your order"| W["Qwen · DeepSeek · GLM · Kimi · Arena"]
+  R -->|"then: free API models"| P["NVIDIA · OpenRouter · Groq · Gemini · Cerebras<br/>Mistral · Cloudflare · … · your own"]
+```
 
 ## Routing
 
@@ -361,6 +442,69 @@ desktop/              Rust + GPUI desktop app
 Versions follow [Conventional Commits](https://www.conventionalcommits.org) via release-please; every release publishes a Docker image and the desktop installers.
 
 </details>
+
+## FAQ
+
+<details>
+<summary><b>Does it cost anything?</b></summary>
+<br>
+
+Switchyard is MIT-licensed and runs on your machine. The models come from free API tiers and from web chats you sign in to with your own accounts. A few providers limit their free tier (AshnaAI's API needs a paid plan, Cloudflare gives 10,000 neurons a day); the [full provider list](#providers) says which.
+
+</details>
+
+<details>
+<summary><b>Which model should I ask for?</b></summary>
+<br>
+
+`auto`. It looks at what the request carries (text, images, tools) and builds a chain of models that can handle it, then falls back along that chain. Name a model from `/v1/models` only when you want that exact one.
+
+</details>
+
+<details>
+<summary><b>Where do my prompts and keys go?</b></summary>
+<br>
+
+The gateway listens on `127.0.0.1` and accepts requests only from your machine unless you set `GATEWAY_API_KEY`. Each request goes to the provider that answers it, and nowhere else. Saved API keys are encrypted with `ACCOUNTS_SECRET` in `session/credentials.enc`; web chat sessions stay in local browser profiles under `session/`.
+
+</details>
+
+<details>
+<summary><b>Can my web chat account get blocked?</b></summary>
+<br>
+
+Switchyard keeps each account in one chat, sends one message at a time and pauses between messages, and it never bypasses captchas. Heavy automated traffic still breaks the sites' terms, so use API providers for bots and batch jobs. See [Responsible use](#responsible-use).
+
+</details>
+
+<details>
+<summary><b>How do I see which model answered?</b></summary>
+<br>
+
+The desktop app's Requests page shows every request; click one for its route. From the command line: `curl localhost:3260/v1/gateway/decisions`. Each decision lists the skipped candidates and why, every attempt with its error and time, and the model that answered.
+
+</details>
+
+<details>
+<summary><b>Does it work on macOS and Windows?</b></summary>
+<br>
+
+Yes. Releases include a macOS dmg and a Windows installer next to the Linux packages, and the gateway itself runs anywhere Bun runs. Details per system are in [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md).
+
+</details>
+
+## Star history
+
+<a href="https://star-history.com/#kravchenski/switchyard&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kravchenski/switchyard&type=Date&theme=dark">
+    <img alt="Star history of kravchenski/switchyard" src="https://api.star-history.com/svg?repos=kravchenski/switchyard&type=Date" width="600">
+  </picture>
+</a>
+
+## Contributing
+
+Issues and pull requests are welcome. `bun run ci` runs the build check, the strict typecheck and the tests that CI runs; commits follow [Conventional Commits](https://www.conventionalcommits.org). The project layout is in the **Development** block under [API](#api).
 
 ## Built on
 
