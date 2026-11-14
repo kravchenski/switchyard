@@ -183,6 +183,35 @@ async function uploadImage(account: DeepSeekAccount, sessionId: string, file: At
     return id;
 }
 
+const FILE_POLL_MS = 250;
+const FILE_CACHE_LIMIT = 256;
+const FILE_CACHE_TTL_MS = 6 * 60 * 60_000;
+const uploadedFiles = new Map<string, { id: string; at: number }>();
+
+function fileKey(account: DeepSeekAccount, file: AttachFile) {
+    return `${account.id}:${new Bun.CryptoHasher('sha256').update(file.buffer).digest('hex')}`;
+}
+
+function cachedFileId(key: string) {
+    const entry = uploadedFiles.get(key);
+    if (!entry) return undefined;
+    uploadedFiles.delete(key);
+    if (Date.now() - entry.at > FILE_CACHE_TTL_MS) return undefined;
+    uploadedFiles.set(key, entry);
+    return entry.id;
+}
+
+function rememberFileId(key: string, id: string) {
+    uploadedFiles.delete(key);
+    uploadedFiles.set(key, { id, at: Date.now() });
+    while (uploadedFiles.size > FILE_CACHE_LIMIT) uploadedFiles.delete(uploadedFiles.keys().next().value!);
+}
+
+export function forgetDeepSeekFiles(ids: string[]) {
+    const stale = new Set(ids);
+    for (const [key, entry] of uploadedFiles) if (stale.has(entry.id)) uploadedFiles.delete(key);
+}
+
 async function waitForFiles(account: DeepSeekAccount, ids: string[]) {
     const deadline = Date.now() + FILE_READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
@@ -193,19 +222,29 @@ async function waitForFiles(account: DeepSeekAccount, ids: string[]) {
         const failed = ids.find(id => /FAIL|ERROR/.test(statuses.get(id) ?? ''));
         if (failed) throw new ProviderError(`DeepSeek could not read the image (${statuses.get(failed)})`, 'upstream', 502);
         if (ids.every(id => statuses.get(id) === 'SUCCESS')) return;
-        await Bun.sleep(1_000);
+        await Bun.sleep(FILE_POLL_MS);
     }
     throw new ProviderError('DeepSeek did not finish reading the image in time', 'unavailable');
 }
 
 async function attachImages(account: DeepSeekAccount, sessionId: string, messages: Array<Record<string, any>>) {
     const urls = collectImageUrls(messages);
-    if (!urls.length) return [];
+    if (!urls.length) return { ids: [], cached: [] };
     const files = await toAttachFiles(urls);
-    const ids: string[] = [];
-    for (const file of files) ids.push(await uploadImage(account, sessionId, file));
-    await waitForFiles(account, ids);
-    return ids;
+    const keys = files.map(file => fileKey(account, file));
+    const cached: string[] = [];
+    const ids = await Promise.all(files.map(async (file, index) => {
+        const known = cachedFileId(keys[index]!);
+        if (known) {
+            cached.push(known);
+            return known;
+        }
+        return uploadImage(account, sessionId, file);
+    }));
+    const fresh = ids.filter(id => !cached.includes(id));
+    if (fresh.length) await waitForFiles(account, fresh);
+    ids.forEach((id, index) => rememberFileId(keys[index]!, id));
+    return { ids: [...new Set(ids)], cached };
 }
 
 export function isEmptyToolCallResponse(content: string) {
@@ -228,6 +267,10 @@ export async function deepSeekCompletion(options: {
             sessions.delete(`${account.id}:${key}`);
             continue;
         }
+        if (attempt === 0 && completion.cachedFiles.length) {
+            forgetDeepSeekFiles(completion.cachedFiles);
+            continue;
+        }
         throw new ProviderError(`DeepSeek completion: ${reason}`, 'upstream', 502);
     }
 }
@@ -246,8 +289,8 @@ export function completionRejection(body: unknown): string | undefined {
 
 async function sendCompletion(account: DeepSeekAccount, key: string, messages: Array<Record<string, any>>, model: string) {
     const sessionId = await getSession(account, key);
-    const fileIds = await attachImages(account, sessionId, messages);
-    const pow = await getPow(account, sessionId);
+    const [files, pow] = await Promise.all([attachImages(account, sessionId, messages), getPow(account, sessionId)]);
+    const fileIds = files.ids;
     const response = await apiFetch(account, `${BASE_URL}/api/v0/chat/completion`, {
         method: 'POST',
         stream: true,
@@ -268,7 +311,7 @@ async function sendCompletion(account: DeepSeekAccount, key: string, messages: A
     });
     if (response.status === 401 && account.id !== 'env') markDeepSeekAccountInvalid(account.id);
     if (!response.ok) throw await upstreamError('DeepSeek completion', response);
-    return { response, sessionId, key, accountId: account.id };
+    return { response, sessionId, key, accountId: account.id, cachedFiles: files.cached };
 }
 
 type DeepSeekParseState = {
