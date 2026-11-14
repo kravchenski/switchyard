@@ -10,6 +10,8 @@ import { deepSeekCompletion, isEmptyToolCallResponse, parseDeepSeekEvent } from 
 import { conversationalShellText, parseToolCallJson, recoverBrokenBashToolCall, toolsToPrompt } from '../../core/tools/tool-calls.ts';
 import { hasValidDeepSeekAccounts } from './accounts.ts';
 import { runDeepSeekAccountMenu } from './auth.ts';
+import { closeDeepSeekBridge } from './bridge.ts';
+import { exitOnSignals } from '../../utils/shutdown.ts';
 
 const port = Number(process.env.DEEPSEEK_PORT || 3265);
 const host = process.env.HOST || '127.0.0.1';
@@ -190,6 +192,7 @@ async function start() {
     } else {
         await runDeepSeekAccountMenu();
     }
+    exitOnSignals(() => [closeDeepSeekBridge]);
     const app = createDeepSeekApp({ apiKey: process.env.GATEWAY_API_KEY || undefined });
     serve({ fetch: app.fetch, port, hostname: host, idleTimeout: 255 });
     console.log(`DeepSeek web proxy listening on http://${host}:${port}/api`);
