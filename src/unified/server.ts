@@ -5,6 +5,7 @@ import { loadConfig } from '../config.ts';
 import { serve } from 'bun';
 import { upgradeWebSocket, websocket } from 'hono/bun';
 import crypto from 'crypto';
+import path from 'node:path';
 
 import { isEmptyToolCallResponse } from '../providers/deepseek/client.ts';
 import { conversationalShellText, stripEmptyFences, stripLeadingCallTail, hasFabricatedTranscript, isBrokenToolCall, parseToolCallJson, recoverBrokenBashToolCall, stripFabricatedTranscript, stripRejectedToolCalls, toolsToPrompt } from '../core/tools/tool-calls.ts';
@@ -168,6 +169,7 @@ function browserSession(profile: string) {
             },
             onModels: rememberWebChatModels,
         });
+        if (releasedProfiles.has(session.profileDir)) void session.suspend();
         browserSessions.set(profile, session);
     }
     return session;
@@ -845,6 +847,43 @@ app.get(BROWSER_BRIDGE_PATH, upgradeWebSocket(() => {
 }));
 
 app.get('/v1/gateway/browser', c => c.json(browserHub.status()));
+
+const PROFILE_RELEASE_MS = 30 * 60_000;
+const releasedProfiles = new Map<string, ReturnType<typeof setTimeout>>();
+
+function sessionsForProfile(dir: string) {
+    const wanted = path.resolve(dir);
+    return [...browserSessions.values()].filter(session => session.profileDir === wanted);
+}
+
+function resumeProfile(dir: string) {
+    const wanted = path.resolve(dir);
+    clearTimeout(releasedProfiles.get(wanted));
+    releasedProfiles.delete(wanted);
+    for (const session of sessionsForProfile(wanted)) session.resume();
+}
+
+async function profileDirFrom(c: Context) {
+    const body = await c.req.json().catch(() => null) as { profileDir?: unknown } | null;
+    return typeof body?.profileDir === 'string' && body.profileDir ? path.resolve(body.profileDir) : undefined;
+}
+
+app.post('/v1/gateway/browser/release', async c => {
+    const dir = await profileDirFrom(c);
+    if (!dir) return c.json({ error: { message: 'profileDir is required', type: 'invalid_request_error' } }, 400);
+    const sessions = sessionsForProfile(dir);
+    await Promise.all(sessions.map(session => session.suspend()));
+    clearTimeout(releasedProfiles.get(dir));
+    releasedProfiles.set(dir, setTimeout(() => resumeProfile(dir), PROFILE_RELEASE_MS));
+    return c.json({ released: sessions.length > 0 });
+});
+
+app.post('/v1/gateway/browser/resume', async c => {
+    const dir = await profileDirFrom(c);
+    if (!dir) return c.json({ error: { message: 'profileDir is required', type: 'invalid_request_error' } }, 400);
+    resumeProfile(dir);
+    return c.json({ resumed: true });
+});
 
 app.post('/mcp', async (c) => {
     let body: unknown;

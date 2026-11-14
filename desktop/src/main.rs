@@ -108,7 +108,7 @@ impl Shell {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = GatewayConfig::from_env();
         let config_root = config.root.clone();
-        let accounts = AccountsCli::new(config.root.clone(), config.accounts_program.clone(), config.accounts_args.clone());
+        let accounts = AccountsCli::new(config.root.clone(), config.accounts_program.clone(), config.accounts_args.clone()).with_port(config.port);
         let base_url = config.base_url();
         let api_key = read_api_key(&config.root);
         cx.spawn(async move |this, cx| {
