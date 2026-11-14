@@ -2,6 +2,7 @@ import type { ProviderErrorKind } from '../providers/errors.ts';
 
 const RATE_LIMIT_PAUSE_MS = 60_000;
 const LONG_PAUSE_MS = 60 * 60_000;
+const REJECTED_PAUSE_MS = 6 * 60 * 60_000;
 const ROTATING_KINDS = new Set<ProviderErrorKind>(['rate_limit', 'quota_exhausted', 'auth']);
 
 export function parseKeyList(value: string | undefined): string[] {
@@ -28,6 +29,7 @@ export function rotatesKey(kind: ProviderErrorKind) {
 
 export class KeyPool {
   private readonly pausedUntil = new Map<string, number>();
+  private readonly rejected = new Set<string>();
   private preferred?: string;
 
   constructor(private readonly now: () => number = Date.now) {}
@@ -45,14 +47,22 @@ export class KeyPool {
     return Math.max(0, Math.ceil((next - this.now()) / 1000));
   }
 
+  rejectedKeys(keys: string[]) {
+    const now = this.now();
+    return keys.filter(key => this.rejected.has(key) && (this.pausedUntil.get(key) ?? 0) > now);
+  }
+
   succeeded(key: string) {
     this.preferred = key;
     this.pausedUntil.delete(key);
+    this.rejected.delete(key);
   }
 
   failed(key: string, kind: ProviderErrorKind, retryAfterSeconds?: number) {
     if (!rotatesKey(kind)) return;
-    const pause = retryAfterSeconds !== undefined ? retryAfterSeconds * 1000 : kind === 'rate_limit' ? RATE_LIMIT_PAUSE_MS : LONG_PAUSE_MS;
+    if (kind === 'auth') this.rejected.add(key);
+    else this.rejected.delete(key);
+    const pause = kind === 'auth' ? REJECTED_PAUSE_MS : retryAfterSeconds !== undefined ? retryAfterSeconds * 1000 : kind === 'rate_limit' ? RATE_LIMIT_PAUSE_MS : LONG_PAUSE_MS;
     this.pausedUntil.set(key, this.now() + pause);
     if (this.preferred === key) this.preferred = undefined;
   }
