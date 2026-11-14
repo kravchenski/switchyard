@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.22.1](https://github.com/kravchenski/switchyard/compare/v2.22.0...v2.22.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **accounts:** free the gateway browser profile while signing in ([7ebfe92](https://github.com/kravchenski/switchyard/commit/7ebfe925e1e5d4eb51c19b4a2ab0e3d221283272))
+* **accounts:** free the gateway browser profile while signing in ([dfc4876](https://github.com/kravchenski/switchyard/commit/dfc48765ae30078020ba1e58b19b145663492d85))
+* **agents:** mark image input from what the gateway reports for each model ([b2d92a5](https://github.com/kravchenski/switchyard/commit/b2d92a504f239e1b2219f148f5cfcab6602f4d39))
+* **agents:** mark image input from what the gateway reports for each model ([a8e893f](https://github.com/kravchenski/switchyard/commit/a8e893ff3ea203c0dff1572374e3b46699484a54))
+* **gateway:** close the DeepSeek bridge browser on shutdown ([18c4e39](https://github.com/kravchenski/switchyard/commit/18c4e39d7223baa2187dc8005eb7b849f3003a23))
+* **gateway:** close the DeepSeek bridge browser on shutdown ([b0d78f1](https://github.com/kravchenski/switchyard/commit/b0d78f102a656d8ac0fe10fa47ae8bb1253c1411))
+* **keys:** report rejected API keys and keep them out for six hours ([3c90f9e](https://github.com/kravchenski/switchyard/commit/3c90f9e426b21188c6ec20267d12eee5d8b3f811))
+* **keys:** report rejected API keys and keep them out for six hours ([fdb97cd](https://github.com/kravchenski/switchyard/commit/fdb97cd0770c34637a673b684c5ff07bc814bb1e))
+* **router:** send agent requests to the fastest reliable web chat first ([b992c6e](https://github.com/kravchenski/switchyard/commit/b992c6ec33ae668ff82b930b0ea1a5a39c3b7f94))
+* **router:** send agent requests to the fastest reliable web chat first ([5af24ed](https://github.com/kravchenski/switchyard/commit/5af24ed12e9b86d02c82800be85155e59220c1be))
+
+
+### Performance
+
+* **deepseek:** reuse uploaded images and poll file status faster ([5e04ac8](https://github.com/kravchenski/switchyard/commit/5e04ac85eb7178f606b82dc014f84ceab5fe26c2))
+* **deepseek:** reuse uploaded images and poll file status faster ([16441f2](https://github.com/kravchenski/switchyard/commit/16441f25364b504fb4ca2051836f9304bcb203ef))
+
+
+### Documentation
+
+* lead the README with install steps, agent and vision demos, providers and an FAQ ([f296e2f](https://github.com/kravchenski/switchyard/commit/f296e2ffffc9ec93b53877fbe182f42c467359cd))
+* lead the README with install steps, agent and vision demos, providers and an FAQ ([0de83d0](https://github.com/kravchenski/switchyard/commit/0de83d0689add7d1af93ba217c4133c686214881))
+
+
+### Chores
+
+* **aur:** update switchyard-bin to 2.22.0 ([dcc7ce4](https://github.com/kravchenski/switchyard/commit/dcc7ce4a31d569e5f999bd81b19310c6d725281f))
+
 ## [2.22.0](https://github.com/kravchenski/switchyard/compare/v2.21.1...v2.22.0) (2026-11-03)
 
 
