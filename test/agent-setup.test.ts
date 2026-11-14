@@ -7,6 +7,7 @@ import { TOML } from 'bun';
 
 import {
     loadAvailableModelIds,
+    loadAvailableModels,
     agentModelIds,
     AGENT_IDS,
     installAgentIntegrations,
@@ -207,6 +208,46 @@ describe('agent integration setup', () => {
             expect(secondResults.every(result => result.status === 'unchanged')).toBeTrue();
         } finally {
             await rm(home, { recursive: true, force: true });
+        }
+    });
+
+    test('marks image input from what the gateway reports instead of the model name', async () => {
+        const server = Bun.serve({
+            port: 0,
+            fetch: () => Response.json({
+                object: 'list',
+                data: [
+                    { id: 'auto', architecture: { input_modalities: ['text', 'image'] } },
+                    { id: 'deepseek-default', architecture: { input_modalities: ['text', 'image'] } },
+                    { id: 'qwen-chat/qwen3.7-plus', architecture: { input_modalities: ['text', 'image'] } },
+                    { id: 'glm-chat/glm-5.3', architecture: { input_modalities: ['text'] } },
+                ],
+            }),
+        });
+        const home = await mkdtemp(join(tmpdir(), 'freeqwenapi-agents-'));
+        try {
+            const { ids, images } = await loadAvailableModels(`http://127.0.0.1:${server.port}/v1`);
+            expect(ids).toEqual(['auto', 'deepseek-default', 'qwen-chat/qwen3.7-plus', 'glm-chat/glm-5.3']);
+            await installAgentIntegrations(parseAgentSetupArgs(['--agent', 'pi', '--home', home]), ids, images);
+            const models = JSON.parse(await readFile(integrationPaths(home).pi, 'utf8')).providers.freeai.models;
+            expect(Object.fromEntries(models.map((model: { id: string; input: string[] }) => [model.id, model.input]))).toEqual({
+                auto: ['text', 'image'],
+                'deepseek-default': ['text', 'image'],
+                'qwen-chat/qwen3.7-plus': ['text', 'image'],
+                'glm-chat/glm-5.3': ['text'],
+            });
+        } finally {
+            server.stop(true);
+            await rm(home, { recursive: true, force: true });
+        }
+    });
+
+    test('guesses image input from the model name when an old gateway does not report it', async () => {
+        const server = Bun.serve({ port: 0, fetch: () => Response.json({ data: [{ id: 'auto' }, { id: 'deepseek-default' }] }) });
+        try {
+            expect((await loadAvailableModels(`http://127.0.0.1:${server.port}/v1`)).images).toBeUndefined();
+        } finally {
+            server.stop(true);
         }
     });
 

@@ -120,7 +120,18 @@ export function parseAgentSetupArgs(
     return options;
 }
 
+export type AvailableModels = { ids: string[]; images?: Set<string> };
+
 export async function loadAvailableModelIds(baseUrl: string, apiKey?: string): Promise<string[]> {
+    return (await loadAvailableModels(baseUrl, apiKey)).ids;
+}
+
+function readsImages(model: Record<string, unknown>) {
+    const modalities = (model.architecture as { input_modalities?: unknown } | undefined)?.input_modalities;
+    return Array.isArray(modalities) ? modalities.includes('image') : undefined;
+}
+
+export async function loadAvailableModels(baseUrl: string, apiKey?: string): Promise<AvailableModels> {
     try {
         const response = await fetch(`${trimTrailingSlash(baseUrl)}/models`, {
             headers: apiKey ? { authorization: `Bearer ${apiKey}` } : undefined,
@@ -128,15 +139,19 @@ export async function loadAvailableModelIds(baseUrl: string, apiKey?: string): P
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
-        const ids = payload?.data
-            ?.map((model: Record<string, unknown>) => model.id)
-            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
-        if (ids?.length) return [...new Set<string>(ids)];
+        const listed: Array<Record<string, unknown>> = (Array.isArray(payload?.data) ? payload.data : [])
+            .filter((model: Record<string, unknown>) => typeof model?.id === 'string' && (model.id as string).length > 0);
+        if (listed.length) {
+            const ids = [...new Set(listed.map(model => model.id as string))];
+            const known = listed.filter(model => readsImages(model) !== undefined);
+            const images = known.length ? new Set(known.filter(model => readsImages(model)).map(model => model.id as string)) : undefined;
+            return { ids, images };
+        }
     } catch {
         // The setup command must also work before the gateway is started.
     }
 
-    return FALLBACK_MODELS;
+    return { ids: FALLBACK_MODELS };
 }
 
 const ALIAS_MODELS = new Set(['vision', 'agent']);
@@ -150,14 +165,15 @@ export function agentModelIds(modelIds: string[]) {
 
 export async function installAgentIntegrations(
     options: AgentSetupOptions,
-    available: string[]
+    available: string[],
+    imageModels?: Set<string>
 ): Promise<InstallResult[]> {
     const modelIds = options.allModels ? available : agentModelIds(available);
     const results: InstallResult[] = [];
     const paths = integrationPaths(options.home);
 
     if (options.agents.includes('pi')) {
-        results.push(await updateJsonFile(paths.pi, options, 'pi', current => mergePiConfig(current, options, modelIds)));
+        results.push(await updateJsonFile(paths.pi, options, 'pi', current => mergePiConfig(current, options, modelIds, imageModels)));
     }
     if (options.agents.includes('opencode')) {
         results.push(await updateJsonFile(
@@ -321,24 +337,25 @@ function preferredModel(modelIds: string[]) {
     return modelIds.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : modelIds[0] || DEFAULT_MODEL;
 }
 
-function acceptsImages(id: string) {
+function acceptsImages(id: string, imageModels?: Set<string>) {
+    if (imageModels) return imageModels.has(id);
     if (id === 'auto' || id.endsWith('-chat')) return true;
     return looksVisionCapable(id);
 }
 
-function freeModel(id: string) {
+function freeModel(id: string, imageModels?: Set<string>) {
     return {
         id,
         name: `Free ${displayName(id)}`,
         reasoning: id === 'deepseek-reasoner',
-        input: acceptsImages(id) ? ['text', 'image'] : ['text'],
+        input: acceptsImages(id, imageModels) ? ['text', 'image'] : ['text'],
         contextWindow: CODEX_CONTEXT_WINDOW,
         maxTokens: CODEX_TOOL_OUTPUT_TOKEN_LIMIT,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
     };
 }
 
-function mergePiConfig(current: Record<string, any>, options: AgentSetupOptions, modelIds: string[]) {
+function mergePiConfig(current: Record<string, any>, options: AgentSetupOptions, modelIds: string[], imageModels?: Set<string>) {
     const config = { ...current, providers: { ...(current.providers || {}) } };
     config.providers.freeai = {
         baseUrl: options.baseUrl,
@@ -354,7 +371,7 @@ function mergePiConfig(current: Record<string, any>, options: AgentSetupOptions,
             maxTokensField: 'max_tokens',
             requiresToolResultName: true
         },
-        models: modelIds.map(freeModel)
+        models: modelIds.map(id => freeModel(id, imageModels))
     };
     delete config.providers.freedeepseek;
     return config;

@@ -447,6 +447,16 @@ function visibleModels() {
     return allModels.filter(entry => registry.availability.isAvailable(entry.id));
 }
 
+function modelList() {
+    return visibleModels().map(({ id, ownedBy }) => ({
+        id,
+        object: 'model',
+        created: 0,
+        owned_by: ownedBy,
+        architecture: { input_modalities: isVirtualModel(id) || seesImages(id) ? ['text', 'image'] : ['text'] },
+    }));
+}
+
 const AVAILABILITY_CHECK_MS = 30_000;
 const MODEL_CHECK_TIMEOUT_MS = 30_000;
 
@@ -906,14 +916,14 @@ app.get('/health', (c) => {
 app.get('/api/models', (c) => {
     return c.json({
         object: 'list',
-        data: visibleModels().map(({ id, ownedBy }) => ({ id, object: 'model', created: 0, owned_by: ownedBy }))
+        data: modelList()
     });
 });
 
 app.get('/api/v1/models', (c) => {
     return c.json({
         object: 'list',
-        data: visibleModels().map(({ id, ownedBy }) => ({ id, object: 'model', created: 0, owned_by: ownedBy }))
+        data: modelList()
     });
 });
 
@@ -1177,7 +1187,7 @@ app.post('/v1/images/generations', async (c) => {
 app.get('/v1/models', (c) => {
     return c.json({
         object: 'list',
-        data: visibleModels().map(({ id, ownedBy }) => ({ id, object: 'model', created: 0, owned_by: ownedBy }))
+        data: modelList()
     });
 });
 

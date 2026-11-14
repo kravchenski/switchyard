@@ -1,7 +1,7 @@
 import {
     agentSetupHelp,
     installAgentIntegrations,
-    loadAvailableModelIds,
+    loadAvailableModels,
     parseAgentSetupArgs
 } from '../src/cli/agentSetup.ts';
 
@@ -12,8 +12,8 @@ try {
         process.exit(0);
     }
 
-    const modelIds = await loadAvailableModelIds(options.baseUrl, options.apiKey);
-    const results = await installAgentIntegrations(options, modelIds);
+    const { ids: modelIds, images } = await loadAvailableModels(options.baseUrl, options.apiKey);
+    const results = await installAgentIntegrations(options, modelIds, images);
 
     console.log(`${options.dryRun ? 'Planned' : 'Configured'} ${options.agents.length} agent integrations with ${modelIds.length} models.`);
     for (const result of results) {
