@@ -1,3 +1,4 @@
+import path from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -405,6 +406,7 @@ class ChunkQueue {
 export class BrowserChatSession {
   private browser?: Promise<CdpBrowser>;
   private closing?: Promise<void>;
+  private suspended = false;
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly lastSent = new Map<string, number>();
   private readonly pageQueues = new Map<Page, ChunkQueue>();
@@ -414,6 +416,7 @@ export class BrowserChatSession {
   constructor(private readonly options: BrowserChatOptions = {}) {}
 
   private cdp() {
+    if (this.suspended) return Promise.reject(new ProviderError('the browser profile is open in a sign-in window; try again after it is closed', 'unavailable'));
     if (this.browser) return this.browser;
     const launch = this.options.launch ?? launchCdpBrowser;
     const launched: Promise<CdpBrowser> = (this.closing ?? Promise.resolve()).then(() => launch({
@@ -448,6 +451,20 @@ export class BrowserChatSession {
     const context = cdp.browser.contexts()[0];
     if (!context) throw new ProviderError('Browser profile has no default context', 'unavailable');
     return context;
+  }
+
+  get profileDir() {
+    return path.resolve(this.options.profileDir ?? googleProfileDir());
+  }
+
+  async suspend() {
+    this.suspended = true;
+    await this.close();
+    await this.closing;
+  }
+
+  resume() {
+    this.suspended = false;
   }
 
   async close() {

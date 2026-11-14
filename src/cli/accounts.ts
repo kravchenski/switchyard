@@ -23,6 +23,7 @@ export interface AccountsCliDeps {
   openGoogleSignIn?: (profile: string) => Promise<void>;
   listGoogleAccounts?: (profile: string) => Promise<string[]>;
   openWindow?: (urls: string[], profile: string) => Promise<void>;
+  releaseProfiles?: (profile?: string) => Promise<() => Promise<void>>;
   verifyApiKey?: (provider: string, apiKey: string) => Promise<number>;
   accountLabel?: (provider: string) => string | undefined;
   checkSignIns?: (url: string | undefined, profile?: string) => Promise<ProfileSignIn[]>;
@@ -142,6 +143,15 @@ function reportSignIns(results: ProfileSignIn[], log: (line: string) => void) {
     log(result.signedIn ? `✓ ${site.id.padEnd(10)} ${host}${suffix}` : `○ ${site.id.padEnd(10)} ${notSignedIn(site, result)}${suffix}`);
   }
   return results.every(entry => entry.result.signedIn) ? 0 : 1;
+}
+
+async function withReleasedProfiles<T>(deps: AccountsCliDeps, profile: string | undefined, run: () => Promise<T>) {
+  const resume = await deps.releaseProfiles?.(profile);
+  try {
+    return await run();
+  } finally {
+    await resume?.();
+  }
 }
 
 function profileOption(args: string[], deps: AccountsCliDeps) {
@@ -307,10 +317,11 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
       throw new Error(`Enter a full https URL, e.g. https://www.kimi.com\n\n${ACCOUNTS_USAGE}`);
     }
     if (url.protocol !== 'https:') throw new Error('Only https URLs can be opened');
-    deps.log(`Sign in on ${url.hostname} in the opened browser window, then close the window.`);
-    await deps.openWindow([url.href], profile);
-    if (!deps.checkSignIns) return 0;
-    const results = await deps.checkSignIns(url.href, profile);
+    const results = await withReleasedProfiles(deps, profile, async () => {
+      deps.log(`Sign in on ${url.hostname} in the opened browser window, then close the window.`);
+      await deps.openWindow!([url.href], profile);
+      return deps.checkSignIns ? deps.checkSignIns(url.href, profile) : [];
+    });
     return results.length ? reportSignIns(results, deps.log) : 0;
   }
 
@@ -330,22 +341,26 @@ export async function runAccountsCommand(args: string[], deps: AccountsCliDeps) 
     const profile = profileOption(args, deps);
     const host = new URL(site.url).hostname;
     deps.log(`Sign in at ${host} in your usual browser, then open DevTools (F12) > Application > ${tokenLocation(site)}.`);
-    deps.log('The token gives full access to the account. Stop the API first: it uses the same browser profile.');
+    deps.log('The token gives full access to the account.');
     const token = normalizeToken(await deps.askHidden(`${site.signIn!.storageKey ?? site.signIn!.cookie} (hidden): `));
     if (!token) throw new Error('No token entered');
-    const result = await deps.signInWithToken(site.id, token, profile);
-    if (!result.signedIn) {
-      deps.log(`${host}: not signed in, ${result.reason}`);
-      return 1;
-    }
-    deps.log(`${host}: signed in with the token`);
-    if (deps.checkSignIns) await deps.checkSignIns(site.url, profile);
-    return 0;
+    const signInWithToken = deps.signInWithToken;
+    return withReleasedProfiles(deps, profile, async () => {
+      const result = await signInWithToken(site.id, token, profile);
+      if (!result.signedIn) {
+        deps.log(`${host}: not signed in, ${result.reason}`);
+        return 1;
+      }
+      deps.log(`${host}: signed in with the token`);
+      if (deps.checkSignIns) await deps.checkSignIns(site.url, profile);
+      return 0;
+    });
   }
 
   if (command === 'status' && deps.checkSignIns) {
     const profile = args.includes('--profile') ? profileOption(args, deps) : undefined;
-    return reportSignIns(await deps.checkSignIns(undefined, profile), deps.log);
+    const checkSignIns = deps.checkSignIns;
+    return reportSignIns(await withReleasedProfiles(deps, profile, () => checkSignIns(undefined, profile)), deps.log);
   }
 
   if (command === 'harvest' && deps.harvest) {

@@ -9,6 +9,7 @@ import { CUSTOM_PROVIDERS_SETTING, customProviderDefinition, readCustomProviders
 import { askHidden } from '../src/utils/hiddenPrompt.ts';
 import { listGoogleAccounts, openGoogleSignIn, openProfileWindow } from '../src/browser/google-profile.ts';
 import { checkSignIns } from '../src/browser/sign-in-check.ts';
+import { releaseGatewayProfiles } from '../src/cli/gateway-profile.ts';
 import { notSignedIn } from '../src/browser/browser-chat.ts';
 import { WebSignInStatus } from '../src/core/accounts/sign-in-status.ts';
 import { signInWithToken } from '../src/browser/token-sign-in.ts';
@@ -71,6 +72,9 @@ try {
     openGoogleSignIn: profile => openGoogleSignIn(profileDir(profile)),
     listGoogleAccounts: profile => listGoogleAccounts(profileDir(profile)),
     openWindow: (urls, profile) => openProfileWindow(urls, profileDir(profile)),
+    releaseProfiles: profile => releaseGatewayProfiles(
+      (profile ? [profile] : withDb(db => listProfiles(profileStore(db))).map(entry => entry.id)).map(id => profileDir(id)),
+    ),
     chatUrls: [...WEB_CHAT_SITES.map(site => site.url), DEEPSEEK_SIGN_IN_SITE.url],
     profiles: {
       list: () => withDb(db => listProfiles(profileStore(db))),

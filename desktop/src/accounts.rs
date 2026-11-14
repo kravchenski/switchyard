@@ -15,6 +15,7 @@ pub struct AccountsCli {
     pub root: PathBuf,
     pub program: String,
     pub prefix: Vec<String>,
+    pub port: Option<u16>,
 }
 
 pub fn parse_list(output: &str) -> Vec<SavedAccount> {
@@ -84,11 +85,20 @@ fn allow_signed_out(result: Result<String, String>) -> Result<String, String> {
 
 impl AccountsCli {
     pub fn new(root: PathBuf, program: String, prefix: Vec<String>) -> Self {
-        Self { root, program, prefix }
+        Self { root, program, prefix, port: None }
+    }
+
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
     }
 
     fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<String, String> {
-        let mut child = Command::new(&self.program)
+        let mut command = Command::new(&self.program);
+        if let Some(port) = self.port {
+            command.env("UNIFIED_PORT", port.to_string());
+        }
+        let mut child = command
             .args(&self.prefix)
             .args(args)
             .current_dir(&self.root)
@@ -278,7 +288,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let script = root.join("echo.sh");
         std::fs::write(&script, "echo \"args:$*\"\n").unwrap();
-        let cli = AccountsCli { root: root.clone(), program: "sh".into(), prefix: vec![script.to_string_lossy().into()] };
+        let cli = AccountsCli { root: root.clone(), program: "sh".into(), prefix: vec![script.to_string_lossy().into()], port: None };
         assert_eq!(cli.open_site("https://www.kimi.ai").unwrap(), "args:open https://www.kimi.ai");
         assert_eq!(cli.init_secret().unwrap(), "args:init");
         assert_eq!(cli.check_sign_ins().unwrap(), "args:status");
@@ -332,7 +342,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let script = root.join("fake.sh");
         std::fs::write(&script, "echo \"args:$*\"\nread secret\necho \"stdin:$secret\"\n").unwrap();
-        let cli = AccountsCli { root: root.clone(), program: "sh".into(), prefix: vec![script.to_string_lossy().into()] };
+        let cli = AccountsCli { root: root.clone(), program: "sh".into(), prefix: vec![script.to_string_lossy().into()], port: None };
         let output = cli.add_api_key("nvidia", " s3cret ").unwrap();
         assert!(output.contains("args:add nvidia --api-key"));
         assert!(!output.lines().next().unwrap().contains("s3cret"));

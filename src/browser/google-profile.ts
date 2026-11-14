@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import { requireBrowserExecutable } from '../platform/browserExecutable.ts';
@@ -12,8 +12,31 @@ export function googleProfileDir(env: Record<string, string | undefined> = proce
   return path.resolve(env.SESSION_DIR || 'session', 'browser-profile');
 }
 
+const HANDED_OFF_MS = 3_000;
+
+export function profileLockOwner(profileDir: string, alive: (pid: number) => boolean = pidAlive) {
+  let target: string;
+  try {
+    target = readlinkSync(path.join(profileDir, 'SingletonLock'));
+  } catch {
+    return undefined;
+  }
+  const pid = Number(target.slice(target.lastIndexOf('-') + 1));
+  return Number.isInteger(pid) && pid > 0 && alive(pid) ? pid : undefined;
+}
+
+function pidAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 export async function openProfileWindow(urls: string | string[], profileDir = googleProfileDir()) {
   mkdirSync(profileDir, { recursive: true, mode: 0o700 });
+  const startedAt = Date.now();
   const child = spawn(requireBrowserExecutable({ interactive: true }), [
     `--user-data-dir=${profileDir}`,
     '--password-store=basic',
@@ -25,6 +48,10 @@ export async function openProfileWindow(urls: string | string[], profileDir = go
     child.once('error', reject);
     child.once('exit', () => resolve());
   });
+  const owner = Date.now() - startedAt < HANDED_OFF_MS ? profileLockOwner(profileDir) : undefined;
+  if (owner && owner !== child.pid) {
+    throw new Error(`The browser profile is already open in another browser (pid ${owner}), so no sign-in window could be shown. Close that browser or restart the gateway, then try again.`);
+  }
 }
 
 export function openGoogleSignIn(profileDir = googleProfileDir()) {
